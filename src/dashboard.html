@@ -11,7 +11,7 @@
     --bg: #fafafa; --sidebar: #f4f4f5; --surface: #ffffff; --raised: #f7f7f8; --hover: #f1f1f3; --selected: #ffffff; --line: #e8e8eb; --line-strong: #d6d6db;
     --fg: #18181b; --fg-2: #52525b; --muted: #70707a;
     --brand: #0e5f72; --accent: #0e6b80; --accent-soft: #e3f1f4; --primary: #18181b; --primary-fg: #ffffff;
-    --track: #ececef; --fill: #3f3f46; --bubble: #f1f1f3; --seg-on: #ffffff;
+    --track: #ececef; --fill: #71717a; --bubble: #f1f1f3; --seg-on: #ffffff; --popover: #ffffff;
     --ok: #047857; --warn: #b45309; --warn-soft: #fdf1dd; --warn-fill: #e8930c; --bad: #c81e1e; --bad-fill: #c81e1e; --bad-soft: #fdeaea;
     --claude: #c2653c; --codex: #5a5fd0;
     --shadow: 0 1px 2px rgb(24 24 27 / 4%);
@@ -21,10 +21,10 @@
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #000000; --sidebar: #000000; --surface: #0f0f10; --raised: #161618; --hover: #1a1a1c; --selected: #1c1c1f; --line: #1f1f22; --line-strong: #303034;
+      --bg: #000000; --sidebar: #000000; --surface: #0f0f10; --raised: #161618; --hover: #1c1c1f; --selected: #1c1c1f; --line: #1f1f22; --line-strong: #303034;
       --fg: #f4f4f5; --fg-2: #b8b8bf; --muted: #8e8e96;
       --brand: #4fb8cc; --accent: #6cc7d9; --accent-soft: #10292f; --primary: #f4f4f5; --primary-fg: #0a0a0b;
-      --track: #232326; --fill: #d4d4d8; --bubble: #1c1c1f; --seg-on: #2c2c30;
+      --track: #232326; --fill: #a1a1aa; --bubble: #242427; --seg-on: #2c2c30; --popover: #1a1a1c;
       --ok: #34d399; --warn: #fbbf24; --warn-soft: #2c2108; --warn-fill: #f59e0b; --bad: #f87171; --bad-fill: #e5484d; --bad-soft: #321414;
       --claude: #d4764c; --codex: #8086ec;
       --shadow: none;
@@ -70,7 +70,7 @@
   .first-run .accounts .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: calc(100vh - 150px); border: 0; background: none; box-shadow: none; }
   .page-head { display: flex; align-items: flex-start; min-height: 31px; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
   h1 { margin: 0; font-size: 21px; line-height: 31px; font-weight: 600; letter-spacing: -.018em; }
-  h2 { margin: 0; font-size: 14.5px; font-weight: 600; letter-spacing: -.005em; }
+  h2 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
   .page-sub { margin-top: 2px; color: var(--muted); font-size: 13px; }
   .section { margin-top: 32px; }
   .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
@@ -146,7 +146,7 @@
   .account-notes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 11px; }
   .note { padding: 2px 8px; border-radius: 6px; background: var(--warn-soft); color: var(--warn); font-size: 12.5px; font-weight: 500; }
   .note.bad { background: var(--bad-soft); color: var(--bad); }
-  .note.quiet { background: var(--hover); color: var(--fg-2); }
+  .note.quiet { background: none; padding-left: 2px; padding-right: 2px; font-weight: 400; color: var(--muted); }
   .chart-empty { padding: 26px 0 16px; text-align: center; font-size: 13px; color: var(--muted); }
   .empty { padding: 34px 20px; text-align: center; color: var(--muted); }
   .empty strong { display: block; color: var(--fg); font-size: 14.5px; margin-bottom: 2px; }
@@ -171,7 +171,7 @@
   .col i.claude { background: var(--claude); }
   .col i.codex { background: var(--codex); }
   .col i.other { background: var(--muted); }
-  .col i.failed { background: var(--bad-fill); }
+  .col i.failed, .key i.failed { background: repeating-linear-gradient(135deg, var(--bad-fill) 0 2px, color-mix(in srgb, var(--bad-fill) 62%, var(--bg)) 2px 4px); }
   .col i:first-child { border-radius: 3px 3px 0 0; }
   .x-axis { grid-column: 2; display: flex; justify-content: space-between; margin-top: 5px; font-size: 11.5px; color: var(--muted); }
   #tip { position: fixed; z-index: 40; padding: 5px 9px; border-radius: 6px; background: var(--fg); color: var(--bg); font-size: 12px; pointer-events: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -189,9 +189,10 @@
   .code { display: inline-block; min-width: 38px; padding: 0 6px; border-radius: 5px; font-size: 12px; font-weight: 500; text-align: center; font-variant-numeric: tabular-nums; }
   .code.ok { color: var(--muted); font-weight: 400; }
   .code.bad { background: var(--bad-soft); color: var(--bad); }
+  tr.failed .code.bad { background: none; }
   tr.failed td { background: color-mix(in srgb, var(--bad) 7%, transparent); }
   tbody tr.failed:hover td { background: color-mix(in srgb, var(--bad) 11%, transparent); }
-  .log { max-height: calc(100vh - 123px); overflow: auto; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+  .log { max-height: calc(100vh - 125px); overflow: auto; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
   main:has(#view-requests:not([hidden])) { padding-bottom: 26px; }
   .log th { position: sticky; top: 0; z-index: 1; background: var(--surface); box-shadow: inset 0 -1px var(--line); }
   .show-sm { display: none; }
@@ -212,7 +213,7 @@
   .select { position: relative; display: inline-flex; }
   .select select { appearance: none; padding-right: 26px; }
   .select::after { content: ""; position: absolute; right: 11px; top: 11px; width: 6px; height: 6px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(45deg); pointer-events: none; }
-  .chip { display: inline-flex; align-items: center; gap: 6px; height: 31px; padding: 0 11px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--fg); font-size: 13px; font-weight: 500; cursor: pointer; user-select: none; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; height: 31px; padding: 0 11px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--fg-2); font-size: 13px; font-weight: 500; cursor: pointer; user-select: none; }
   .chip:hover { background: var(--hover); }
   .chip:has(input:checked)::before { content: ""; width: 8px; height: 4px; margin-top: -2px; border-left: 1.75px solid currentColor; border-bottom: 1.75px solid currentColor; transform: rotate(-45deg); }
   .chip input { position: absolute; opacity: 0; pointer-events: none; }
@@ -235,7 +236,7 @@
 
   .notice { display: flex; align-items: center; gap: 10px; padding: 10px 14px; margin-bottom: 12px; font-size: 13px; color: var(--fg-2); }
   .notice code { font-family: var(--mono); font-size: 12px; padding: 1px 5px; border-radius: 4px; background: var(--hover); }
-  #view-threads { display: flex; flex-direction: column; height: calc(100vh - 52px); min-height: 480px; }
+  #view-threads { display: flex; flex-direction: column; height: calc(100vh - 54px); min-height: 480px; }
   main:has(#view-threads:not([hidden])) { padding-bottom: 26px; }
   .threads-layout { flex: 1; display: grid; grid-template-columns: minmax(290px, 370px) minmax(0, 1fr); gap: 12px; align-items: stretch; min-height: 0; }
   .pane { min-height: 0; overflow-y: auto; }
@@ -243,7 +244,7 @@
   .list-head button { border: 0; background: none; padding: 0; color: var(--accent); font-size: 12px; font-weight: 500; }
   .thread { display: block; width: 100%; padding: 11px 14px; border: 0; border-bottom: 1px solid var(--line); background: transparent; text-align: left; }
   .thread:hover { background: var(--raised); }
-  .thread.selected { background: var(--hover); }
+  .thread.selected { background: var(--bubble); }
   .thread-title { font-weight: 500; font-size: 13.5px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .thread-meta { display: flex; gap: 6px; margin-top: 4px; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; }
   .thread-meta .project { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
@@ -278,7 +279,7 @@
   .tool pre + pre { border-top-style: dashed; }
   .tool.failed pre { border-color: color-mix(in srgb, var(--bad) 28%, var(--line)); }
 
-  dialog#modal { width: min(460px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--surface); color: var(--fg); box-shadow: var(--shadow-pop); }
+  dialog#modal { width: min(460px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--popover); color: var(--fg); box-shadow: var(--shadow-pop); }
   dialog#modal::backdrop { background: var(--backdrop); backdrop-filter: blur(3px); }
   .modal { padding: 18px 20px 16px; }
   .modal h2 { font-size: 16px; }
@@ -292,7 +293,7 @@
   .waiting svg { animation: spin .8s linear infinite; }
   .modal a { color: var(--accent); font-weight: 500; }
 
-  #menu { position: fixed; z-index: 30; min-width: 176px; padding: 4px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow-pop); }
+  #menu { position: fixed; z-index: 30; min-width: 176px; padding: 4px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--popover); box-shadow: var(--shadow-pop); }
   #menu button { display: block; width: 100%; padding: 6px 10px; border: 0; border-radius: 6px; background: transparent; text-align: left; font-size: 13px; }
   #menu button:hover, #menu button:focus-visible { background: var(--hover); outline: 0; }
   #menu button.danger { color: var(--bad); }
@@ -300,6 +301,10 @@
   #toast { position: fixed; z-index: 50; left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; align-items: center; gap: 7px; max-width: calc(100vw - 32px); padding: 8px 13px; border-radius: 8px; background: var(--fg); color: var(--bg); font-size: 13px; font-weight: 500; box-shadow: var(--shadow-pop); }
   #toast.bad { background: var(--bad); color: var(--surface); }
 
+  @media (hover: hover) {
+    .account-actions { opacity: .45; transition: opacity .12s; }
+    .account:hover .account-actions, .account-actions:focus-within { opacity: 1; }
+  }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
   @media (max-width: 1080px) {
     .stats { grid-template-columns: repeat(6, minmax(0, 1fr)); row-gap: 16px; }
@@ -340,7 +345,9 @@
     .account-actions { order: 2; margin: -8px -9px -4px 0; }
     .alert-row { flex-wrap: wrap; align-items: flex-start; }
     .alert-text { flex: 1 1 calc(100% - 28px); }
-    .alert-row .btn { margin-left: 27px; }
+    .alert-row .btn { margin-left: 27px; flex: 1 1 calc(100% - 27px); height: 40px; }
+    .account-login .btn { height: 40px; }
+    .code-block .icon-btn, .viewer-back { width: 40px; height: 40px; }
     .alert-sep { display: none; }
     .alert-part { display: block; }
     .panel .seg { display: flex; }
@@ -370,7 +377,7 @@
     .viewer-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .events { padding: 12px 0 18px; }
     .msg.user { max-width: calc(100% - 12px); }
-    .viewer-back { display: inline-flex; }
+    .viewer-back { display: inline-flex; margin: -6px 0 0 -10px; }
     .search { flex-basis: 100%; }
     #toast { bottom: 78px; }
   }
@@ -436,7 +443,7 @@
         <div class="section hide-first-run">
             <div class="section-head">
               <h2 id="chart-title">Requests per minute</h2>
-              <div class="section-note" id="chart-key"><span class="key"><i style="background:var(--claude)"></i>Claude</span><span class="key"><i style="background:var(--codex)"></i>Codex</span><span class="key"><i style="background:var(--bad-fill)"></i>Failed</span></div>
+              <div class="section-note" id="chart-key"><span class="key"><i style="background:var(--claude)"></i>Claude</span><span class="key"><i style="background:var(--codex)"></i>Codex</span><span class="key"><i class="failed"></i>Failed</span></div>
             </div>
           <div id="chart"></div>
         </div>
@@ -934,6 +941,7 @@ async function loadThreads() {
     setHtml("thread-pane", d.threads.length
       ? `<div class="list-head"><span>${count}</span></div>${d.threads.map(threadRow).join("")}`
       : `<div class="viewer-empty"><strong>${filtered ? "No matching threads" : "No threads yet"}</strong><span>${filtered ? "Nothing matches these filters." : "Threads appear here once a machine syncs its transcripts."}</span></div>`);
+    if (!selectedThread && d.threads.length && window.innerWidth > 760) openThread(d.threads[0].id);
   } catch (e) { showError(e); }
 }
 
