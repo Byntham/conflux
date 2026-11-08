@@ -96,6 +96,7 @@
   @keyframes spin { to { transform: rotate(360deg); } }
 
   .alerts { display: grid; margin-bottom: 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+  .alerts.urgent { border-color: color-mix(in srgb, var(--bad) 35%, var(--line)); }
   .alert-row { display: flex; align-items: center; gap: 11px; min-height: 44px; padding: 7px 12px 7px 14px; border-top: 1px solid var(--line); }
   .alert-row:first-child { border-top: 0; }
   .alert-row > svg { color: var(--bad); }
@@ -118,10 +119,10 @@
   .account.off { background: transparent; box-shadow: none; }
   .account.off .track, .account.blocked .track { opacity: .45; }
   .account.off .email { color: var(--fg-2); }
+  .account.off .meter > span, .account.blocked .meter > span { color: var(--muted); font-weight: 400; }
   .account-head { display: flex; align-items: flex-start; gap: 10px; }
   .account-title { flex: 1; min-width: 0; }
-  .email { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  @media (min-width: 761px) { .email wbr { display: none; } }
+  .email { font-weight: 500; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   .account-sub { display: flex; align-items: center; flex-wrap: wrap; gap: 0 7px; font-size: 13px; color: var(--muted); margin-top: 1px; }
   .meta::before { content: "·"; margin-right: 7px; }
   .account-actions { display: flex; align-items: center; gap: 2px; margin: -3px -5px 0 0; }
@@ -178,7 +179,8 @@
 
   .table-wrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { padding: 8px 12px; text-align: left; white-space: nowrap; border-top: 1px solid var(--line); }
+  th, td { padding: 8px 12px; text-align: left; white-space: nowrap; border-top: 1px solid var(--line); vertical-align: baseline; }
+  td.dim { color: var(--fg-2); }
   th { border-top: 0; font-size: 12px; font-weight: 500; color: var(--muted); }
   th:first-child, td:first-child { padding-left: 16px; }
   th:last-child, td:last-child { padding-right: 16px; }
@@ -186,10 +188,9 @@
   td.acct { max-width: 210px; overflow: hidden; text-overflow: ellipsis; }
   td.when { color: var(--muted); font-variant-numeric: tabular-nums; }
   tbody tr:hover td { background: var(--raised); }
-  .code { display: inline-block; min-width: 38px; padding: 0 6px; border-radius: 5px; font-size: 12px; font-weight: 500; text-align: center; font-variant-numeric: tabular-nums; }
+  .code { font-size: 12.5px; font-weight: 500; font-variant-numeric: tabular-nums; }
   .code.ok { color: var(--muted); font-weight: 400; }
-  .code.bad { background: var(--bad-soft); color: var(--bad); }
-  tr.failed .code.bad { background: none; }
+  .code.bad { color: var(--bad); }
   tr.failed td { background: color-mix(in srgb, var(--bad) 7%, transparent); }
   tbody tr.failed:hover td { background: color-mix(in srgb, var(--bad) 11%, transparent); }
   .log { max-height: calc(100vh - 125px); overflow: auto; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
@@ -225,7 +226,7 @@
   .panel p { margin: 3px 0 0; font-size: 12.5px; color: var(--muted); }
   .panel .seg { margin-top: 12px; }
   .code-block { display: flex; align-items: flex-start; gap: 6px; margin-top: 9px; padding: 5px 5px 5px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--raised); font-family: var(--mono); font-size: 12.5px; line-height: 1.6; }
-  .code-text { flex: 1; min-width: 0; padding: 4px 0; white-space: pre-wrap; overflow-x: auto; }
+  .code-text { flex: 1; min-width: 0; padding: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
   .nb { white-space: nowrap; }
   .code-text.wrap { white-space: pre-wrap; overflow-wrap: break-word; }
   .code-block .icon-btn { flex: none; }
@@ -233,6 +234,8 @@
   .steps { list-style: none; margin: 12px 0 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 11px; font-size: 13px; counter-reset: step; }
   .steps li { position: relative; padding-left: 28px; counter-increment: step; min-width: 0; overflow-wrap: break-word; }
   .steps li::before { content: counter(step); position: absolute; left: 0; top: 0; width: 19px; height: 19px; border-radius: 50%; background: var(--hover); color: var(--fg-2); font-size: 11.5px; font-weight: 600; text-align: center; line-height: 19px; }
+
+  .modal .steps li::before { background: var(--line-strong); }
 
   .notice { display: flex; align-items: center; gap: 10px; padding: 10px 14px; margin-bottom: 12px; font-size: 13px; color: var(--fg-2); }
   .notice code { font-family: var(--mono); font-size: 12px; padding: 1px 5px; border-radius: 4px; background: var(--hover); }
@@ -253,6 +256,8 @@
   .snippet mark { background: var(--accent-soft); color: var(--fg); border-radius: 3px; padding: 0 2px; }
   .failed-count { color: var(--bad); font-weight: 500; }
   .threads-layout.no-list { grid-template-columns: minmax(0, 1fr); }
+  .no-threads .search, .no-threads .select, .no-threads .chip { display: none; }
+  .no-threads .list-pane { border: 0; background: none; box-shadow: none; }
   .threads-layout.no-list .viewer-pane { display: none; }
   .viewer-empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--muted); padding: 24px; text-align: center; }
   .viewer-empty svg { width: 26px; height: 26px; }
@@ -302,7 +307,7 @@
   #toast.bad { background: var(--bad); color: var(--surface); }
 
   @media (hover: hover) {
-    .account-actions { opacity: .45; transition: opacity .12s; }
+    .account-actions { opacity: .7; transition: opacity .12s; }
     .account:hover .account-actions, .account-actions:focus-within { opacity: 1; }
   }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
@@ -336,7 +341,7 @@
     .meter-name { grid-area: name; } .meter-reset { grid-area: reset; } .meter-pct { grid-area: pct; } .track { grid-area: track; }
     .account-head { flex-wrap: wrap; align-items: center; gap: 4px 8px; }
     .account-title { display: contents; }
-    .email { flex: 1 1 calc(100% - 96px); min-width: 0; white-space: normal; overflow-wrap: break-word; }
+    .email { flex: 1 1 calc(100% - 96px); min-width: 0; }
     .account-sub { flex: 1 1 50%; min-width: 0; margin: 0; }
     .account-actions .icon-btn { width: 40px; height: 40px; }
     .account, .panel { padding-left: 14px; padding-right: 14px; }
@@ -725,6 +730,7 @@ function renderAlerts(d) {
     rows.push(`<div class="alert-row">${icon("alert")}<div class="alert-text"><div class="alert-title">${esc(accountKind(a))} account is billing blocked</div><div class="alert-detail"><span class="alert-part">${breakableEmail(a.email || a.id)}</span><span class="alert-sep"> · </span><span class="alert-part">Skipped until a usage check shows quota again.</span></div></div><button class="btn" data-act="usage" data-id="${esc(a.id)}">Check usage</button></div>`);
   }
   $("alerts").hidden = !rows.length;
+  $("alerts").classList.toggle("urgent", d.accounts.some((x) => x.needs_login || x.billing_blocked));
   setHtml("alerts", rows.join(""));
   $("nav-alert").hidden = !rows.length;
   $("nav-alert").textContent = rows.length;
@@ -794,10 +800,10 @@ function requestTable(requests, full) {
   const head = `<thead><tr><th class="when">When</th><th class="hide-sm">Machine</th><th>Account</th><th class="hide-sm">Model</th>${full ? '<th class="hide-sm">Via</th>' : ""}<th class="num status">Status</th><th class="num lat">Latency</th><th class="num hide-sm">Tokens in</th><th class="num hide-sm">Cache read</th>${full ? '<th class="num hide-sm">Cache write</th>' : ""}<th class="num hide-sm">Tokens out</th></tr></thead>`;
   const span = full ? 11 : 9;
   const rows = requests.length ? requests.map((r) => {
-    const via = full ? `<td class="hide-sm">${esc(r.transport)}</td>` : "";
-    const write = full ? `<td class="num hide-sm">${tokens(r.usage.cache_write)}</td>` : "";
+    const via = full ? `<td class="hide-sm dim">${esc(r.transport)}</td>` : "";
+    const write = full ? `<td class="num hide-sm dim">${tokens(r.usage.cache_write)}</td>` : "";
     const account = r.email || r.account;
-    return `<tr class="${r.status < 400 ? "" : "failed"}"><td class="when">${esc(ago(r.at))}</td><td class="hide-sm">${esc(r.machine)}</td><td class="acct" title="${esc(account)}">${esc(account)}<div class="cell-sub show-sm">${esc([r.machine, r.model].filter(Boolean).join(" · "))}</div></td><td class="mono hide-sm">${esc(r.model || "")}</td>${via}<td class="num status"><span class="code ${r.status < 400 ? "ok" : "bad"}">${r.status}</span></td><td class="num lat">${seconds(r.latency_ms)}<div class="cell-sub show-sm">${esc(ago(r.at))}</div></td><td class="num hide-sm">${tokens(r.usage.input)}</td><td class="num hide-sm">${tokens(r.usage.cache_read)}</td>${write}<td class="num hide-sm">${tokens(r.usage.output)}</td></tr>`;
+    return `<tr class="${r.status < 400 ? "" : "failed"}"><td class="when">${esc(ago(r.at))}</td><td class="hide-sm dim">${esc(r.machine)}</td><td class="acct" title="${esc(account)}">${esc(account)}<div class="cell-sub show-sm">${esc([r.machine, r.model].filter(Boolean).join(" · "))}</div></td><td class="mono hide-sm">${esc(r.model || "")}</td>${via}<td class="num status"><span class="code ${r.status < 400 ? "ok" : "bad"}">${r.status}</span></td><td class="num lat">${seconds(r.latency_ms)}<div class="cell-sub show-sm">${esc(ago(r.at))}</div></td><td class="num hide-sm dim">${tokens(r.usage.input)}</td><td class="num hide-sm dim">${tokens(r.usage.cache_read)}</td>${write}<td class="num hide-sm dim">${tokens(r.usage.output)}</td></tr>`;
   }).join("") : `<tr><td colspan="${span}"><div class="empty"><strong>No requests yet</strong>Requests appear here once a machine sends one through the hub.</div></td></tr>`;
   return `${head}<tbody>${rows}</tbody>`;
 }
@@ -938,6 +944,7 @@ async function loadThreads() {
     $("threads-layout").classList.toggle("no-list", !d.threads.length);
     const count = `${d.threads.length} ${d.threads.length === 1 ? "thread" : "threads"}`;
     const filtered = $("thread-machine").value || $("thread-errors").checked || $("thread-subagents").checked;
+    $("view-threads").classList.toggle("no-threads", !d.threads.length && !filtered);
     setHtml("thread-pane", d.threads.length
       ? `<div class="list-head"><span>${count}</span></div>${d.threads.map(threadRow).join("")}`
       : `<div class="viewer-empty"><strong>${filtered ? "No matching threads" : "No threads yet"}</strong><span>${filtered ? "Nothing matches these filters." : "Threads appear here once a machine syncs its transcripts."}</span></div>`);
@@ -981,7 +988,7 @@ async function openThread(id) {
     const d = await api("GET", `/conflux/api/threads/${encodeURIComponent(id)}`);
     if (token !== threadToken) return;
     const t = d.thread;
-    const errors = t.errors ? ` · <span class="failed-count">${t.errors} ${t.errors === 1 ? "error" : "errors"}</span>` : "";
+    const errors = t.errors ? ` <span class="nb">· <span class="failed-count">${t.errors} ${t.errors === 1 ? "error" : "errors"}</span></span>` : "";
     const meta = esc([t.project, t.machine, providerName(t.tool), `${t.turns} turns`].filter(Boolean).join(" · ")) + errors;
     const omitted = d.omitted ? `<div class="muted small">${d.omitted} earlier events are not shown.</div>` : "";
     box.innerHTML = `<div class="viewer-head"><button class="icon-btn viewer-back" data-back aria-label="Back to threads">${icon("back")}</button><div><div class="viewer-title">${esc(t.title || t.path)}</div><div class="viewer-meta">${meta}</div></div></div><div class="events">${omitted}${eventsHtml(d.events)}</div>`;
@@ -1007,7 +1014,7 @@ async function searchThreads() {
     if (token !== listToken) return;
     const head = `<div class="list-head"><span>${d.hits.length} ${d.hits.length === 1 ? "match" : "matches"}</span><button data-clear-search>Clear</button></div>`;
     setHtml("thread-pane", d.hits.length
-      ? head + d.hits.map((h) => `<button class="thread" data-thread="${esc(h.thread)}"><div class="thread-title">${esc(h.title || "Untitled thread")}</div><div class="snippet">${highlight(h.snippet, q)}</div><div class="thread-meta"><span>${esc(h.machine)}</span></div></button>`).join("")
+      ? head + d.hits.map((h) => `<button class="thread ${h.thread === selectedThread ? "selected" : ""}" data-thread="${esc(h.thread)}"><div class="thread-title">${esc(h.title || "Untitled thread")}</div><div class="snippet">${highlight(h.snippet, q)}</div><div class="thread-meta"><span>${esc(h.machine)}</span></div></button>`).join("")
       : head + '<div class="empty"><strong>No matches</strong>Try a different word.</div>');
   } catch (e) { showError(e); }
 }
