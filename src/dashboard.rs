@@ -11,6 +11,7 @@ use crate::app::App;
 use crate::config::Config;
 
 const PAGE: &str = include_str!("dashboard.html");
+const INSTALL_BASE: &str = "https://raw.githubusercontent.com/Byntham/conflux/main";
 
 pub async fn page() -> Response {
     ([(header::CACHE_CONTROL, "no-store")], Html(PAGE)).into_response()
@@ -26,13 +27,14 @@ pub fn hub_name(app: &App, request_host: Option<&str>) -> String {
     requested.to_string()
 }
 
-pub fn add_machine(hub: &str, port: u16) -> Value {
-    let command = format!("curl -fsSL http://{hub}:{port}/conflux/install.sh | sh");
+pub fn add_machine(hub: &str) -> Value {
+    let command = format!("curl -fsSL {INSTALL_BASE}/install.sh | sh -s -- {hub}");
+    let windows_command = format!("irm {INSTALL_BASE}/install.ps1 | iex\nconflux join {hub}");
     let agent_prompt = format!(
-        "Set up conflux on this machine so its Claude Code and Codex use my hub. Run `{command}`. \
-         The machine must be on my tailnet. When it finishes, run `conflux status` and tell me whether it can reach the hub."
+        "Set up conflux on this machine so its Claude Code and Codex use my hub. Run `{command}`, \
+         or on Windows run `{windows_command}` in PowerShell. The machine must be on my tailnet. \
+         When it finishes, run `conflux status` and tell me whether it can reach the hub."
     );
-    let windows_command = format!("irm http://{hub}:{port}/conflux/install.ps1 | iex");
     json!({ "command": command, "windows_command": windows_command, "agent_prompt": agent_prompt })
 }
 
@@ -53,7 +55,7 @@ pub async fn data(State(app): State<Arc<App>>, headers: HeaderMap) -> Json<Value
         "accounts": accounts,
         "machines": app.machines.list(),
         "requests": app.requests.recent(),
-        "add_machine": add_machine(&name, app.cfg.port),
+        "add_machine": add_machine(&name),
     }))
 }
 
@@ -62,15 +64,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn add_machine_command_uses_the_hub_name() {
-        let v = add_machine("hub-box", 8317);
-        assert_eq!(v["command"], "curl -fsSL http://hub-box:8317/conflux/install.sh | sh");
-        assert!(
-            v["agent_prompt"]
-                .as_str()
-                .unwrap()
-                .contains("curl -fsSL http://hub-box:8317")
+    fn add_machine_commands_join_the_hub() {
+        let v = add_machine("hub-box");
+        assert_eq!(
+            v["command"],
+            format!("curl -fsSL {INSTALL_BASE}/install.sh | sh -s -- hub-box")
         );
+        assert!(v["windows_command"].as_str().unwrap().ends_with("conflux join hub-box"));
+        assert!(v["agent_prompt"].as_str().unwrap().contains("sh -s -- hub-box"));
     }
 
     #[test]

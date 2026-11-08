@@ -29,39 +29,52 @@ You need:
 
 ## Set up the hub
 
-Download the build for your system from [Releases](https://github.com/Byntham/conflux/releases), rename it `conflux`, and put it on your `PATH`. Or build it with Rust:
+On the machine you've picked, run:
 
 ```sh
-cargo install --git https://github.com/Byntham/conflux
-```
-
-Then, on the hub:
-
-```sh
-conflux join self
-conflux login claude
-conflux login codex
-```
-
-Repeat the login commands for each account. Claude login asks you to approve access in a browser. The browser then shows a connection error, which is expected: paste the URL from its address bar back into the terminal.
-
-The dashboard is now at `http://<hub>:8317`, where `<hub>` is the machine's Tailscale name.
-
-## Add your other machines
-
-Run this on each one, replacing `<hub>`:
-
-```sh
-curl -fsSL http://<hub>:8317/conflux/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Byntham/conflux/main/install.sh | sh -s -- self
 ```
 
 On Windows, in PowerShell:
 
 ```powershell
-irm http://<hub>:8317/conflux/install.ps1 | iex
+irm https://raw.githubusercontent.com/Byntham/conflux/main/install.ps1 | iex
+conflux join self
+```
+
+Then log in to your accounts:
+
+```sh
+conflux login claude
+conflux login codex
+```
+
+Repeat these for each account. Claude login asks you to approve access in a browser. The browser then shows a connection error, which is expected: paste the URL from its address bar back into the terminal.
+
+The dashboard is now at `http://<hub>:8317`, where `<hub>` is the machine's Tailscale name.
+
+## Add your other machines
+
+It's the same install, with your hub's name in place of `self`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Byntham/conflux/main/install.sh | sh -s -- <hub>
+```
+
+On Windows, in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/Byntham/conflux/main/install.ps1 | iex
+conflux join <hub>
 ```
 
 That's all. conflux runs in the background and points Claude Code and Codex at the hub. Sessions that are already open need a restart to pick it up. The dashboard shows these commands with your hub's name filled in.
+
+On a system without a prebuilt binary, build it with Rust and then run `conflux join`:
+
+```sh
+cargo install --git https://github.com/Byntham/conflux
+```
 
 ## Everyday commands
 

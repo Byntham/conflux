@@ -70,9 +70,6 @@ impl Paths {
         }
         Ok(home_dir()?.join("conflux").join("transcripts"))
     }
-    pub fn builds_dir(&self) -> PathBuf {
-        self.data_dir.join("builds")
-    }
     pub fn management_key_file(&self) -> PathBuf {
         self.config_dir.join("management-key")
     }

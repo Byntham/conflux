@@ -189,26 +189,3 @@ async fn control_api_reaches_the_hub_through_the_node() {
     assert_eq!(v["role"], "node");
     assert_eq!(v["hub"], "127.0.0.1");
 }
-
-#[tokio::test]
-async fn install_script_is_served() {
-    let hub = Harness::new().await;
-    let text = hub
-        .http
-        .get(format!("{}/conflux/install.sh", hub.base))
-        .send()
-        .await
-        .unwrap()
-        .text()
-        .await
-        .unwrap();
-    assert!(text.starts_with("#!/bin/sh"));
-    assert!(text.contains(&format!("PORT=\"{}\"", hub.port)));
-    let r = hub
-        .http
-        .get(format!("{}/conflux/download/plan9-mips", hub.base))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(r.status(), StatusCode::NOT_FOUND);
-}

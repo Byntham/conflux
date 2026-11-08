@@ -68,7 +68,6 @@ pub enum Command {
 pub enum HubAction {
     MoveCode,
     Resume,
-    FetchBuilds,
     TakeOver {
         old_hub: String,
         #[arg(long)]
@@ -156,13 +155,6 @@ pub async fn run(cli: Cli) -> Result<()> {
             let host = TailnetSelf::detect().short_name().unwrap_or_else(tailnet::hostname);
             println!("On the new hub machine, within 10 minutes, run:");
             println!("  conflux hub take-over {host} --code {code}");
-            Ok(())
-        }
-        Command::Hub {
-            action: HubAction::FetchBuilds,
-        } => {
-            let count = crate::machines::fetch_builds(&paths.builds_dir())?;
-            println!("Stored {count} builds. Machines can now install them from this hub.");
             Ok(())
         }
         Command::Hub {
