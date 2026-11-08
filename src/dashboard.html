@@ -514,6 +514,7 @@ let requestFilter = "all";
 let installKey = "command";
 let selectedThread = null;
 let threadToken = 0;
+let listToken = 0;
 let loginTimer = null;
 let toastTimer = null;
 let menuAnchor = null;
@@ -904,8 +905,10 @@ function renderSyncNote() {
 
 async function loadThreads() {
   if ($("thread-search").value.trim()) return searchThreads();
+  const token = ++listToken;
   try {
     const d = await api("GET", `/conflux/api/threads?${qs({ machine: $("thread-machine").value, errors: $("thread-errors").checked, subagents: $("thread-subagents").checked })}`);
+    if (token !== listToken) return;
     const select = $("thread-machine");
     const chosen = select.value;
     select.innerHTML = '<option value="">All machines</option>' + d.machines.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join("");
@@ -974,9 +977,12 @@ function highlight(text, query) {
 async function searchThreads() {
   const q = $("thread-search").value.trim();
   if (!q) return loadThreads();
+  const token = ++listToken;
   setHtml("thread-pane", '<div class="empty">Searching</div>');
+  $("threads-layout").classList.remove("no-list");
   try {
     const d = await api("GET", `/conflux/api/transcripts/search?${qs({ q })}`);
+    if (token !== listToken) return;
     const head = `<div class="list-head"><span>${d.hits.length} ${d.hits.length === 1 ? "match" : "matches"}</span><button data-clear-search>Clear</button></div>`;
     setHtml("thread-pane", d.hits.length
       ? head + d.hits.map((h) => `<button class="thread" data-thread="${esc(h.thread)}"><div class="thread-title">${esc(h.title || "Untitled thread")}</div><div class="snippet">${highlight(h.snippet, q)}</div><div class="thread-meta"><span>${esc(h.machine)}</span></div></button>`).join("")
