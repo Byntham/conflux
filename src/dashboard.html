@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>conflux</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --fg: #15181d; --muted: #667080; --line: #e3e6eb;
+    --accent: #2f6fed; --ok: #1a9c61; --warn: #c98a12; --bad: #d23b3b; --code: #f0f2f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1116; --card: #161a21; --fg: #e8ebf0; --muted: #8b95a5; --line: #272d37;
+      --accent: #6b9cff; --ok: #3ccb8a; --warn: #e6b24a; --bad: #f06a6a; --code: #1e242d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1060px; margin: 0 auto; padding: 20px 16px 60px; }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  h1 { font-size: 20px; margin: 0; }
+  h2 { font-size: 15px; margin: 26px 0 8px; }
+  .muted { color: var(--muted); }
+  .small { font-size: 12px; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+  .banner { padding: 10px 14px; margin-bottom: 8px; border-left: 3px solid var(--bad); display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+  .accounts { display: grid; gap: 10px; }
+  .account { padding: 12px 14px; }
+  .account-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .account-head .email { font-weight: 600; }
+  .tag { font-size: 11px; padding: 1px 7px; border-radius: 99px; background: var(--code); color: var(--muted); }
+  .tag.ok { color: var(--ok); } .tag.warn { color: var(--warn); } .tag.bad { color: var(--bad); }
+  .spacer { flex: 1; }
+  .windows { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px 18px; margin-top: 10px; }
+  .window .row { display: flex; justify-content: space-between; font-size: 12px; }
+  .bar { height: 6px; background: var(--code); border-radius: 3px; overflow: hidden; margin-top: 3px; }
+  .bar > i { display: block; height: 100%; background: var(--accent); }
+  .bar > i.high { background: var(--warn); } .bar > i.full { background: var(--bad); }
+  .meta { margin-top: 8px; font-size: 12px; color: var(--muted); display: flex; gap: 14px; flex-wrap: wrap; }
+  button { font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger:hover { border-color: var(--bad); color: var(--bad); }
+  input[type=text] { font: inherit; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); width: 100%; }
+  .panel { padding: 12px 14px; }
+  .row-gap { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  pre { background: var(--code); padding: 8px 10px; border-radius: 6px; margin: 6px 0; white-space: pre-wrap; word-break: break-all; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { padding: 6px 12px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; }
+  tr:last-child td { border-bottom: 0; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; background: var(--muted); }
+  .dot.on { background: var(--ok); }
+  .status-ok { color: var(--ok); } .status-bad { color: var(--bad); }
+  a { color: var(--accent); }
+  #error { color: var(--bad); margin-bottom: 8px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+  .tab.active { border-color: var(--accent); color: var(--accent); }
+  .toolbar { margin-bottom: 10px; }
+  select { font: inherit; font-size: 12px; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
+  tr.click { cursor: pointer; }
+  tr.click:hover td { background: var(--code); }
+  td.wrap { white-space: normal; min-width: 220px; }
+  .event { display: grid; grid-template-columns: 74px 1fr; gap: 10px; padding: 7px 0; border-bottom: 1px dashed var(--line); font-size: 13px; }
+  .event:last-child { border-bottom: 0; }
+  .event .who { font-size: 11px; font-weight: 600; color: var(--muted); }
+  .event .who.user { color: var(--accent); }
+  .event pre { margin: 0; }
+  .event.failed { background: color-mix(in srgb, var(--bad) 12%, transparent); border-left: 3px solid var(--bad); padding-left: 6px; }
+  .event.failed .who { color: var(--bad); }
+  .event .body { white-space: pre-wrap; word-break: break-word; }
+  .hit { padding: 8px 12px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 12px; }
+  .hit:last-child { border-bottom: 0; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>conflux</h1>
+    <span class="muted" id="hub-line"></span>
+  </header>
+  <nav class="tabs">
+    <button id="tab-overview" class="tab active">Overview</button>
+    <button id="tab-threads" class="tab">Threads</button>
+  </nav>
+  <div id="error"></div>
+  <section id="overview">
+  <div id="banners"></div>
+
+  <div class="row-gap" style="justify-content: space-between">
+    <h2>Accounts</h2>
+    <div class="row-gap">
+      <button id="add-claude">Add Claude account</button>
+      <button id="add-codex">Add Codex account</button>
+    </div>
+  </div>
+  <div id="login" class="card panel" hidden></div>
+  <div class="accounts" id="accounts"></div>
+
+  <h2>Machines</h2>
+  <div class="card table-wrap"><table id="machines"></table></div>
+  <div class="card panel" style="margin-top: 10px">
+    <strong>Add a machine</strong>
+    <div class="muted small">Run this on the new machine. It must be on your tailnet.</div>
+    <pre class="mono" id="add-command"></pre>
+    <div class="muted small">On Windows, in PowerShell:</div>
+    <pre class="mono" id="add-windows"></pre>
+    <div class="row-gap">
+      <button id="copy-command">Copy command</button>
+      <button id="copy-prompt">Copy prompt for an agent</button>
+    </div>
+  </div>
+
+  <div class="card panel" style="margin-top: 10px">
+    <strong>Move the hub</strong>
+    <div class="muted small">Logins move with the hub. Other machines follow on their own within a minute.</div>
+    <ol class="small">
+      <li>On this hub, run <span class="mono">conflux hub move-code</span>.</li>
+      <li>On the new machine, run <span class="mono" id="takeover-command"></span>.</li>
+    </ol>
+  </div>
+
+  <h2>Recent requests</h2>
+  <div class="card table-wrap"><table id="requests"></table></div>
+  </section>
+
+  <section id="threads" hidden>
+    <div class="row-gap toolbar">
+      <input type="text" id="thread-search" placeholder="Search every transcript" style="flex:1;min-width:200px">
+      <button id="thread-search-go">Search</button>
+      <select id="thread-machine"><option value="">All machines</option></select>
+      <label class="small"><input type="checkbox" id="thread-errors"> Has errors</label>
+      <label class="small"><input type="checkbox" id="thread-subagents"> Subagents</label>
+    </div>
+    <div id="sync-note" class="card panel muted small" hidden></div>
+    <div id="search-results"></div>
+    <div class="card table-wrap"><table id="thread-list"></table></div>
+    <div id="thread-view" class="card panel" hidden></div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+let latest = null;
+
+async function api(method, path, body) {
+  const res = await fetch(path, {
+    method,
+    headers: { "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+function until(iso) {
+  if (!iso) return "";
+  let s = Math.round((new Date(iso) - Date.now()) / 1000);
+  if (s <= 0) return "now";
+  const d = Math.floor(s / 86400); s -= d * 86400;
+  const h = Math.floor(s / 3600); s -= h * 3600;
+  const m = Math.floor(s / 60);
+  if (d) return `${d}d ${h}h`;
+  if (h) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function ago(iso) {
+  const s = Math.round((Date.now() - new Date(iso)) / 1000);
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+function windowName(w) {
+  if (w.key === "five_hour") return "5 hour";
+  if (w.key === "seven_day") return "7 day";
+  if (w.key.startsWith("weekly:")) return `${w.key.slice(7)} weekly`;
+  if (w.duration_secs) {
+    const h = w.duration_secs / 3600;
+    return h >= 48 ? `${Math.round(h / 24)} day` : `${Math.round(h)} hour`;
+  }
+  return w.key;
+}
+
+function tokens(n) {
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}k`;
+  return String(n);
+}
+
+function cacheStats(id, requests) {
+  let read = 0, write = 0, input = 0;
+  for (const r of requests) {
+    if (r.account !== id) continue;
+    read += r.usage.cache_read; write += r.usage.cache_write; input += r.usage.input;
+  }
+  const total = read + write + input;
+  if (!total) return "";
+  return `cache hit ${Math.round((read / total) * 100)}% (read ${tokens(read)}, write ${tokens(write)})`;
+}
+
+function renderWindows(a) {
+  const windows = [...a.usage.windows].sort((x, y) => (x.duration_secs || 0) - (y.duration_secs || 0));
+  if (!windows.length) return '<div class="muted small" style="margin-top:8px">No usage data yet.</div>';
+  return `<div class="windows">${windows.map((w) => {
+    const pct = Math.min(100, Math.round(w.used_pct));
+    const cls = pct >= 100 ? "full" : pct >= 80 ? "high" : "";
+    const reset = w.resets_at ? `resets in ${until(w.resets_at)}` : "";
+    return `<div class="window"><div class="row"><span>${esc(windowName(w))}</span><span class="muted">${pct}%${reset ? " · " + esc(reset) : ""}</span></div><div class="bar"><i class="${cls}" style="width:${pct}%"></i></div></div>`;
+  }).join("")}</div>`;
+}
+
+function renderAccount(a, requests) {
+  const tags = [`<span class="tag">${esc(a.provider)}</span>`];
+  if (a.plan) tags.push(`<span class="tag">${esc(a.plan)}</span>`);
+  if (!a.enabled) tags.push('<span class="tag warn">disabled</span>');
+  if (a.needs_login) tags.push('<span class="tag bad">needs login</span>');
+  if (a.billing_blocked) tags.push('<span class="tag bad">billing blocked</span>');
+  if (a.usage.overage_in_use) tags.push('<span class="tag warn">using extra usage</span>');
+  for (const c of a.cooldowns) tags.push(`<span class="tag warn" title="${esc(c.reason)}">cooling ${esc(c.scope === "account" ? "" : c.scope.replace("model:", ""))} ${esc(until(c.until))}</span>`);
+  const meta = [];
+  if (a.inflight) meta.push(`${a.inflight} in flight`);
+  const cache = cacheStats(a.id, requests);
+  if (cache) meta.push(cache);
+  if (a.refresh !== "ok") meta.push(`refresh: ${a.refresh}`);
+  const overage = a.provider === "claude"
+    ? `<button data-act="overage" data-id="${esc(a.id)}" data-on="${!a.allow_overage}">${a.allow_overage ? "Block extra usage" : "Allow extra usage"}</button>`
+    : "";
+  return `<div class="card account">
+    <div class="account-head">
+      <span class="email">${esc(a.email || a.id)}</span>${tags.join("")}<span class="spacer"></span>
+      <button data-act="usage" data-id="${esc(a.id)}">Refresh usage</button>
+      ${overage}
+      <button data-act="toggle" data-id="${esc(a.id)}" data-on="${!a.enabled}">${a.enabled ? "Disable" : "Enable"}</button>
+      <button class="danger" data-act="remove" data-id="${esc(a.id)}" data-name="${esc(a.email || a.id)}">Remove</button>
+    </div>
+    ${renderWindows(a)}
+    ${meta.length ? `<div class="meta">${meta.map((m) => `<span>${esc(m)}</span>`).join("")}</div>` : ""}
+  </div>`;
+}
+
+function render(d) {
+  latest = d;
+  $("hub-line").textContent = `hub ${d.hub.name} · v${d.hub.version}`;
+  $("banners").innerHTML = d.accounts.filter((a) => a.needs_login).map((a) =>
+    `<div class="card banner"><span><strong>${esc(a.email || a.id)}</strong> needs a new login. <span class="muted small">${esc(a.needs_login)}</span></span><button class="primary" data-login="${esc(a.provider)}">Log in again</button></div>`
+  ).join("");
+  $("accounts").innerHTML = d.accounts.length
+    ? d.accounts.map((a) => renderAccount(a, d.requests)).join("")
+    : '<div class="card panel muted">No accounts yet. Add one above.</div>';
+  $("machines").innerHTML = "<tr><th>Machine</th><th>Role</th><th>Version</th><th>Transcript sync</th><th>Last seen</th></tr>" + d.machines.map((m) =>
+    `<tr><td><span class="dot ${m.online ? "on" : ""}"></span>${esc(m.hostname)}</td><td>${esc(m.role)}</td><td>${esc(m.version)}</td><td>${m.transcript_sync ? "on" : "off"}</td><td>${esc(ago(m.last_seen))}</td></tr>`
+  ).join("");
+  $("add-command").textContent = d.add_machine.command;
+  $("add-windows").textContent = d.add_machine.windows_command;
+  $("takeover-command").textContent = `conflux hub take-over ${d.hub.name} --code <code>`;
+  if (d.hub.state && d.hub.state.state === "moving") $("banners").innerHTML = '<div class="card banner"><span>The hub is moving. Requests are paused until it finishes.</span></div>' + $("banners").innerHTML;
+  $("requests").innerHTML = '<tr><th>When</th><th>Machine</th><th>Account</th><th>Model</th><th>Via</th><th class="num">Status</th><th class="num">Latency</th><th class="num">Input</th><th class="num">Cache read</th><th class="num">Cache write</th><th class="num">Output</th></tr>' +
+    (d.requests.length ? d.requests.slice(0, 100).map((r) =>
+      `<tr><td>${esc(ago(r.at))}</td><td>${esc(r.machine)}</td><td>${esc(r.email || r.account)}</td><td>${esc(r.model || "")}</td><td>${esc(r.transport)}</td><td class="num ${r.status < 400 ? "status-ok" : "status-bad"}">${r.status}</td><td class="num">${r.latency_ms}ms</td><td class="num">${tokens(r.usage.input)}</td><td class="num">${tokens(r.usage.cache_read)}</td><td class="num">${tokens(r.usage.cache_write)}</td><td class="num">${tokens(r.usage.output)}</td></tr>`
+    ).join("") : '<tr><td colspan="11" class="muted">No requests yet.</td></tr>');
+}
+
+async function refresh() {
+  try {
+    render(await api("GET", "/conflux/api/dashboard"));
+    $("error").textContent = "";
+  } catch (e) {
+    $("error").textContent = `Could not load the dashboard: ${e.message}`;
+  }
+}
+
+function showError(e) { $("error").textContent = e.message; }
+
+const qs = (o) => new URLSearchParams(Object.entries(o).filter(([, v]) => v)).toString();
+
+function showTab(name) {
+  $("overview").hidden = name !== "overview";
+  $("threads").hidden = name !== "threads";
+  $("tab-overview").classList.toggle("active", name === "overview");
+  $("tab-threads").classList.toggle("active", name === "threads");
+  if (name === "threads") loadThreads();
+}
+
+async function loadThreads() {
+  try {
+    const d = await api("GET", `/conflux/api/threads?${qs({ machine: $("thread-machine").value, errors: $("thread-errors").checked, subagents: $("thread-subagents").checked })}`);
+    const select = $("thread-machine");
+    const chosen = select.value;
+    select.innerHTML = '<option value="">All machines</option>' + d.machines.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join("");
+    select.value = chosen;
+    const syncing = (latest?.machines || []).filter((m) => m.transcript_sync).map((m) => m.hostname);
+    $("sync-note").hidden = syncing.length > 0;
+    $("sync-note").textContent = "Transcript sync is off on every machine. Run `conflux sync on` on each machine you want here.";
+    $("thread-list").innerHTML = "<tr><th>Thread</th><th>Machine</th><th>Tool</th><th class=\"num\">Turns</th><th class=\"num\">Errors</th><th>Last active</th></tr>" +
+      (d.threads.length ? d.threads.map((t) =>
+        `<tr class="click" data-thread="${esc(t.id)}"><td class="wrap">${esc(t.title || t.path)}<div class="muted small">${esc(t.project || "")}</div></td><td>${esc(t.machine)}</td><td>${esc(t.tool)}</td><td class="num">${t.turns}</td><td class="num ${t.errors ? "status-bad" : ""}">${t.errors}</td><td>${t.last_active ? esc(ago(t.last_active)) : ""}</td></tr>`
+      ).join("") : '<tr><td colspan="6" class="muted">No threads.</td></tr>');
+  } catch (e) { showError(e); }
+}
+
+const eventLabels = { user: "You", assistant: "Agent", tool_call: "Tool", tool_result: "Result", failed: "Failed" };
+
+async function openThread(id) {
+  const box = $("thread-view");
+  box.hidden = false;
+  box.textContent = "Loading...";
+  try {
+    const d = await api("GET", `/conflux/api/threads/${encodeURIComponent(id)}`);
+    const events = d.events.map((e) => {
+      const name = e.name ? `${esc(e.name)} ` : "";
+      const isTool = e.kind === "tool_call" || e.kind === "tool_result" || e.kind === "failed";
+      return `<div class="event ${e.kind === "failed" ? "failed" : ""}"><div class="who ${e.kind === "user" ? "user" : ""}">${eventLabels[e.kind]}</div><div class="body ${isTool ? "mono" : ""}">${name}${esc(e.text)}</div></div>`;
+    }).join("");
+    const omitted = d.omitted ? `<div class="muted small">${d.omitted} earlier events are not shown.</div>` : "";
+    box.innerHTML = `<strong>${esc(d.thread.title || d.thread.path)}</strong><div class="muted small">${esc(d.thread.machine)} · ${esc(d.thread.tool)} · ${esc(d.thread.project || "")} · ${d.thread.turns} turns · ${d.thread.errors} errors</div>${omitted}${events}`;
+    box.scrollIntoView({ behavior: "smooth" });
+  } catch (e) { box.textContent = e.message; }
+}
+
+async function searchThreads() {
+  const q = $("thread-search").value.trim();
+  const box = $("search-results");
+  if (!q) { box.innerHTML = ""; return; }
+  box.textContent = "Searching...";
+  try {
+    const d = await api("GET", `/conflux/api/transcripts/search?${qs({ q })}`);
+    box.innerHTML = `<div class="card" style="margin-bottom:10px">${d.hits.length ? d.hits.map((h) =>
+      `<div class="hit" data-thread="${esc(h.thread)}"><strong>${esc(h.title || "")}</strong> <span class="muted">${esc(h.machine)}</span><div class="muted">${esc(h.snippet)}</div></div>`
+    ).join("") : '<div class="hit muted">No matches.</div>'}</div>`;
+  } catch (e) { box.textContent = e.message; }
+}
+
+async function loginClaude() {
+  const box = $("login");
+  try {
+    const start = await api("POST", "/conflux/api/login/claude/start", {});
+    box.hidden = false;
+    box.innerHTML = `<strong>Add a Claude account</strong>
+      <ol class="small"><li><a target="_blank" rel="noreferrer" id="claude-url">Open the Claude sign-in page</a> in a browser signed in to the account.</li><li>Approve access. The browser then shows a connection error, which is expected.</li><li>Paste the whole URL from the address bar here.</li></ol>
+      <div class="row-gap"><input type="text" id="claude-code" placeholder="Paste the URL" style="flex:1;min-width:200px"><button class="primary" id="claude-finish">Finish</button><button id="login-cancel">Cancel</button></div>
+      <div id="login-msg" class="small"></div>`;
+    $("claude-url").href = start.url;
+    $("login-cancel").onclick = () => { box.hidden = true; };
+    $("claude-finish").onclick = async () => {
+      try {
+        const done = await api("POST", "/conflux/api/login/claude/finish", { login_id: start.login_id, code: $("claude-code").value });
+        box.innerHTML = `<span class="status-ok">Logged in ${esc(done.email || done.account)}.</span>`;
+        refresh();
+      } catch (e) { $("login-msg").textContent = e.message; }
+    };
+  } catch (e) { showError(e); }
+}
+
+async function loginCodex() {
+  const box = $("login");
+  try {
+    const start = await api("POST", "/conflux/api/login/codex/start", {});
+    box.hidden = false;
+    box.innerHTML = `<strong>Add a Codex account</strong>
+      <ol class="small"><li><a target="_blank" rel="noreferrer" id="codex-url">Open the ChatGPT device page</a> in a browser signed in to the account.</li><li>Enter this code: <span class="mono" id="codex-code"></span></li></ol>
+      <div class="muted small" id="login-msg">Waiting for approval...</div>`;
+    $("codex-url").href = start.status.verify_url;
+    $("codex-code").textContent = start.status.user_code;
+    const timer = setInterval(async () => {
+      try {
+        const s = await api("GET", `/conflux/api/login/${start.login_id}`);
+        if (s.state === "pending") return;
+        clearInterval(timer);
+        box.innerHTML = s.state === "done"
+          ? `<span class="status-ok">Logged in ${esc(s.email || s.account)}.</span>`
+          : `<span class="status-bad">Login failed: ${esc(s.error)}</span>`;
+        refresh();
+      } catch (e) { clearInterval(timer); showError(e); }
+    }, 3000);
+  } catch (e) { showError(e); }
+}
+
+$("add-claude").onclick = loginClaude;
+$("add-codex").onclick = loginCodex;
+function copyText(text) {
+  if (navigator.clipboard) return navigator.clipboard.writeText(text);
+  const area = document.createElement("textarea");
+  area.value = text;
+  document.body.appendChild(area);
+  area.select();
+  document.execCommand("copy");
+  area.remove();
+}
+$("copy-command").onclick = () => copyText(latest.add_machine.command);
+$("copy-prompt").onclick = () => copyText(latest.add_machine.agent_prompt);
+
+$("tab-overview").onclick = () => showTab("overview");
+$("tab-threads").onclick = () => showTab("threads");
+$("thread-machine").onchange = loadThreads;
+$("thread-errors").onchange = loadThreads;
+$("thread-subagents").onchange = loadThreads;
+$("thread-search-go").onclick = searchThreads;
+$("thread-search").onkeydown = (ev) => { if (ev.key === "Enter") searchThreads(); };
+
+document.addEventListener("click", async (ev) => {
+  const thread = ev.target.closest("[data-thread]");
+  if (thread) return openThread(thread.dataset.thread);
+  const login = ev.target.closest("[data-login]");
+  if (login) return login.dataset.login === "claude" ? loginClaude() : loginCodex();
+  const b = ev.target.closest("[data-act]");
+  if (!b) return;
+  const path = `/conflux/api/accounts/${b.dataset.id}`;
+  try {
+    if (b.dataset.act === "toggle") await api("PATCH", path, { enabled: b.dataset.on === "true" });
+    if (b.dataset.act === "overage") await api("PATCH", path, { allow_overage: b.dataset.on === "true" });
+    if (b.dataset.act === "usage") await api("POST", `${path}/usage`, {});
+    if (b.dataset.act === "remove") {
+      if (!confirm(`Remove ${b.dataset.name}? You will need to log in again to add it back.`)) return;
+      await api("DELETE", path);
+    }
+    refresh();
+  } catch (e) { showError(e); }
+});
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>
