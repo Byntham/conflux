@@ -11,7 +11,7 @@
     --bg: #fafafa; --sidebar: #f4f4f5; --surface: #ffffff; --raised: #f7f7f8; --hover: #f1f1f3; --selected: #ffffff; --line: #e8e8eb; --line-strong: #d6d6db;
     --fg: #18181b; --fg-2: #52525b; --muted: #70707a;
     --brand: #0e5f72; --accent: #0e6b80; --accent-soft: #e3f1f4; --primary: #18181b; --primary-fg: #ffffff;
-    --track: #ececef; --fill: #71717a; --bubble: #f1f1f3; --seg-on: #ffffff; --popover: #ffffff;
+    --track: #ececef; --fill: #71717a; --bubble: #ebebee; --seg-on: #ffffff; --popover: #ffffff;
     --ok: #047857; --warn: #b45309; --warn-soft: #fdf1dd; --warn-fill: #e8930c; --bad: #c81e1e; --bad-fill: #c81e1e; --bad-soft: #fdeaea;
     --claude: #c2653c; --codex: #5a5fd0; --claude-bar: #c47a5a; --codex-bar: #7276d0;
     --shadow: 0 1px 2px rgb(24 24 27 / 4%);
@@ -26,7 +26,7 @@
       --brand: #4fb8cc; --accent: #6cc7d9; --accent-soft: #10292f; --primary: #f4f4f5; --primary-fg: #0a0a0b;
       --track: #232326; --fill: #a1a1aa; --bubble: #242427; --seg-on: #2c2c30; --popover: #1a1a1c;
       --ok: #34d399; --warn: #fbbf24; --warn-soft: #2c2108; --warn-fill: #f59e0b; --bad: #f87171; --bad-fill: #e5484d; --bad-soft: #321414;
-      --claude: #d4764c; --codex: #8086ec; --claude-bar: #a55c3b; --codex-bar: #6469b8;
+      --claude: #d4764c; --codex: #8086ec; --claude-bar: #b9623a; --codex-bar: #6a6fcb;
       --shadow: none;
       --shadow-pop: 0 18px 44px rgb(0 0 0 / 70%);
       --backdrop: rgb(0 0 0 / 62%);
@@ -101,6 +101,8 @@
   .alert-row:first-child { border-top: 0; }
   .alert-row > svg { color: var(--bad); }
   .alert-row.warn > svg { color: var(--warn); }
+  .alert-row.warn { background: var(--warn-soft); }
+  .alert-row.warn .alert-detail { color: var(--fg); }
   .alert-text { flex: 1; min-width: 0; }
   .alert-title { font-weight: 500; overflow-wrap: break-word; }
   .alert-detail { min-width: 0; font-size: 12.5px; color: var(--muted); overflow-wrap: break-word; }
@@ -145,10 +147,11 @@
   .no-usage { margin-top: 13px; font-size: 12.5px; color: var(--muted); }
   .account-login { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--fg-2); }
   .account-login .btn { flex: none; }
-  .account-notes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 11px; }
-  .note { padding: 2px 8px; border-radius: 6px; background: var(--warn-soft); color: var(--warn); font-size: 12.5px; font-weight: 500; }
-  .note.bad { background: var(--bad-soft); color: var(--bad); }
-  .note.quiet { background: none; padding-left: 2px; padding-right: 2px; font-weight: 400; color: var(--muted); }
+  .account-notes { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 11px; }
+  .note { color: var(--warn); font-size: 12.5px; font-weight: 500; }
+  .note.bad { color: var(--bad); }
+  .note.info { color: var(--fg-2); font-weight: 400; }
+  .note.quiet { font-weight: 400; color: var(--muted); }
   .chart-empty { padding: 26px 0 16px; text-align: center; font-size: 13px; color: var(--muted); }
   .empty { padding: 34px 20px; text-align: center; color: var(--muted); }
   .empty strong { display: block; color: var(--fg); font-size: 14.5px; margin-bottom: 2px; }
@@ -238,6 +241,8 @@
   .steps li::before { content: counter(step); position: absolute; left: 0; top: 0; width: 19px; height: 19px; border-radius: 50%; background: var(--hover); color: var(--fg-2); font-size: 11.5px; font-weight: 600; text-align: center; line-height: 19px; }
 
   .modal .steps li::before { background: var(--line-strong); }
+  .modal .btn:not(.primary):not(.danger) { background: transparent; }
+  .modal .btn:not(.primary):not(.danger):hover { background: var(--hover); }
 
   .notice { display: flex; align-items: center; gap: 10px; padding: 10px 14px; margin-bottom: 12px; font-size: 13px; color: var(--fg-2); }
   .notice code { font-family: var(--mono); font-size: 12px; padding: 1px 5px; border-radius: 4px; background: var(--hover); }
@@ -255,7 +260,7 @@
   .thread-meta .project { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .thread-meta .ago { margin-left: auto; flex: none; }
   .snippet { margin-top: 3px; font-size: 12.5px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .snippet mark { background: var(--accent-soft); color: var(--fg); border-radius: 3px; padding: 0 2px; }
+  mark { background: var(--accent-soft); color: var(--fg); border-radius: 3px; padding: 0 2px; }
   .failed-count { color: var(--bad); font-weight: 500; }
   .threads-layout.no-list { grid-template-columns: minmax(0, 1fr); }
   .no-threads .search, .no-threads .select, .no-threads .chip { display: none; }
@@ -271,6 +276,7 @@
   .viewer-back { display: none; margin: -3px 0 0 -7px; }
   .events { display: flex; flex-direction: column; gap: 8px; padding: 16px 18px 22px; }
   .msg:not(:first-child) { margin-top: 10px; }
+  .msg.assistant { max-width: 76ch; }
   .msg { max-width: 760px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
   .msg-who { font-size: 12px; font-weight: 500; color: var(--muted); margin-bottom: 1px; }
   .msg.user { align-self: flex-end; max-width: min(620px, 88%); padding: 8px 12px 9px; border-radius: 12px 12px 4px 12px; background: var(--bubble); }
@@ -313,13 +319,13 @@
   @media (min-width: 761px) {
     #recent, #request-log { table-layout: fixed; min-width: 960px; }
     #request-log { min-width: 1120px; }
-    #recent th.when, #request-log th.when { width: 84px; }
-    .col-machine { width: 120px; }
-    .col-model { width: 176px; }
-    .col-via { width: 60px; }
-    #recent th.status, #request-log th.status { width: 68px; }
-    #recent th.lat, #request-log th.lat { width: 80px; }
-    .col-tokens { width: 96px; }
+    #recent th.when, #request-log th.when { width: 76px; }
+    .col-machine { width: 104px; }
+    .col-model { width: 168px; }
+    .col-via { width: 52px; }
+    #recent th.status, #request-log th.status { width: 60px; }
+    #recent th.lat, #request-log th.lat { width: 72px; }
+    .col-tokens { width: 88px; }
     #recent td, #request-log td { overflow: hidden; text-overflow: ellipsis; }
   }
   @media (hover: hover) {
@@ -368,6 +374,7 @@
     .alert-row .btn { margin-left: 27px; flex: 1 1 calc(100% - 27px); height: 40px; }
     .account-login .btn { height: 40px; }
     .code-block .icon-btn, .viewer-back { width: 40px; height: 40px; }
+    .code-text { padding: 10px 0; }
     .alert-sep { display: none; }
     .alert-part { display: block; }
     .panel .seg { display: flex; }
@@ -398,8 +405,8 @@
     .events { padding: 12px 0 18px; }
     .msg.user { max-width: calc(100% - 12px); }
     .viewer-back { display: inline-flex; margin: -6px 0 0 -10px; }
-    .viewer-meta { gap: 0 10px; }
-    .viewer-meta .sep { display: none; }
+    .viewer-meta .meta-path { flex-basis: 100%; }
+    .viewer-meta .meta-path + .sep { display: none; }
     #quota-key { flex-basis: 100%; font-size: 12.5px; }
     .search { flex-basis: 100%; }
     #toast { bottom: 78px; }
@@ -691,7 +698,7 @@ function renderNotes(a) {
   for (const c of a.cooldowns) {
     if (c.scope !== "account") notes.push(`<span class="note" title="${esc(c.reason)}">${esc(c.scope.replace("model:", ""))} cooling ${esc(until(c.until))}</span>`);
   }
-  if (a.usage.overage_in_use) notes.push('<span class="note">Using extra usage</span>');
+  if (a.usage.overage_in_use) notes.push('<span class="note info">Using extra usage</span>');
   if (usageStale(a)) notes.push(`<span class="note quiet">Usage checked ${esc(ago(a.usage.updated_at))}</span>`);
   if (a.refresh !== "ok" && !a.needs_login) notes.push(`<span class="note bad">Token refresh: ${esc(a.refresh)}</span>`);
   return notes.length ? `<div class="account-notes">${notes.join("")}</div>` : "";
@@ -769,7 +776,8 @@ function renderStats(d) {
   const cache = cacheTotals(hour);
   const unavailable = d.accounts.filter((a) => a.enabled && !isReady(a)).length;
   const disabled = d.accounts.filter((a) => !a.enabled).length;
-  const accountParts = [unavailable && `<span class="stat-sub bad" style="display:inline">${unavailable} unavailable</span>`, disabled && `${disabled} disabled`].filter(Boolean);
+  const limited = d.accounts.filter((a) => isReady(a) && a.cooldowns.length).length;
+  const accountParts = [limited && `${limited} limited`, unavailable && `<span class="stat-sub bad" style="display:inline">${unavailable} unavailable</span>`, disabled && `${disabled} disabled`].filter(Boolean);
   const accountSub = !d.accounts.length ? "No accounts" : accountParts.join(" · ") || "All available";
   const failureRate = hour.length ? failed / hour.length : 0;
   const severityClass = failureRate >= 0.1 ? "bad" : failureRate >= 0.03 ? "warn" : "";
@@ -970,33 +978,38 @@ async function loadThreads() {
   } catch (e) { showError(e); }
 }
 
-function toolHtml(call, result) {
+function shownText(text, query) {
+  return query ? highlight(text, query) : esc(text);
+}
+
+function toolHtml(call, result, query) {
   const failed = result?.kind === "failed";
   const first = call || result;
   const preview = first.text.split("\n")[0];
   const label = first.name || (call ? "Tool" : "Result");
-  const blocks = [call, result].filter(Boolean).map((e) => `<pre>${esc(e.text)}</pre>`).join("");
+  const blocks = [call, result].filter(Boolean).map((e) => `<pre>${shownText(e.text, query)}</pre>`).join("");
   return `<details class="tool ${failed ? "failed" : ""}" ${failed ? "open" : ""}><summary><span class="tool-name">${esc(label)}</span><span class="tool-preview">${esc(preview)}</span>${failed ? '<span class="tool-state">Failed</span>' : ""}</summary>${blocks}</details>`;
 }
 
-function eventsHtml(events) {
+function eventsHtml(events, query) {
   const parts = [];
   for (let i = 0; i < events.length; i++) {
     const e = events[i];
     if (e.kind === "user" || e.kind === "assistant") {
-      parts.push(`<div class="msg ${e.kind}"><div class="msg-who">${e.kind === "user" ? "You" : "Agent"}</div>${esc(e.text)}</div>`);
+      parts.push(`<div class="msg ${e.kind}"><div class="msg-who">${e.kind === "user" ? "You" : "Agent"}</div>${shownText(e.text, query)}</div>`);
       continue;
     }
     const next = events[i + 1];
     const paired = e.kind === "tool_call" && next && (next.kind === "tool_result" || next.kind === "failed") && next.name === e.name;
-    if (paired) { parts.push(toolHtml(e, next)); i++; continue; }
-    parts.push(e.kind === "tool_call" ? toolHtml(e, null) : toolHtml(null, e));
+    if (paired) { parts.push(toolHtml(e, next, query)); i++; continue; }
+    parts.push(e.kind === "tool_call" ? toolHtml(e, null, query) : toolHtml(null, e, query));
   }
   return parts.join("");
 }
 
 async function openThread(id) {
   const box = $("thread-view");
+  const query = $("thread-search").value.trim();
   const token = ++threadToken;
   selectedThread = id;
   document.querySelectorAll(".thread").forEach((t) => t.classList.toggle("selected", t.dataset.thread === id));
@@ -1006,20 +1019,25 @@ async function openThread(id) {
     const d = await api("GET", `/conflux/api/threads/${encodeURIComponent(id)}`);
     if (token !== threadToken) return;
     const t = d.thread;
-    const metaParts = [t.project, t.machine, providerName(t.tool), `${t.turns} turns`].filter(Boolean).map((v) => `<span>${esc(v)}</span>`);
+    const metaParts = [t.project, t.machine, providerName(t.tool), `${t.turns} turns`].filter(Boolean).map((v) => `<span ${v === t.project ? 'class="meta-path"' : ""}>${esc(v)}</span>`);
     if (t.errors) metaParts.push(`<span class="failed-count">${t.errors} ${t.errors === 1 ? "error" : "errors"}</span>`);
     const meta = metaParts.join('<span class="sep">·</span>');
     const omitted = d.omitted ? `<div class="muted small">${d.omitted} earlier events are not shown.</div>` : "";
-    box.innerHTML = `<div class="viewer-head"><button class="icon-btn viewer-back" data-back aria-label="Back to threads">${icon("back")}</button><div><div class="viewer-title">${esc(t.title || t.path)}</div><div class="viewer-meta">${meta}</div></div></div><div class="events">${omitted}${eventsHtml(d.events)}</div>`;
+    box.innerHTML = `<div class="viewer-head"><button class="icon-btn viewer-back" data-back aria-label="Back to threads">${icon("back")}</button><div><div class="viewer-title">${esc(t.title || t.path)}</div><div class="viewer-meta">${meta}</div></div></div><div class="events">${omitted}${eventsHtml(d.events, query)}</div>`;
     box.scrollTop = 0;
+    const firstMatch = box.querySelector(".events mark");
+    if (firstMatch) {
+      firstMatch.closest("details")?.setAttribute("open", "");
+      firstMatch.scrollIntoView({ block: "center" });
+    }
   } catch (e) {
     if (token === threadToken) box.innerHTML = `<div class="viewer-empty"><span>${esc(e.message)}</span></div>`;
   }
 }
 
 function highlight(text, query) {
-  const pattern = new RegExp(esc(query).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
-  return esc(text).replace(pattern, (m) => `<mark>${m}</mark>`);
+  const pattern = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi");
+  return text.split(pattern).map((part, i) => (i % 2 ? `<mark>${esc(part)}</mark>` : esc(part))).join("");
 }
 
 async function searchThreads() {
