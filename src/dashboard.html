@@ -13,7 +13,7 @@
     --brand: #0e5f72; --accent: #0e6b80; --accent-soft: #e3f1f4; --primary: #18181b; --primary-fg: #ffffff;
     --track: #ececef; --fill: #71717a; --bubble: #f1f1f3; --seg-on: #ffffff; --popover: #ffffff;
     --ok: #047857; --warn: #b45309; --warn-soft: #fdf1dd; --warn-fill: #e8930c; --bad: #c81e1e; --bad-fill: #c81e1e; --bad-soft: #fdeaea;
-    --claude: #c2653c; --codex: #5a5fd0;
+    --claude: #c2653c; --codex: #5a5fd0; --claude-bar: #c47a5a; --codex-bar: #7276d0;
     --shadow: 0 1px 2px rgb(24 24 27 / 4%);
     --shadow-pop: 0 16px 40px rgb(24 24 27 / 16%), 0 2px 6px rgb(24 24 27 / 8%);
     --backdrop: rgb(24 24 27 / 40%);
@@ -26,7 +26,7 @@
       --brand: #4fb8cc; --accent: #6cc7d9; --accent-soft: #10292f; --primary: #f4f4f5; --primary-fg: #0a0a0b;
       --track: #232326; --fill: #a1a1aa; --bubble: #242427; --seg-on: #2c2c30; --popover: #1a1a1c;
       --ok: #34d399; --warn: #fbbf24; --warn-soft: #2c2108; --warn-fill: #f59e0b; --bad: #f87171; --bad-fill: #e5484d; --bad-soft: #321414;
-      --claude: #d4764c; --codex: #8086ec;
+      --claude: #d4764c; --codex: #8086ec; --claude-bar: #a55c3b; --codex-bar: #6469b8;
       --shadow: none;
       --shadow-pop: 0 18px 44px rgb(0 0 0 / 70%);
       --backdrop: rgb(0 0 0 / 62%);
@@ -117,7 +117,8 @@
   .accounts { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(430px, 100%), 1fr)); gap: 12px; }
   .account { padding: 13px 14px 14px 16px; display: flex; flex-direction: column; min-width: 0; }
   .account.off { background: transparent; box-shadow: none; }
-  .account.off .track, .account.blocked .track { opacity: .45; }
+  .account.off .track { opacity: .45; }
+  .account.blocked .track { opacity: .75; }
   .account.off .email { color: var(--fg-2); }
   .account.off .meter > span, .account.blocked .meter > span { color: var(--muted); font-weight: 400; }
   .account-head { display: flex; align-items: flex-start; gap: 10px; }
@@ -140,7 +141,7 @@
   .track > i { display: block; height: 100%; border-radius: 3px; background: var(--fill); }
   .track > i.high { background: var(--warn-fill); }
   .track > i.full { background: var(--bad-fill); }
-  .track > b { position: absolute; z-index: 1; top: -4px; width: 2px; height: 13px; margin-left: -1px; border-radius: 1px; background: var(--fg); box-shadow: 0 0 0 1.5px var(--surface); }
+  .track > b { position: absolute; z-index: 1; top: -3px; width: 2px; height: 11px; margin-left: -1px; border-radius: 1px; background: var(--fg); box-shadow: 0 0 0 1px var(--surface); }
   .no-usage { margin-top: 13px; font-size: 12.5px; color: var(--muted); }
   .account-login { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--fg-2); }
   .account-login .btn { flex: none; }
@@ -169,8 +170,8 @@
   .col i { display: block; width: 100%; max-width: 12px; }
   .col i { margin-bottom: 2px; }
   .col i:last-child { margin-bottom: 0; }
-  .col i.claude { background: var(--claude); }
-  .col i.codex { background: var(--codex); }
+  .col i.claude { background: var(--claude-bar); }
+  .col i.codex { background: var(--codex-bar); }
   .col i.other { background: var(--muted); }
   .col i.failed, .key i.failed { background: repeating-linear-gradient(135deg, var(--bad-fill) 0 2px, color-mix(in srgb, var(--bad-fill) 62%, var(--bg)) 2px 4px); }
   .col i:first-child { border-radius: 3px 3px 0 0; }
@@ -206,6 +207,7 @@
   .seg button { height: 27px; padding: 0 11px; border: 0; border-radius: 7px; background: transparent; color: var(--fg-2); font-size: 13px; font-weight: 500; white-space: nowrap; }
   .seg button[aria-pressed="true"] { background: var(--seg-on); color: var(--fg); box-shadow: 0 1px 2px rgb(0 0 0 / 14%); }
   input[type=text], input[type=search], select { font: inherit; font-size: 13px; height: 31px; padding: 0 9px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--fg); }
+  input:focus-visible, select:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
   input::placeholder { color: var(--muted); }
   .search { position: relative; flex: 1 1 240px; min-width: 180px; }
   .search svg { position: absolute; left: 9px; top: 8px; color: var(--muted); pointer-events: none; }
@@ -214,7 +216,7 @@
   .select { position: relative; display: inline-flex; }
   .select select { appearance: none; padding-right: 26px; }
   .select::after { content: ""; position: absolute; right: 11px; top: 11px; width: 6px; height: 6px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(45deg); pointer-events: none; }
-  .chip { display: inline-flex; align-items: center; gap: 6px; height: 31px; padding: 0 11px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--fg-2); font-size: 13px; font-weight: 500; cursor: pointer; user-select: none; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; height: 31px; padding: 0 11px; border-radius: 8px; border: 1px solid var(--line-strong); background: transparent; color: var(--fg-2); font-size: 13px; font-weight: 500; cursor: pointer; user-select: none; }
   .chip:hover { background: var(--hover); }
   .chip:has(input:checked)::before { content: ""; width: 8px; height: 4px; margin-top: -2px; border-left: 1.75px solid currentColor; border-bottom: 1.75px solid currentColor; transform: rotate(-45deg); }
   .chip input { position: absolute; opacity: 0; pointer-events: none; }
@@ -264,9 +266,11 @@
   .viewer-empty strong { color: var(--fg); font-size: 14.5px; font-weight: 600; }
   .viewer-head { position: sticky; top: 0; z-index: 1; padding: 13px 18px 12px; background: var(--surface); border-bottom: 1px solid var(--line); display: flex; align-items: flex-start; gap: 8px; }
   .viewer-title { font-size: 15px; font-weight: 600; line-height: 1.35; letter-spacing: -.008em; }
-  .viewer-meta { margin-top: 2px; font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+  .viewer-meta { display: flex; flex-wrap: wrap; gap: 0 6px; margin-top: 2px; font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+  .viewer-meta > span { min-width: 0; }
   .viewer-back { display: none; margin: -3px 0 0 -7px; }
-  .events { display: flex; flex-direction: column; gap: 10px; padding: 16px 18px 22px; }
+  .events { display: flex; flex-direction: column; gap: 8px; padding: 16px 18px 22px; }
+  .msg:not(:first-child) { margin-top: 10px; }
   .msg { max-width: 760px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
   .msg-who { font-size: 12px; font-weight: 500; color: var(--muted); margin-bottom: 1px; }
   .msg.user { align-self: flex-end; max-width: min(620px, 88%); padding: 8px 12px 9px; border-radius: 12px 12px 4px 12px; background: var(--bubble); }
@@ -306,6 +310,18 @@
   #toast { position: fixed; z-index: 50; left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; align-items: center; gap: 7px; max-width: calc(100vw - 32px); padding: 8px 13px; border-radius: 8px; background: var(--fg); color: var(--bg); font-size: 13px; font-weight: 500; box-shadow: var(--shadow-pop); }
   #toast.bad { background: var(--bad); color: var(--surface); }
 
+  @media (min-width: 761px) {
+    #recent, #request-log { table-layout: fixed; min-width: 960px; }
+    #request-log { min-width: 1120px; }
+    #recent th.when, #request-log th.when { width: 84px; }
+    .col-machine { width: 120px; }
+    .col-model { width: 176px; }
+    .col-via { width: 60px; }
+    #recent th.status, #request-log th.status { width: 68px; }
+    #recent th.lat, #request-log th.lat { width: 80px; }
+    .col-tokens { width: 96px; }
+    #recent td, #request-log td { overflow: hidden; text-overflow: ellipsis; }
+  }
   @media (hover: hover) {
     .account-actions { opacity: .7; transition: opacity .12s; }
     .account:hover .account-actions, .account-actions:focus-within { opacity: 1; }
@@ -325,7 +341,6 @@
     .nav { flex: 1; flex-direction: row; justify-content: space-around; }
     .nav a { position: relative; flex: 1; flex-direction: column; gap: 1px; padding: 5px 2px; font-size: 11.5px; }
     .nav a svg { width: 19px; height: 19px; }
-    .nav a[aria-current="page"] { background: var(--hover); box-shadow: none; }
     .nav .count { display: none; }
     .nav .alert { position: absolute; top: 0; left: calc(50% + 6px); margin: 0; }
     main { padding: 18px 16px 92px; }
@@ -341,7 +356,7 @@
     .meter-name { grid-area: name; } .meter-reset { grid-area: reset; } .meter-pct { grid-area: pct; } .track { grid-area: track; }
     .account-head { flex-wrap: wrap; align-items: center; gap: 4px 8px; }
     .account-title { display: contents; }
-    .email { flex: 1 1 calc(100% - 96px); min-width: 0; }
+    .email { flex: 1 1 calc(100% - 96px); min-width: 0; display: block; }
     .account-sub { flex: 1 1 50%; min-width: 0; margin: 0; }
     .account-actions .icon-btn { width: 40px; height: 40px; }
     .account, .panel { padding-left: 14px; padding-right: 14px; }
@@ -383,6 +398,9 @@
     .events { padding: 12px 0 18px; }
     .msg.user { max-width: calc(100% - 12px); }
     .viewer-back { display: inline-flex; margin: -6px 0 0 -10px; }
+    .viewer-meta { gap: 0 10px; }
+    .viewer-meta .sep { display: none; }
+    #quota-key { flex-basis: 100%; font-size: 12.5px; }
     .search { flex-basis: 100%; }
     #toast { bottom: 78px; }
   }
@@ -448,7 +466,7 @@
         <div class="section hide-first-run">
             <div class="section-head">
               <h2 id="chart-title">Requests per minute</h2>
-              <div class="section-note" id="chart-key"><span class="key"><i style="background:var(--claude)"></i>Claude</span><span class="key"><i style="background:var(--codex)"></i>Codex</span><span class="key"><i class="failed"></i>Failed</span></div>
+              <div class="section-note" id="chart-key"><span class="key"><i style="background:var(--claude-bar)"></i>Claude</span><span class="key"><i style="background:var(--codex-bar)"></i>Codex</span><span class="key"><i class="failed"></i>Failed</span></div>
             </div>
           <div id="chart"></div>
         </div>
@@ -797,7 +815,7 @@ function renderChart(d) {
 }
 
 function requestTable(requests, full) {
-  const head = `<thead><tr><th class="when">When</th><th class="hide-sm">Machine</th><th>Account</th><th class="hide-sm">Model</th>${full ? '<th class="hide-sm">Via</th>' : ""}<th class="num status">Status</th><th class="num lat">Latency</th><th class="num hide-sm">Tokens in</th><th class="num hide-sm">Cache read</th>${full ? '<th class="num hide-sm">Cache write</th>' : ""}<th class="num hide-sm">Tokens out</th></tr></thead>`;
+  const head = `<thead><tr><th class="when">When</th><th class="hide-sm col-machine">Machine</th><th>Account</th><th class="hide-sm col-model">Model</th>${full ? '<th class="hide-sm col-via">Via</th>' : ""}<th class="num status">Status</th><th class="num lat">Latency</th><th class="num hide-sm col-tokens">Tokens in</th><th class="num hide-sm col-tokens">Cache read</th>${full ? '<th class="num hide-sm col-tokens">Cache write</th>' : ""}<th class="num hide-sm col-tokens">Tokens out</th></tr></thead>`;
   const span = full ? 11 : 9;
   const rows = requests.length ? requests.map((r) => {
     const via = full ? `<td class="hide-sm dim">${esc(r.transport)}</td>` : "";
@@ -988,8 +1006,9 @@ async function openThread(id) {
     const d = await api("GET", `/conflux/api/threads/${encodeURIComponent(id)}`);
     if (token !== threadToken) return;
     const t = d.thread;
-    const errors = t.errors ? ` <span class="nb">· <span class="failed-count">${t.errors} ${t.errors === 1 ? "error" : "errors"}</span></span>` : "";
-    const meta = esc([t.project, t.machine, providerName(t.tool), `${t.turns} turns`].filter(Boolean).join(" · ")) + errors;
+    const metaParts = [t.project, t.machine, providerName(t.tool), `${t.turns} turns`].filter(Boolean).map((v) => `<span>${esc(v)}</span>`);
+    if (t.errors) metaParts.push(`<span class="failed-count">${t.errors} ${t.errors === 1 ? "error" : "errors"}</span>`);
+    const meta = metaParts.join('<span class="sep">·</span>');
     const omitted = d.omitted ? `<div class="muted small">${d.omitted} earlier events are not shown.</div>` : "";
     box.innerHTML = `<div class="viewer-head"><button class="icon-btn viewer-back" data-back aria-label="Back to threads">${icon("back")}</button><div><div class="viewer-title">${esc(t.title || t.path)}</div><div class="viewer-meta">${meta}</div></div></div><div class="events">${omitted}${eventsHtml(d.events)}</div>`;
     box.scrollTop = 0;
