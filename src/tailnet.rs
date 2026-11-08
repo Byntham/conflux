@@ -1,0 +1,166 @@
+use std::net::IpAddr;
+use std::process::Command;
+
+use serde_json::Value;
+
+const TAILSCALE_COMMANDS: &[&str] = &[
+    "tailscale",
+    "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+    r"C:\Program Files\Tailscale\tailscale.exe",
+];
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TailnetSelf {
+    pub ips: Vec<IpAddr>,
+    pub host_name: Option<String>,
+    pub dns_name: Option<String>,
+}
+
+impl TailnetSelf {
+    pub fn detect() -> Self {
+        let Some(out) = TAILSCALE_COMMANDS
+            .iter()
+            .find_map(|cmd| Command::new(cmd).args(["status", "--json"]).output().ok())
+        else {
+            return Self::default();
+        };
+        if !out.status.success() {
+            return Self::default();
+        }
+        let Ok(v) = serde_json::from_slice::<Value>(&out.stdout) else {
+            return Self::default();
+        };
+        Self::from_status(&v)
+    }
+
+    pub fn from_status(v: &Value) -> Self {
+        let me = &v["Self"];
+        let ips = me["TailscaleIPs"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|ip| ip.as_str()?.parse().ok())
+            .collect();
+        let s = |k: &str| {
+            me[k]
+                .as_str()
+                .map(|s| s.trim_end_matches('.').to_lowercase())
+                .filter(|s| !s.is_empty())
+        };
+        Self {
+            ips,
+            host_name: s("HostName"),
+            dns_name: s("DNSName"),
+        }
+    }
+
+    pub fn short_name(&self) -> Option<String> {
+        self.dns_name
+            .as_ref()
+            .and_then(|d| d.split('.').next().map(str::to_string))
+            .or(self.host_name.clone())
+    }
+
+    pub fn host_headers(&self, port: u16) -> Vec<String> {
+        let mut out = Vec::new();
+        for ip in &self.ips {
+            out.push(match ip {
+                IpAddr::V4(v4) => format!("{v4}:{port}"),
+                IpAddr::V6(v6) => format!("[{v6}]:{port}"),
+            });
+        }
+        for name in self.names() {
+            out.push(format!("{name}:{port}"));
+        }
+        out
+    }
+
+    pub fn names(&self) -> Vec<String> {
+        let mut v: Vec<String> = [self.short_name(), self.dns_name.clone(), self.host_name.clone()]
+            .into_iter()
+            .flatten()
+            .collect();
+        let mut seen = std::collections::HashSet::new();
+        v.retain(|name| seen.insert(name.clone()));
+        v
+    }
+}
+
+pub fn is_tailnet_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            let o = v4.octets();
+            o[0] == 100 && (o[1] & 0xc0) == 64
+        }
+        IpAddr::V6(v6) => {
+            let s = v6.segments();
+            s[0] == 0xfd7a && s[1] == 0x115c && s[2] == 0xa1e0
+        }
+    }
+}
+
+pub async fn resolves_to_tailnet(host: &str, port: u16) -> bool {
+    if let Ok(ip) = host.trim_matches(['[', ']']).parse::<IpAddr>() {
+        return is_tailnet_ip(ip);
+    }
+    match tokio::net::lookup_host((host, port)).await {
+        Ok(addrs) => {
+            let addrs: Vec<_> = addrs.collect();
+            !addrs.is_empty() && addrs.iter().all(|a| is_tailnet_ip(a.ip()))
+        }
+        Err(_) => false,
+    }
+}
+
+pub fn hostname() -> String {
+    Command::new("hostname")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "unknown".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tailnet_ranges() {
+        assert!(is_tailnet_ip("100.101.102.103".parse().unwrap()));
+        assert!(is_tailnet_ip("100.64.0.1".parse().unwrap()));
+        assert!(!is_tailnet_ip("100.128.0.1".parse().unwrap()));
+        assert!(!is_tailnet_ip("192.168.1.10".parse().unwrap()));
+        assert!(is_tailnet_ip("fd7a:115c:a1e0::1234".parse().unwrap()));
+        assert!(!is_tailnet_ip("fd00::1".parse().unwrap()));
+    }
+
+    #[test]
+    fn parses_status() {
+        let v = serde_json::json!({"Self": {
+            "HostName": "hub-box",
+            "DNSName": "hub-box.example.ts.net.",
+            "TailscaleIPs": ["100.101.102.103", "fd7a:115c:a1e0::1234"]
+        }});
+        let t = TailnetSelf::from_status(&v);
+        assert_eq!(t.short_name().as_deref(), Some("hub-box"));
+        assert_eq!(
+            t.host_headers(8317),
+            vec![
+                "100.101.102.103:8317",
+                "[fd7a:115c:a1e0::1234]:8317",
+                "hub-box:8317",
+                "hub-box.example.ts.net:8317"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn literal_addresses() {
+        assert!(resolves_to_tailnet("100.101.102.103", 8317).await);
+        assert!(!resolves_to_tailnet("127.0.0.1", 8317).await);
+        assert!(resolves_to_tailnet("[fd7a:115c:a1e0::1]", 8317).await);
+    }
+}
