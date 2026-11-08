@@ -8,11 +8,11 @@ You log in to your accounts once, on one always-on machine at home. Claude Code 
 
 ## What you get
 
-- **Less wasted quota.** Each request goes to the account whose weekly limit resets soonest.
+- **Less wasted quota.** New sessions start on an available account whose weekly limit resets soonest.
 - **Automatic failover.** When an account runs out, the next request moves to one that still has room.
 - **Stable sessions.** A session stays on one account, which keeps its prompt cache working.
-- **A dashboard.** See every account's limits, your machines, and recent requests from any device on your network.
-- **Optional thread history.** Collect every Claude Code and Codex thread from every machine, to read and search in one place.
+- **A dashboard.** See every account's limits, your machines, and recent requests from any device on your Tailscale network.
+- **Optional thread history.** Collect Claude Code and Codex threads from the machines you choose, to read and search in one place.
 
 > [!WARNING]
 > Pooling subscriptions this way may break your providers' terms and could get your accounts banned. conflux is unofficial and logs in through Claude Code's and Codex's own OAuth clients, so either provider can break it at any time. It's for one person's own work on their own machines. Don't use it to serve other people, and only use Claude subscriptions from Claude Code.
@@ -22,8 +22,8 @@ You log in to your accounts once, on one always-on machine at home. Claude Code 
 You need:
 
 - Claude Code or Codex on each machine you work from. The hub doesn't need them.
-- [Tailscale](https://tailscale.com) on every machine, on a tailnet that holds only your own devices. conflux has no login of its own, so anyone who can reach the hub can use your accounts.
-- One machine to be the **hub**. It should stay on, stay at home, and not use a VPN, so that all your traffic comes from one home IP address.
+- [Tailscale](https://tailscale.com) on every machine, on a tailnet that holds only your own devices, with MagicDNS on (the default). conflux has no login of its own, so anyone who can reach the hub can use your accounts.
+- One machine to be the **hub**. It should stay on and stay at home. Don't send its internet traffic through another VPN or a Tailscale exit node, so the providers see one home IP address.
 
 conflux runs on Linux with systemd, macOS on Apple silicon, and Windows x64. A hub on macOS or Windows runs only while you're signed in. On Linux, the installer tries to keep it running after you log out and tells you if it can't.
 
@@ -54,6 +54,8 @@ conflux login codex
 Each command prints a link you can open in any browser signed in to that account. For Claude, approve access. The browser then shows a connection error, which is expected. Paste the URL from its address bar into the terminal. For Codex, enter the code it shows you and wait.
 
 The dashboard is now at `http://127.0.0.1:8317` on the hub. From your other devices, use `http://<hub>:8317`, where `<hub>` is the hub's name in `tailscale status`.
+
+If you use Claude Code or Codex on the hub itself, restart any open sessions. They now go through conflux too.
 
 ## Add your other machines
 
@@ -98,7 +100,7 @@ If the hub is ever down, run `conflux off` on the machine you're using and resta
 
 ## Move the hub to another machine
 
-The new machine needs conflux installed. Any machine you've already added is ready. Your logins move with the hub, and your other machines follow within a minute.
+The new machine needs conflux installed. Any machine you've already added is ready. Your logins move with the hub, and your other machines follow on their own.
 
 ```sh
 conflux hub move-code                               # on the current hub
@@ -106,11 +108,11 @@ conflux hub take-over <old-hub> --code <code>       # on the new machine, within
 conflux join <new-hub>                              # back on the old machine
 ```
 
-The first command prints the second one for you. If a move gets stuck, `conflux hub resume` on the old hub puts it back in service.
+The first command prints the second one for you. Wait a minute before the third, with the old hub still running, so your other machines can switch. A machine that was off during the move can run `conflux join <new-hub>` itself. If a move gets stuck before it finishes, `conflux hub resume` on the old hub puts it back in service.
 
 ## Optional features
 
-**Thread history.** Run `conflux sync on` on any machine to copy its Claude Code and Codex transcripts to `~/conflux/transcripts` on the hub. The dashboard's Threads tab lists and searches them, and you can point an agent at the folder to look for patterns. It's off by default because transcripts contain everything your agents have read.
+**Thread history.** Run `conflux sync on` on each machine you want to collect from, to copy its Claude Code and Codex transcripts to `~/conflux/transcripts` on the hub. The dashboard's Threads tab lists and searches them, and you can point an agent at the folder to look for patterns. It's off by default because transcripts contain everything your agents have read.
 
 **Extra usage.** conflux won't use a Claude account's paid extra usage unless you allow it with `conflux overage <account> on`, and then only when no other account has room.
 
@@ -118,7 +120,7 @@ The first command prints the second one for you. If a move gets stuck, `conflux 
 
 ## Security
 
-Anyone who can reach the hub can use and manage your accounts and read synced transcripts. Account tokens are stored unencrypted in files on the hub, so protect that machine like you would a password manager.
+Anyone who can reach the hub can use and manage your accounts and read synced transcripts. Account tokens are stored unencrypted in files on the hub, so protect that machine like you would a password manager. `conflux leave` keeps them, so run `conflux remove <account>` first if you're done with a hub. After a hub move, the old hub keeps a copy in a `retired-*` folder under `~/.local/share/conflux`. Delete it once the move has worked.
 
 ## License
 
