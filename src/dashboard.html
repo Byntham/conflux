@@ -61,6 +61,8 @@
 
   .topbar { display: none; }
   main { padding: 26px 32px 56px; max-width: 1240px; width: 100%; margin: 0 auto; }
+  #view-overview .page-head { align-items: center; }
+  .first-run .hide-first-run { display: none; }
   .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
   h1 { margin: 0; font-size: 22px; line-height: 1.25; font-weight: 600; letter-spacing: -.02em; }
   h2 { margin: 0; font-size: 14.5px; font-weight: 600; letter-spacing: -.005em; }
@@ -107,14 +109,16 @@
   .stat-sub.warn, .stat-value.warn { color: var(--warn); }
 
   .accounts { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(430px, 100%), 1fr)); gap: 12px; }
-  .account { padding: 13px 14px 12px 16px; display: flex; flex-direction: column; min-width: 0; }
+  .account { padding: 13px 14px 14px 16px; display: flex; flex-direction: column; min-width: 0; }
   .account.off { background: transparent; box-shadow: none; }
-  .account.off .meters, .account.off .account-title, .account.blocked .meters { opacity: .5; }
-  .account > .meters, .account > .no-usage { margin-bottom: 12px; }
+  .account.off .track, .account.blocked .track { opacity: .45; }
+  .account.off .email { color: var(--fg-2); }
   .account-head { display: flex; align-items: flex-start; gap: 10px; }
   .account-title { flex: 1; min-width: 0; }
   .email { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .account-sub { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); margin-top: 1px; }
+  .account-sub { display: flex; align-items: center; flex-wrap: wrap; gap: 0 7px; font-size: 12.5px; color: var(--muted); margin-top: 1px; }
+  .meta::before { content: "·"; margin-right: 7px; }
+  .meta.warn { color: var(--warn); }
   .account-actions { display: flex; align-items: center; gap: 2px; margin: -3px -5px 0 0; }
   .pill { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 11px; font-size: 12px; font-weight: 500; white-space: nowrap; background: var(--raised); color: var(--fg-2); }
   .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
@@ -135,8 +139,6 @@
   .account-notes { display: flex; flex-wrap: wrap; gap: 3px 14px; margin-top: 11px; padding: 5px 9px; border-radius: 6px; background: var(--warn-soft); color: var(--warn); font-size: 12px; font-weight: 500; }
   .account-notes.bad { background: var(--bad-soft); color: var(--bad); }
   .chart-empty { padding: 26px 0 16px; text-align: center; font-size: 13px; color: var(--muted); }
-  .account-foot { display: flex; flex-wrap: wrap; gap: 3px 14px; margin-top: auto; padding-top: 9px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
-  .account-foot .warn { color: var(--warn); }
   .empty { padding: 34px 20px; text-align: center; color: var(--muted); }
   .empty strong { display: block; color: var(--fg); font-size: 14.5px; margin-bottom: 2px; }
   .empty .row { justify-content: center; margin-top: 14px; }
@@ -174,13 +176,13 @@
   tbody tr:hover td { background: var(--raised); }
   .code { display: inline-block; min-width: 38px; padding: 0 6px; border-radius: 5px; font-size: 12px; font-weight: 500; text-align: center; font-variant-numeric: tabular-nums; }
   .code.ok { color: var(--muted); font-weight: 400; }
-  .code.bad { background: var(--bad); color: var(--surface); }
+  .code.bad { background: var(--bad-soft); color: var(--bad); }
   tr.failed td { background: color-mix(in srgb, var(--bad) 7%, transparent); }
   tbody tr.failed:hover td { background: color-mix(in srgb, var(--bad) 11%, transparent); }
-  .log { max-height: calc(100vh - 124px); overflow: auto; }
+  .log { max-height: calc(100vh - 150px); overflow: auto; }
   .log th { position: sticky; top: 0; z-index: 1; background: var(--surface); box-shadow: inset 0 -1px var(--line); }
   .show-sm { display: none; }
-  .cell-sub { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+  .cell-sub { color: var(--muted); font-size: 12px; white-space: normal; }
   .machine-name { display: flex; align-items: center; gap: 9px; font-weight: 500; }
   .badge { padding: 0 6px; border-radius: 5px; font-size: 11.5px; font-weight: 500; background: var(--accent-soft); color: var(--accent); }
 
@@ -218,8 +220,8 @@
 
   .notice { display: flex; align-items: center; gap: 10px; padding: 10px 14px; margin-bottom: 12px; font-size: 13px; color: var(--fg-2); }
   .notice code { font-family: var(--mono); font-size: 12px; padding: 1px 5px; border-radius: 4px; background: var(--hover); }
-  #threads { display: flex; flex-direction: column; height: calc(100vh - 52px); min-height: 480px; }
-  main:has(#threads:not([hidden])) { padding-bottom: 26px; }
+  #view-threads { display: flex; flex-direction: column; height: calc(100vh - 52px); min-height: 480px; }
+  main:has(#view-threads:not([hidden])) { padding-bottom: 26px; }
   .threads-layout { flex: 1; display: grid; grid-template-columns: minmax(290px, 370px) minmax(0, 1fr); gap: 12px; align-items: stretch; min-height: 0; }
   .pane { min-height: 0; overflow-y: auto; }
   .list-head { padding: 9px 14px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; background: var(--surface); z-index: 1; }
@@ -238,6 +240,7 @@
   .threads-layout.no-list .viewer-pane { display: none; }
   .viewer-empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--muted); padding: 24px; text-align: center; }
   .viewer-empty svg { width: 26px; height: 26px; }
+  .viewer-empty strong { color: var(--fg); font-size: 14.5px; font-weight: 600; }
   .viewer-head { position: sticky; top: 0; z-index: 1; padding: 13px 18px 12px; background: var(--surface); border-bottom: 1px solid var(--line); display: flex; align-items: flex-start; gap: 8px; }
   .viewer-title { font-size: 15px; font-weight: 600; line-height: 1.35; letter-spacing: -.008em; }
   .viewer-meta { margin-top: 2px; font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
@@ -304,7 +307,6 @@
     main { padding: 18px 16px 92px; }
     .page-head { align-items: center; }
     h1 { font-size: 20px; }
-    #overview-sub { display: none; }
     .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .stat, .stat:nth-child(n+4) { grid-column: auto; padding: 11px 13px; }
     .stat:first-child { grid-column: span 2; }
@@ -314,11 +316,14 @@
     .account-head { flex-wrap: wrap; align-items: center; gap: 4px 8px; }
     .account-title { display: contents; }
     .email { flex: 0 0 100%; white-space: normal; overflow-wrap: break-word; }
-    .account-sub { margin: 0; }
-    .account-actions { margin: 0 -5px 0 auto; }
+    .account-sub { flex: 1 1 0; min-width: 0; margin: 0; }
+    .pill { margin-left: auto; }
+    .account-actions { margin: 0 -5px 0 0; }
     .alert-row { flex-wrap: wrap; align-items: flex-start; }
     .alert-text { flex: 1 1 calc(100% - 28px); }
     .alert-row .btn { margin-left: 27px; }
+    .alert-sep { display: none; }
+    .alert-part { display: block; }
     .panel .seg { display: flex; }
     .panel .seg button { flex: 1 1 auto; padding: 0 6px; }
     .show-sm { display: block; }
@@ -328,14 +333,14 @@
     th, td { padding-left: 8px; padding-right: 8px; }
     .log { max-height: none; overflow-x: auto; }
     #recent, #request-log { table-layout: fixed; }
-    #recent .when, #request-log .when { width: 74px; }
+    #recent .when, #request-log .when { display: none; }
     #recent .status, #request-log .status { width: 58px; }
-    #recent .lat, #request-log .lat { width: 66px; }
+    #recent .lat, #request-log .lat { width: 74px; }
     td.acct { max-width: none; }
-    .code-text { white-space: pre-wrap; overflow-wrap: anywhere; }
-    #threads { display: block; height: auto; min-height: 0; }
-    #threads:has(.viewing) .toolbar, #threads:has(.viewing) #sync-note { display: none; }
-    main:has(#threads:not([hidden])) { padding-bottom: 92px; }
+    .code-text { white-space: pre-wrap; overflow-wrap: break-word; }
+    #view-threads { display: block; height: auto; min-height: 0; }
+    #view-threads:has(.viewing) .toolbar, #view-threads:has(.viewing) #sync-note { display: none; }
+    main:has(#view-threads:not([hidden])) { padding-bottom: 92px; }
     .threads-layout { display: block; min-height: 0; }
     .threads-layout.viewing .list-pane { display: none; }
     .threads-layout:not(.viewing) .viewer-pane { display: none; }
@@ -387,16 +392,16 @@
       <div id="connection" class="alerts" hidden></div>
       <div class="unavailable" id="unavailable" hidden><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg><strong>Can't reach the hub</strong><span>Retrying every 5 seconds.</span></div>
 
-      <section id="overview" hidden>
+      <section id="view-overview" hidden>
         <div class="page-head">
-          <div><h1>Overview</h1><div class="page-sub" id="overview-sub"></div></div>
-          <div class="row">
+          <div><h1>Overview</h1></div>
+          <div class="row hide-first-run">
             <button class="btn" data-add="claude"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>Add Claude</button>
             <button class="btn" data-add="codex"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>Add Codex</button>
           </div>
         </div>
         <div class="alerts" id="alerts" hidden></div>
-        <div class="card stats" id="stats"></div>
+        <div class="card stats hide-first-run" id="stats"></div>
         <div class="section">
           <div class="section-head">
             <h2>Accounts</h2>
@@ -404,7 +409,7 @@
           </div>
           <div class="accounts" id="accounts"></div>
         </div>
-        <div class="section">
+        <div class="section hide-first-run">
           <div class="card chart-card">
             <div class="section-head" style="margin:0">
               <h2 id="chart-title">Requests per minute</h2>
@@ -413,13 +418,13 @@
             <div id="chart"></div>
           </div>
         </div>
-        <div class="section">
+        <div class="section hide-first-run">
           <div class="section-head"><h2>Recent requests</h2><a class="link" href="#requests" id="view-all">View all</a></div>
           <div class="card table-wrap"><table id="recent"></table></div>
         </div>
       </section>
 
-      <section id="requests" hidden>
+      <section id="view-requests" hidden>
         <div class="page-head">
           <div><h1>Requests</h1><div class="page-sub" id="requests-sub"></div></div>
           <div class="seg" role="group" aria-label="Filter requests">
@@ -430,7 +435,7 @@
         <div class="card table-wrap log"><table id="request-log"></table></div>
       </section>
 
-      <section id="machines" hidden>
+      <section id="view-machines" hidden>
         <div class="page-head"><div><h1>Machines</h1><div class="page-sub" id="machines-sub"></div></div></div>
         <div class="card table-wrap"><table id="machine-list"></table></div>
         <div class="panels">
@@ -455,7 +460,7 @@
         </div>
       </section>
 
-      <section id="threads" hidden>
+      <section id="view-threads" hidden>
         <div class="toolbar">
           <div class="search"><svg class="i" aria-hidden="true"><use href="#i-search"/></svg><input type="search" id="thread-search" placeholder="Search every transcript" aria-label="Search every transcript"></div>
           <span class="select"><select id="thread-machine" aria-label="Machine"><option value="">All machines</option></select></span>
@@ -590,7 +595,10 @@ function severity(a) {
 
 const accountKind = (a) => [providerName(a.provider), titleCase(a.plan)].filter(Boolean).join(" ");
 
-const breakableEmail = (v) => esc(v).replace("@", "<wbr>@");
+function breakableEmail(v) {
+  const [local, domain] = esc(v).split("@");
+  return domain === undefined ? local : `${local.replace(/\./g, ".<wbr>")}@${domain}`;
+}
 
 function statusPill(a) {
   if (a.needs_login) return '<span class="pill bad">Needs login</span>';
@@ -635,17 +643,17 @@ function renderNotes(a) {
   return blocks + (refreshFailed ? `<div class="account-notes bad"><span>Token refresh: ${esc(a.refresh)}</span></div>` : "");
 }
 
-function renderFoot(a, requests) {
-  const notes = [];
-  if (a.inflight) notes.push(`<span>${a.inflight} in flight</span>`);
+function accountMeta(a, requests) {
+  const parts = [];
+  if (a.plan) parts.push(`<span class="meta">${esc(titleCase(a.plan))}</span>`);
+  if (a.inflight) parts.push(`<span class="meta">${a.inflight} in flight</span>`);
   const cache = cacheTotals(requests.filter((r) => r.account === a.id));
-  if (cache.hit !== null) notes.push(`<span>Cache hit ${cache.hit}%</span>`);
-  if (usageStale(a)) notes.push(`<span class="warn">Usage checked ${esc(ago(a.usage.updated_at))}</span>`);
-  return notes.length ? `<div class="account-foot">${notes.join("")}</div>` : "";
+  if (cache.hit !== null) parts.push(`<span class="meta hide-sm">Cache hit ${cache.hit}%</span>`);
+  if (usageStale(a)) parts.push(`<span class="meta warn">Usage checked ${esc(ago(a.usage.updated_at))}</span>`);
+  return parts.join("");
 }
 
 function renderAccount(a, requests) {
-  const plan = a.plan ? `<span>·</span><span>${esc(titleCase(a.plan))}</span>` : "";
   const name = a.email || a.id;
   const refreshTitle = a.usage.updated_at ? `Refresh usage (checked ${ago(a.usage.updated_at)})` : "Refresh usage";
   const body = a.needs_login && !a.usage.windows.length
@@ -655,7 +663,7 @@ function renderAccount(a, requests) {
     <div class="account-head">
       <div class="account-title">
         <div class="email" title="${esc(name)}">${breakableEmail(name)}</div>
-        <div class="account-sub"><span class="dot ${esc(a.provider)}"></span><span>${esc(providerName(a.provider))}</span>${plan}</div>
+        <div class="account-sub"><span class="dot ${esc(a.provider)}"></span><span>${esc(providerName(a.provider))}</span>${accountMeta(a, requests)}</div>
       </div>
       ${statusPill(a)}
       <div class="account-actions">
@@ -665,7 +673,6 @@ function renderAccount(a, requests) {
     </div>
     ${renderNotes(a)}
     ${body}
-    ${renderFoot(a, requests)}
   </div>`;
 }
 
@@ -675,10 +682,10 @@ function renderAlerts(d) {
     rows.push(`<div class="alert-row warn" role="status">${icon("alert")}<div class="alert-text"><div class="alert-title">The hub is moving</div><div class="alert-detail">Requests are paused until it finishes.</div></div></div>`);
   }
   for (const a of d.accounts.filter((x) => x.needs_login)) {
-    rows.push(`<div class="alert-row">${icon("alert")}<div class="alert-text"><div class="alert-title">${esc(accountKind(a))} account needs a new login</div><div class="alert-detail">${breakableEmail(a.email || a.id)}. ${esc(a.needs_login)}</div></div><button class="btn" data-add="${esc(a.provider)}">Log in again</button></div>`);
+    rows.push(`<div class="alert-row">${icon("alert")}<div class="alert-text"><div class="alert-title">${esc(accountKind(a))} account needs a new login</div><div class="alert-detail"><span class="alert-part">${breakableEmail(a.email || a.id)}</span><span class="alert-sep"> · </span><span class="alert-part">${esc(a.needs_login)}</span></div></div><button class="btn" data-add="${esc(a.provider)}">Log in again</button></div>`);
   }
   for (const a of d.accounts.filter((x) => x.billing_blocked)) {
-    rows.push(`<div class="alert-row">${icon("alert")}<div class="alert-text"><div class="alert-title">${esc(accountKind(a))} account is billing blocked</div><div class="alert-detail">${breakableEmail(a.email || a.id)}. conflux skips it until a usage check shows quota again.</div></div><button class="btn" data-act="usage" data-id="${esc(a.id)}">Check usage</button></div>`);
+    rows.push(`<div class="alert-row">${icon("alert")}<div class="alert-text"><div class="alert-title">${esc(accountKind(a))} account is billing blocked</div><div class="alert-detail"><span class="alert-part">${breakableEmail(a.email || a.id)}</span><span class="alert-sep"> · </span><span class="alert-part">Skipped until a usage check shows quota again.</span></div></div><button class="btn" data-act="usage" data-id="${esc(a.id)}">Check usage</button></div>`);
   }
   $("alerts").hidden = !rows.length;
   setHtml("alerts", rows.join(""));
@@ -750,7 +757,7 @@ function requestTable(requests, full) {
     const via = full ? `<td class="hide-sm">${esc(r.transport)}</td>` : "";
     const write = full ? `<td class="num hide-sm">${tokens(r.usage.cache_write)}</td>` : "";
     const account = r.email || r.account;
-    return `<tr class="${r.status < 400 ? "" : "failed"}"><td class="when">${esc(ago(r.at))}</td><td class="hide-sm">${esc(r.machine)}</td><td class="acct" title="${esc(account)}">${esc(account)}<div class="cell-sub show-sm">${esc([r.machine, r.model].filter(Boolean).join(" · "))}</div></td><td class="mono hide-sm">${esc(r.model || "")}</td>${via}<td class="num status"><span class="code ${r.status < 400 ? "ok" : "bad"}">${r.status}</span></td><td class="num lat">${seconds(r.latency_ms)}</td><td class="num hide-sm">${tokens(r.usage.input)}</td><td class="num hide-sm">${tokens(r.usage.cache_read)}</td>${write}<td class="num hide-sm">${tokens(r.usage.output)}</td></tr>`;
+    return `<tr class="${r.status < 400 ? "" : "failed"}"><td class="when">${esc(ago(r.at))}</td><td class="hide-sm">${esc(r.machine)}</td><td class="acct" title="${esc(account)}">${esc(account)}<div class="cell-sub show-sm">${esc([r.machine, r.model].filter(Boolean).join(" · "))}</div></td><td class="mono hide-sm">${esc(r.model || "")}</td>${via}<td class="num status"><span class="code ${r.status < 400 ? "ok" : "bad"}">${r.status}</span></td><td class="num lat">${seconds(r.latency_ms)}<div class="cell-sub show-sm">${esc(ago(r.at))}</div></td><td class="num hide-sm">${tokens(r.usage.input)}</td><td class="num hide-sm">${tokens(r.usage.cache_read)}</td>${write}<td class="num hide-sm">${tokens(r.usage.output)}</td></tr>`;
   }).join("") : `<tr><td colspan="${span}"><div class="empty"><strong>No requests yet</strong>Requests appear here once a machine sends one through the hub.</div></td></tr>`;
   return `${head}<tbody>${rows}</tbody>`;
 }
@@ -811,8 +818,7 @@ function render(d) {
   document.body.classList.add("loaded");
   $("hub-line").textContent = `${d.hub.name} · v${d.hub.version}`;
   $("top-line").textContent = d.hub.name;
-  const ready = d.accounts.filter(isReady).length;
-  $("overview-sub").textContent = `${ready} of ${d.accounts.length} accounts ready on ${d.hub.name}`;
+  $("view-overview").classList.toggle("first-run", !d.accounts.length && !d.requests.length);
   renderAlerts(d);
   renderStats(d);
   renderAccounts(d);
@@ -845,7 +851,7 @@ const qs = (o) => new URLSearchParams(Object.entries(o).filter(([, v]) => v)).to
 
 function showView() {
   const name = currentView();
-  for (const view of VIEWS) $(view).hidden = view !== name;
+  for (const view of VIEWS) $(`view-${view}`).hidden = view !== name;
   document.querySelectorAll(".nav a").forEach((a) => {
     if (a.dataset.view === name) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
@@ -882,7 +888,7 @@ async function loadThreads() {
     const filtered = $("thread-machine").value || $("thread-errors").checked || $("thread-subagents").checked;
     setHtml("thread-pane", d.threads.length
       ? `<div class="list-head"><span>${count}</span></div>${d.threads.map(threadRow).join("")}`
-      : `<div class="empty"><strong>${filtered ? "No matching threads" : "No threads yet"}</strong>${filtered ? "Nothing matches these filters." : "Threads appear here once a machine syncs its transcripts."}</div>`);
+      : `<div class="viewer-empty"><strong>${filtered ? "No matching threads" : "No threads yet"}</strong><span>${filtered ? "Nothing matches these filters." : "Threads appear here once a machine syncs its transcripts."}</span></div>`);
   } catch (e) { showError(e); }
 }
 
