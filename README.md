@@ -9,7 +9,7 @@ You log in to your accounts once, on one always-on machine at home. Claude Code 
 ## What you get
 
 - **Less wasted quota.** New sessions start on an available account whose weekly limit resets soonest.
-- **Automatic failover.** When an account runs out, the next request moves to one that still has room.
+- **Automatic failover.** When an account runs out, conflux sends that request to one that still has room and keeps the session on it.
 - **Stable sessions.** A session stays on one account, which keeps its prompt cache working.
 - **A dashboard.** See every account's limits, your machines, and recent requests from any device on your Tailscale network.
 - **Optional thread history.** Collect Claude Code and Codex threads from the machines you choose, to read and search in one place.
@@ -76,7 +76,7 @@ conflux now runs in the background, and it has edited Claude Code's and Codex's 
 
 To check that it worked, start a new session on that machine and send a message. It appears under "Recent requests" on the dashboard.
 
-To update a machine later, run its install commands again.
+To update a machine later, run its install commands again, using the current hub's name if the hub has moved.
 
 On a system without a prebuilt binary, build it with Rust instead:
 
@@ -112,7 +112,7 @@ The first command prints the second one for you. Wait a minute before the third,
 
 ## Optional features
 
-**Thread history.** Run `conflux sync on` on each machine you want to collect from, to copy its Claude Code and Codex transcripts to `~/conflux/transcripts` on the hub. The dashboard's Threads tab lists and searches them, and you can point an agent at the folder to look for patterns. It's off by default because transcripts contain everything your agents have read.
+**Thread history.** Run `conflux sync on` on each machine you want to collect from, to copy its Claude Code and Codex transcripts to `~/conflux/transcripts` on the hub. The dashboard's Threads tab lists and searches them, and you can point an agent at the folder to look for patterns. It's off by default because transcripts contain everything your agents have read. `conflux sync off` stops it. Copies already on the hub stay until you delete them.
 
 **Extra usage.** conflux won't use a Claude account's paid extra usage unless you allow it with `conflux overage <account> on`, and then only when no other account has room.
 
