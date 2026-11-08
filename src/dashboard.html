@@ -31,7 +31,7 @@
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
   body:not(.loaded) main section { display: none; }
-  html { -webkit-text-size-adjust: 100%; }
+  html { -webkit-text-size-adjust: 100%; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; scrollbar-gutter: stable; }
   body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
   svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
   .mono { font-family: var(--mono); font-size: 12.5px; }
@@ -96,7 +96,7 @@
   .alert-row:first-child { border-top: 0; }
   .alert-row > svg { color: var(--bad); }
   .alert-row.warn > svg { color: var(--warn); }
-  .alert-text { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; }
+  .alert-text { flex: 1; min-width: 0; }
   .alert-title { font-weight: 500; color: var(--bad); overflow-wrap: break-word; }
   .alert-row.warn .alert-title { color: var(--warn); }
   .alert-detail { min-width: 0; font-size: 12.5px; color: var(--fg-2); overflow-wrap: break-word; }
@@ -118,9 +118,9 @@
   .account-head { display: flex; align-items: flex-start; gap: 10px; }
   .account-title { flex: 1; min-width: 0; }
   .email { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @media (min-width: 761px) { .email wbr { display: none; } }
   .account-sub { display: flex; align-items: center; flex-wrap: wrap; gap: 0 7px; font-size: 13px; color: var(--muted); margin-top: 1px; }
   .meta::before { content: "·"; margin-right: 7px; }
-  .needs-login-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
   .account-actions { display: flex; align-items: center; gap: 2px; margin: -3px -5px 0 0; }
   .pill { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 11px; font-size: 12px; font-weight: 500; white-space: nowrap; background: var(--raised); color: var(--fg-2); }
   .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
@@ -151,7 +151,7 @@
   .unavailable svg { width: 26px; height: 26px; color: var(--bad); margin-bottom: 8px; }
   .unavailable strong { color: var(--fg); font-size: 15px; font-weight: 600; }
   .chart-card { padding: 14px 16px 10px; }
-  .chart { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 10px; margin-top: 12px; }
+  .chart { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 10px; margin-top: 4px; }
   .y-axis { display: flex; flex-direction: column; justify-content: space-between; height: 108px; font-size: 11.5px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
   .y-axis span { line-height: 1; }
   .y-axis span:first-child { margin-top: -5px; } .y-axis span:last-child { margin-bottom: -5px; }
@@ -203,7 +203,7 @@
   .select { position: relative; display: inline-flex; }
   .select select { appearance: none; padding-right: 26px; }
   .select::after { content: ""; position: absolute; right: 11px; top: 11px; width: 6px; height: 6px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(45deg); pointer-events: none; }
-  .chip { display: inline-flex; align-items: center; gap: 6px; height: 31px; padding: 0 11px; border-radius: 7px; border: 1px solid var(--line-strong); background: transparent; color: var(--fg-2); font-size: 13px; font-weight: 500; cursor: pointer; user-select: none; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; height: 31px; padding: 0 11px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--fg); font-size: 13px; font-weight: 500; cursor: pointer; user-select: none; }
   .chip:hover { background: var(--hover); }
   .chip:has(input:checked)::before { content: ""; width: 8px; height: 4px; margin-top: -2px; border-left: 1.75px solid currentColor; border-bottom: 1.75px solid currentColor; transform: rotate(-45deg); }
   .chip input { position: absolute; opacity: 0; pointer-events: none; }
@@ -315,21 +315,24 @@
     h1 { font-size: 20px; }
     .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .stat, .stat:nth-child(n+4) { grid-column: auto; padding-top: 11px; padding-bottom: 11px; }
-    .stat:first-child { grid-column: span 2; }
+    .stat:first-child { grid-column: span 2; display: flex; align-items: baseline; gap: 8px; padding-top: 8px; padding-bottom: 8px; }
+    .stat:first-child .stat-value { font-size: 18px; margin: 0; }
+    .stat:first-child .stat-sub { margin: 0 0 0 auto; }
     .stat-value { font-size: 21px; }
     .meter { grid-template-columns: minmax(0, 1fr) auto 36px; grid-template-areas: "name reset pct" "track track track"; gap: 5px 8px; }
     .meter-name { grid-area: name; } .meter-reset { grid-area: reset; } .meter-pct { grid-area: pct; } .track { grid-area: track; }
     .account-head { flex-wrap: wrap; align-items: center; gap: 4px 8px; }
     .account-title { display: contents; }
-    .email { flex: 0 0 100%; white-space: normal; overflow-wrap: break-word; }
-    .account-sub { flex: 1 1 0; min-width: 0; margin: 0; }
+    .email { flex: 1 1 calc(100% - 96px); min-width: 0; white-space: normal; overflow-wrap: break-word; }
+    .account-sub { flex: 1 1 50%; min-width: 0; margin: 0; }
     .account-actions .icon-btn { width: 40px; height: 40px; }
     .account, .panel, .chart-card { padding-left: 14px; padding-right: 14px; }
     .stat, .stat:nth-child(n+4) { padding-left: 14px; padding-right: 14px; }
-    .pill { margin-left: auto; }
-    .account-actions { margin: 0 -5px 0 0; }
+    .account-sub { order: 3; }
+    .pill { order: 4; margin-left: auto; }
+    .account-actions { order: 2; margin: -8px -9px -4px 0; }
     .alert-row { flex-wrap: wrap; align-items: flex-start; }
-    .alert-text { flex: 1 1 calc(100% - 28px); display: block; }
+    .alert-text { flex: 1 1 calc(100% - 28px); }
     .alert-row .btn { margin-left: 27px; }
     .alert-sep { display: none; }
     .alert-part { display: block; }
@@ -349,7 +352,7 @@
     td.acct { max-width: none; }
     #view-threads { display: block; height: auto; min-height: 0; }
     #view-threads:has(.viewing) .toolbar, #view-threads:has(.viewing) #sync-note { display: none; }
-    main:has(#view-threads:not([hidden])) { padding-bottom: 92px; }
+    main:has(#view-threads:not([hidden])), main:has(#view-requests:not([hidden])) { padding-bottom: 92px; }
     .threads-layout { display: block; min-height: 0; }
     .threads-layout.viewing .list-pane { display: none; }
     .threads-layout:not(.viewing) .viewer-pane { display: none; }
@@ -419,11 +422,11 @@
           <div class="accounts" id="accounts"></div>
         </div>
         <div class="section hide-first-run">
-          <div class="card chart-card">
-            <div class="section-head" style="margin:0">
+            <div class="section-head">
               <h2 id="chart-title">Requests per minute</h2>
               <div class="section-note" id="chart-key"><span class="key"><i style="background:color-mix(in srgb, var(--accent) 62%, var(--surface))"></i>Succeeded</span><span class="key"><i style="background:var(--bad)"></i>Failed</span></div>
             </div>
+          <div class="card chart-card">
             <div id="chart"></div>
           </div>
         </div>
@@ -615,8 +618,7 @@ function statusPill(a) {
   if (!a.enabled) return '<span class="pill">Disabled</span>';
   const cooling = accountCooldown(a);
   if (cooling) return `<span class="pill warn" title="${esc(cooling.reason)}">Cooling ${esc(until(cooling.until))}</span>`;
-  const limited = a.cooldowns.some((c) => c.scope !== "account");
-  return `<span class="pill ok">${limited ? "Ready · limited" : "Ready"}</span>`;
+  return a.cooldowns.length ? '<span class="pill warn">Limited</span>' : '<span class="pill ok">Ready</span>';
 }
 
 function windowElapsed(w) {
@@ -666,7 +668,7 @@ function renderAccount(a, requests) {
   const name = a.email || a.id;
   const refreshTitle = a.usage.updated_at ? `Refresh usage (checked ${ago(a.usage.updated_at)})` : "Refresh usage";
   const body = a.needs_login && !a.usage.windows.length
-    ? `<div class="no-usage needs-login-row"><span>${esc(a.needs_login)}</span><button class="btn" data-add="${esc(a.provider)}">Log in again</button></div>`
+    ? `<div class="no-usage">${esc(a.needs_login)}</div>`
     : renderMeters(a);
   return `<div class="card account ${a.enabled ? "" : "off"} ${a.billing_blocked ? "blocked" : ""}">
     <div class="account-head">
@@ -691,7 +693,7 @@ function renderAlerts(d) {
     rows.push(`<div class="alert-row warn" role="status">${icon("alert")}<div class="alert-text"><div class="alert-title">The hub is moving</div><div class="alert-detail">Requests are paused until it finishes.</div></div></div>`);
   }
   for (const a of d.accounts.filter((x) => x.needs_login)) {
-    rows.push(`<div class="alert-row">${icon("alert")}<div class="alert-text"><div class="alert-title">${esc(accountKind(a))} account needs a new login</div><div class="alert-detail"><span class="alert-part">${breakableEmail(a.email || a.id)}</span><span class="alert-sep"> · </span><span class="alert-part">${esc(a.needs_login)}</span></div></div><button class="btn" data-add="${esc(a.provider)}">Log in again</button></div>`);
+    rows.push(`<div class="alert-row">${icon("alert")}<div class="alert-text"><div class="alert-title">${esc(accountKind(a))} account needs a new login</div><div class="alert-detail">${breakableEmail(a.email || a.id)}</div></div><button class="btn" data-add="${esc(a.provider)}">Log in again</button></div>`);
   }
   for (const a of d.accounts.filter((x) => x.billing_blocked)) {
     rows.push(`<div class="alert-row">${icon("alert")}<div class="alert-text"><div class="alert-title">${esc(accountKind(a))} account is billing blocked</div><div class="alert-detail"><span class="alert-part">${breakableEmail(a.email || a.id)}</span><span class="alert-sep"> · </span><span class="alert-part">Skipped until a usage check shows quota again.</span></div></div><button class="btn" data-act="usage" data-id="${esc(a.id)}">Check usage</button></div>`);
@@ -703,7 +705,7 @@ function renderAlerts(d) {
 }
 
 function stat(label, value, sub, subClass = "", valueClass = "") {
-  return `<div class="stat"><div class="stat-label">${esc(label)}</div><div class="stat-value ${valueClass}">${value}</div><div class="stat-sub ${subClass}">${esc(sub)}</div></div>`;
+  return `<div class="stat"><div class="stat-label">${esc(label)}</div><div class="stat-value ${valueClass}">${value}</div><div class="stat-sub ${subClass}">${sub}</div></div>`;
 }
 
 function renderStats(d) {
@@ -717,12 +719,12 @@ function renderStats(d) {
   const cache = cacheTotals(hour);
   const unavailable = d.accounts.filter((a) => a.enabled && !isReady(a)).length;
   const disabled = d.accounts.filter((a) => !a.enabled).length;
-  const accountParts = [unavailable && `${unavailable} unavailable`, disabled && `${disabled} disabled`].filter(Boolean);
+  const accountParts = [unavailable && `<span class="stat-sub bad" style="display:inline">${unavailable} unavailable</span>`, disabled && `${disabled} disabled`].filter(Boolean);
   const accountSub = !d.accounts.length ? "No accounts" : accountParts.join(" · ") || "All available";
   const failureRate = hour.length ? failed / hour.length : 0;
   const severityClass = failureRate >= 0.1 ? "bad" : failureRate >= 0.03 ? "warn" : "";
   setHtml("stats", [
-    stat("Accounts ready", d.accounts.length ? `${ready}<small> of ${d.accounts.length}</small>` : "0", accountSub, unavailable ? "bad" : ""),
+    stat("Accounts ready", d.accounts.length ? `${ready}<small> of ${d.accounts.length}</small>` : "0", accountSub, "", unavailable ? "bad" : ""),
     stat("Requests, last hour", hour.length.toLocaleString(), inflight ? `${inflight} in flight` : "None in flight"),
     stat("Success rate", success, hour.length ? (failed ? `${failed} failed` : "No failures") : "No requests", severityClass, severityClass),
     stat("Median latency", latencies.length ? seconds(percentile(latencies, 0.5)) : "–", latencies.length ? `p95 ${seconds(percentile(latencies, 0.95))}` : "No requests"),
