@@ -196,7 +196,7 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, path: S
         let sent_generation = account.credentials().generation;
         match connect(&app, &account, &headers, &url).await {
             Ok(ws) => break (ws, account),
-            Err(ConnectError::Rejected { status: 401, .. }) if refreshed.insert(account.id.clone()) => {
+            Err(ConnectError::Rejected { status: 401, body, .. }) if refreshed.insert(account.id.clone()) => {
                 if app.refresher.refresh_rejected(&account, sent_generation).await != RefreshResult::Refreshed {
                     app.router.cool(
                         &account.id,
@@ -205,6 +205,7 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, path: S
                         "upstream 401",
                     );
                     tried.insert(account.id.clone());
+                    last_rejection = Some(error_frame(401, "server_error", &String::from_utf8_lossy(&body), None));
                 }
             }
             Err(ConnectError::Rejected {

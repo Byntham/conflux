@@ -2,7 +2,7 @@ mod common;
 
 use std::time::Duration;
 
-use common::{Harness, WsScript};
+use common::{Harness, Reply, WsScript};
 use conflux::accounts::Provider;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
@@ -98,6 +98,23 @@ async fn handshake_quota_rejection_fails_over() {
     next_json(&mut ws).await.unwrap();
     assert_eq!(next_json(&mut ws).await.unwrap()["response"]["token"], second);
     assert_eq!(h.app.router.cooldowns(first_id).len(), 1);
+}
+
+#[tokio::test]
+async fn handshake_401_with_a_failed_refresh_reports_the_401() {
+    let h = Harness::new().await;
+    h.add(Provider::Codex, "a").await;
+    h.ws_script("at-a", WsScript::RejectHandshake401);
+    h.fake
+        .refresh_replies
+        .lock()
+        .unwrap()
+        .push_back(Reply::Json(503, vec![], "busy".into()));
+    let mut ws = open(&h, &[]).await.unwrap();
+    ws.send(create("m")).await.unwrap();
+    let frame = next_json(&mut ws).await.unwrap();
+    assert_eq!(frame["status"], 401);
+    assert_eq!(frame["error"]["message"], "token revoked");
 }
 
 #[tokio::test]
