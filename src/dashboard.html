@@ -741,7 +741,6 @@ function renderNotes(a) {
 function accountMeta(a, requests) {
   const parts = [];
   if (a.plan) parts.push(`<span class="meta">${esc(titleCase(a.plan))}</span>`);
-  if (a.inflight) parts.push(`<span class="meta">${a.inflight} in flight</span>`);
   const cache = cacheTotals(requests.filter((r) => r.account === a.id));
   if (cache.hit !== null) parts.push(`<span class="meta hide-sm">Cache hit ${cache.hit}%</span>`);
   return parts.join("");
@@ -804,10 +803,10 @@ function stat(label, value, sub, subClass = "", valueClass = "") {
 
 function renderStats(d) {
   const ready = d.accounts.filter(isReady).length;
-  const inflight = d.accounts.reduce((n, a) => n + a.inflight, 0);
   const now = Date.now();
   const hour = d.requests.filter((r) => now - new Date(r.at) < HOUR_MS);
   const failed = hour.filter((r) => r.status >= 400).length;
+  const accountsUsed = new Set(hour.map((r) => r.account)).size;
   const capped = hour.length >= REQUEST_LOG_SIZE;
   const success = hour.length ? `${(((hour.length - failed) / hour.length) * 100).toFixed(1)}%` : "–";
   const latencies = hour.filter((r) => r.status < 400).map((r) => r.latency_ms).sort((x, y) => x - y);
@@ -821,7 +820,7 @@ function renderStats(d) {
   const severityClass = failureRate >= 0.1 ? "bad" : failureRate >= 0.03 ? "warn" : "";
   setHtml("stats", [
     stat("Accounts available", d.accounts.length ? `${ready}<small> of ${d.accounts.length}</small>` : "0", accountSub, "", blocked || (d.accounts.length && !ready) ? "bad" : cooling ? "warn" : ""),
-    stat("Requests, last hour", `${hour.length.toLocaleString()}${capped ? "+" : ""}`, inflight ? `${inflight} in flight` : "None in flight"),
+    stat("Requests, last hour", `${hour.length.toLocaleString()}${capped ? "+" : ""}`, hour.length ? `Across ${accountsUsed} account${accountsUsed === 1 ? "" : "s"}` : "No requests"),
     stat("Success rate", success, hour.length ? (failed ? `${failed} failed` : "No failures") : "No requests", severityClass, severityClass),
     stat("Median latency", latencies.length ? seconds(percentile(latencies, 0.5)) : "–", latencies.length ? `p95 ${seconds(percentile(latencies, 0.95))}` : "No requests"),
     stat("Cache hit", cache.hit === null ? "–" : `${cache.hit}%`, cache.hit === null ? "No requests" : `${tokens(cache.read)} tokens read`),

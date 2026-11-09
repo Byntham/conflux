@@ -24,7 +24,6 @@ use crate::proxy;
 const CODE_LIFETIME: Duration = Duration::from_secs(600);
 const MAX_CODE_ATTEMPTS: u32 = 5;
 const CODE_ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const HTTP_DRAIN: Duration = Duration::from_secs(120);
 
 pub struct MoveCode {
     code: String,
@@ -177,10 +176,6 @@ pub async fn prepare(State(app): State<Arc<App>>, Json(req): Json<Prepare>) -> R
     app.refresher.close_gate().await;
     app.usage.set_paused(true);
     let _ = app.ws_shutdown.send(true);
-    let deadline = Instant::now() + HTTP_DRAIN;
-    while app.router.total_inflight() > 0 && Instant::now() < deadline {
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
     match export_accounts(app.store.dir()) {
         Ok(files) => Json(Bundle {
             id: req.id,

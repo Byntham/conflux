@@ -7,7 +7,6 @@ use serde::Serialize;
 use crate::accounts::{AccountEntry, Provider, Store};
 use crate::usage::{Snapshot, Usage};
 
-pub const MAX_INFLIGHT: usize = 8;
 const PIN_TTL: chrono::Duration = chrono::Duration::hours(1);
 const MAX_WINDOW: chrono::Duration = chrono::Duration::hours(7 * 24 + 1);
 const ACCOUNT_SCOPE: &str = "account";
@@ -46,7 +45,6 @@ impl BillingBlock {
 struct State {
     cooldowns: HashMap<String, HashMap<String, Cooldown>>,
     pins: HashMap<String, (String, DateTime<Utc>)>,
-    inflight: HashMap<String, usize>,
     billing_blocked: HashMap<String, BillingBlock>,
     response_owner: HashMap<String, (String, DateTime<Utc>)>,
 }
@@ -57,30 +55,9 @@ pub struct Router {
     state: Mutex<State>,
 }
 
-pub struct Lease {
-    pub account: Arc<AccountEntry>,
-    router: Arc<Router>,
-}
-
-impl Lease {
-    pub fn router(&self) -> Arc<Router> {
-        self.router.clone()
-    }
-}
-
-impl Drop for Lease {
-    fn drop(&mut self) {
-        let mut st = self.router.state.lock().unwrap();
-        if let Some(n) = st.inflight.get_mut(&self.account.id) {
-            *n = n.saturating_sub(1);
-        }
-    }
-}
-
 #[derive(Debug, PartialEq)]
 pub enum NoAccount {
     NoneConfigured,
-    Busy,
     AllLimited(Option<DateTime<Utc>>),
 }
 
@@ -105,7 +82,7 @@ impl Router {
         until
     }
 
-    pub fn pick(self: &Arc<Self>, req: &RouteRequest, tried: &HashSet<String>) -> Result<Lease, NoAccount> {
+    pub fn pick(&self, req: &RouteRequest, tried: &HashSet<String>) -> Result<Arc<AccountEntry>, NoAccount> {
         let now = Utc::now();
         let model = req.model.as_deref();
         let mut st = self.state.lock().unwrap();
@@ -116,7 +93,6 @@ impl Router {
         let mut soonest: Option<DateTime<Utc>> = None;
         let mut eligible = Vec::new();
         let mut overage_pool = Vec::new();
-        let mut busy = false;
 
         for e in self.store.all() {
             if req.provider.is_some_and(|p| p != e.provider) {
@@ -138,10 +114,6 @@ impl Router {
             }
             if let Some(until) = Self::cooling(&st, &e.id, model, now) {
                 soonest = Some(soonest.map_or(until, |s| s.min(until)));
-                continue;
-            }
-            if st.inflight.get(&e.id).copied().unwrap_or(0) >= MAX_INFLIGHT {
-                busy = true;
                 continue;
             }
             let fresh = snap.is_fresh(now);
@@ -167,8 +139,6 @@ impl Router {
         if eligible.is_empty() {
             return Err(if !any_configured {
                 NoAccount::NoneConfigured
-            } else if busy {
-                NoAccount::Busy
             } else {
                 NoAccount::AllLimited(soonest)
             });
@@ -218,13 +188,9 @@ impl Router {
         if let Some(k) = pin_key {
             st.pins.insert(k, (chosen.id.clone(), now));
         }
-        *st.inflight.entry(chosen.id.clone()).or_default() += 1;
         drop(st);
         self.usage.mark_used(&chosen.id);
-        Ok(Lease {
-            account: chosen,
-            router: self.clone(),
-        })
+        Ok(chosen)
     }
 
     pub fn cool(&self, account: &str, scope: &str, until: DateTime<Utc>, reason: &str) {
@@ -289,14 +255,6 @@ impl Router {
         let st = self.state.lock().unwrap();
         let block = st.billing_blocked.get(account)?;
         (!block.cleared_by(&snap, now)).then(|| block.reason.clone())
-    }
-
-    pub fn total_inflight(&self) -> usize {
-        self.state.lock().unwrap().inflight.values().sum()
-    }
-
-    pub fn inflight(&self, account: &str) -> usize {
-        self.state.lock().unwrap().inflight.get(account).copied().unwrap_or(0)
     }
 }
 
@@ -369,8 +327,8 @@ mod tests {
             provider: Some(Provider::Claude),
             ..Default::default()
         };
-        let lease = router.pick(&req, &HashSet::new()).unwrap();
-        assert_eq!(lease.account.id, id(Provider::Claude, "b"));
+        let account = router.pick(&req, &HashSet::new()).unwrap();
+        assert_eq!(account.id, id(Provider::Claude, "b"));
     }
 
     #[test]
@@ -387,11 +345,11 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            router.pick(&req, &HashSet::new()).unwrap().account.id,
+            router.pick(&req, &HashSet::new()).unwrap().id,
             id(Provider::Claude, "b")
         );
         let tried: HashSet<_> = [id(Provider::Claude, "b")].into();
-        assert_eq!(router.pick(&req, &tried).unwrap().account.id, id(Provider::Claude, "c"));
+        assert_eq!(router.pick(&req, &tried).unwrap().id, id(Provider::Claude, "c"));
     }
 
     #[test]
@@ -404,12 +362,12 @@ mod tests {
             session: Some("s1".into()),
             ..Default::default()
         };
-        let first = router.pick(&req, &HashSet::new()).unwrap().account.id.clone();
+        let first = router.pick(&req, &HashSet::new()).unwrap().id.clone();
         usage.set(&id(Provider::Claude, "a"), snap(1, 0.0, 0.0));
-        assert_eq!(router.pick(&req, &HashSet::new()).unwrap().account.id, first);
+        assert_eq!(router.pick(&req, &HashSet::new()).unwrap().id, first);
         router.unpin(Provider::Claude, "s1");
         assert_eq!(
-            router.pick(&req, &HashSet::new()).unwrap().account.id,
+            router.pick(&req, &HashSet::new()).unwrap().id,
             id(Provider::Claude, "a")
         );
     }
@@ -427,9 +385,9 @@ mod tests {
             previous_response_id: Some("resp_1".into()),
             ..Default::default()
         };
-        assert_eq!(router.pick(&req, &HashSet::new()).unwrap().account.id, a);
+        assert_eq!(router.pick(&req, &HashSet::new()).unwrap().id, a);
         let tried: HashSet<_> = [a.clone()].into();
-        assert_eq!(router.pick(&req, &tried).unwrap().account.id, b);
+        assert_eq!(router.pick(&req, &tried).unwrap().id, b);
     }
 
     #[test]
@@ -495,7 +453,7 @@ mod tests {
             provider: Some(Provider::Claude),
             ..Default::default()
         };
-        assert_eq!(router.pick(&req, &HashSet::new()).unwrap().account.id, b);
+        assert_eq!(router.pick(&req, &HashSet::new()).unwrap().id, b);
         let tried: HashSet<_> = [b.clone()].into();
         assert!(router.pick(&req, &tried).is_err());
         store
@@ -503,8 +461,8 @@ mod tests {
             .unwrap()
             .update_settings(|s| s.allow_overage = true)
             .unwrap();
-        assert_eq!(router.pick(&req, &HashSet::new()).unwrap().account.id, b);
-        assert_eq!(router.pick(&req, &tried).unwrap().account.id, a);
+        assert_eq!(router.pick(&req, &HashSet::new()).unwrap().id, b);
+        assert_eq!(router.pick(&req, &tried).unwrap().id, a);
     }
 
     #[test]
@@ -525,8 +483,8 @@ mod tests {
             .unwrap()
             .update_settings(|s| s.allow_overage = true)
             .unwrap();
-        assert_eq!(router.pick(&req, &HashSet::new()).unwrap().account.id, b);
-        assert_eq!(router.pick(&req, &without_b).unwrap().account.id, a);
+        assert_eq!(router.pick(&req, &HashSet::new()).unwrap().id, b);
+        assert_eq!(router.pick(&req, &without_b).unwrap().id, a);
     }
 
     #[test]
@@ -546,21 +504,6 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(2));
         usage.set(&a, snap(100, 10.0, 10.0));
         assert!(router.billing_blocked(&a).is_none());
-        assert!(router.pick(&req, &HashSet::new()).is_ok());
-    }
-
-    #[test]
-    fn inflight_limit_and_release() {
-        let (_d, _s, _u, router) = setup(&[("a", Provider::Codex)]);
-        let req = RouteRequest {
-            provider: Some(Provider::Codex),
-            ..Default::default()
-        };
-        let leases: Vec<_> = (0..MAX_INFLIGHT)
-            .map(|_| router.pick(&req, &HashSet::new()).unwrap())
-            .collect();
-        assert!(router.pick(&req, &HashSet::new()).is_err());
-        drop(leases);
         assert!(router.pick(&req, &HashSet::new()).is_ok());
     }
 

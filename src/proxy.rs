@@ -15,7 +15,7 @@ use crate::accounts::{AccountEntry, Provider};
 use crate::app::App;
 use crate::refresh::RefreshResult;
 use crate::requests::{self, BodyScanner, RequestRecord, ResponseTap, TokenUsage};
-use crate::router::{self, Lease, NoAccount, RouteRequest};
+use crate::router::{self, NoAccount, RouteRequest};
 
 pub const MAX_REQUEST_BODY: usize = 32 * 1024 * 1024;
 const MAX_REJECTION_BODY: usize = 1024 * 1024;
@@ -356,21 +356,12 @@ fn no_account_response(provider: Provider, why: NoAccount) -> Response {
             "api_error",
             &format!("conflux: no {provider} account is logged in on the hub. Run `conflux login {provider}` there."),
         ),
-        NoAccount::Busy => provider_error(
-            provider,
-            StatusCode::SERVICE_UNAVAILABLE,
-            match provider {
-                Provider::Claude => "overloaded_error",
-                Provider::Codex => "server_error",
-            },
-            &format!("conflux: every {provider} account is busy. Try again shortly."),
-        ),
         NoAccount::AllLimited(soonest) => {
             let now = Utc::now();
             let secs = soonest.map(|t| (t - now).num_seconds().max(1));
             let message = match soonest {
                 Some(t) => format!("conflux: every {provider} account is rate limited. The soonest frees up at {t}."),
-                None => format!("conflux: every {provider} account is busy or rate limited."),
+                None => format!("conflux: every {provider} account is rate limited."),
             };
             let body = match provider {
                 Provider::Claude => json!({"type": "error", "error": {"type": "rate_limit_error", "message": message}}),
@@ -516,14 +507,13 @@ pub async fn handle(State(app): State<Arc<App>>, req: Request) -> Response {
     let mut tried = HashSet::new();
     let mut last_rejection: Option<Response> = None;
     loop {
-        let lease = match app.router.pick(&route, &tried) {
-            Ok(l) => l,
+        let account = match app.router.pick(&route, &tried) {
+            Ok(a) => a,
             Err(why) => return last_rejection.unwrap_or_else(|| no_account_response(provider, why)),
         };
         if !app.accepting_requests() {
             return provider_error(provider, StatusCode::SERVICE_UNAVAILABLE, "api_error", HUB_NOT_ACTIVE);
         }
-        let account = lease.account.clone();
         tried.insert(account.id.clone());
         let sent_generation = account.credentials().generation;
 
@@ -625,17 +615,17 @@ pub async fn handle(State(app): State<Arc<App>>, req: Request) -> Response {
             provider,
             record,
             app.requests.clone(),
-            lease.router(),
+            app.router.clone(),
             account.id.clone(),
         );
-        return stream_response(resp, lease, tap);
+        return stream_response(resp, tap);
     }
 }
 
-fn stream_response(resp: reqwest::Response, lease: Lease, mut tap: ResponseTap) -> Response {
+fn stream_response(resp: reqwest::Response, mut tap: ResponseTap) -> Response {
     let status = resp.status();
     let headers = forward_response_headers(resp.headers());
-    let stream = guarded_stream(resp.bytes_stream(), lease, move |chunk| tap.feed(chunk));
+    let stream = guarded_stream(resp.bytes_stream(), move |chunk| tap.feed(chunk));
     let mut r = Response::builder().status(status);
     if let Some(h) = r.headers_mut() {
         *h = headers;
@@ -643,15 +633,15 @@ fn stream_response(resp: reqwest::Response, lease: Lease, mut tap: ResponseTap) 
     r.body(Body::from_stream(stream)).expect("valid response")
 }
 
-fn guarded_stream<S, F>(inner: S, lease: Lease, mut on_chunk: F) -> impl Stream<Item = Result<Bytes, std::io::Error>>
+fn guarded_stream<S, F>(inner: S, mut on_chunk: F) -> impl Stream<Item = Result<Bytes, std::io::Error>>
 where
     S: Stream<Item = Result<Bytes, reqwest::Error>> + Unpin + Send + 'static,
     F: FnMut(&[u8]) + Send + 'static,
 {
-    futures_util::stream::unfold(Some((inner, lease)), |state| async move {
-        let (mut inner, lease) = state?;
+    futures_util::stream::unfold(Some(inner), |state| async move {
+        let mut inner = state?;
         match tokio::time::timeout(STREAM_IDLE_TIMEOUT, inner.next()).await {
-            Ok(Some(Ok(chunk))) => Some((Ok(chunk), Some((inner, lease)))),
+            Ok(Some(Ok(chunk))) => Some((Ok(chunk), Some(inner))),
             Ok(Some(Err(e))) => Some((Err(std::io::Error::other(e)), None)),
             Ok(None) => None,
             Err(_) => Some((
