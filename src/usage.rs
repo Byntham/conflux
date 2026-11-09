@@ -26,7 +26,6 @@ pub struct Window {
 pub struct Snapshot {
     pub windows: Vec<Window>,
     pub overage_in_use: bool,
-    pub extra_usage: Option<Value>,
     pub updated_at: Option<DateTime<Utc>>,
 }
 
@@ -164,9 +163,6 @@ pub fn parse_claude_usage(v: &Value, now: DateTime<Utc>) -> Snapshot {
                 model_scope: Some(name.to_string()),
             });
         }
-    }
-    if !v["extra_usage"].is_null() {
-        s.extra_usage = Some(v["extra_usage"].clone());
     }
     s.updated_at = Some(now);
     s
@@ -365,7 +361,6 @@ mod tests {
         let s = parse_claude_usage(&c, now);
         assert_eq!(s.windows.len(), 3);
         assert_eq!(s.shared_windows().count(), 2);
-        assert!(s.extra_usage.is_some());
 
         let x = serde_json::json!({"rate_limit": {
             "primary_window": {"used_percent": 5, "reset_at": 1900000000, "limit_window_seconds": 18000},
