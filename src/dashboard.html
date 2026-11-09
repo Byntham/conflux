@@ -24,7 +24,7 @@
       --bg: #000000; --sidebar: #000000; --surface: #0f0f10; --raised: #161618; --hover: #1c1c1f; --selected: #1c1c1f; --line: #1f1f22; --line-strong: #303034;
       --fg: #f4f4f5; --fg-2: #c6c6cc; --muted: #a1a1aa;
       --brand: #4fb8cc; --accent: #6cc7d9; --accent-soft: #10292f; --primary: #f4f4f5; --primary-fg: #0a0a0b;
-      --track: #232326; --fill: #a1a1aa; --bubble: #242427; --seg-on: #2c2c30; --popover: #1a1a1c; --row-on: #242427; --fail-mix: 14%;
+      --track: #232326; --fill: #a1a1aa; --bubble: #242427; --seg-on: #2c2c30; --popover: #1a1a1c; --row-on: #242427; --fail-mix: 10%;
       --ok: #34d399; --warn: #fbbf24; --warn-soft: #2c2108; --warn-fill: #f59e0b; --bad: #f87171; --bad-fill: #e5484d; --bad-soft: #321414;
       --claude: #d4764c; --codex: #8086ec;
       --shadow: none;
@@ -115,6 +115,7 @@
   .stat-value small { font-size: 14px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
   .stat-sub { margin-top: 3px; font-size: 12px; color: var(--muted); }
   .stat-sub.nb { margin: 0; }
+  .sub-list { display: flex; flex-wrap: wrap; gap: 0 7px; }
   .stat-sub.bad, .stat-value.bad { color: var(--bad); }
   .stat-sub.warn, .stat-value.warn { color: var(--warn); }
 
@@ -133,10 +134,9 @@
   .account-actions { display: flex; align-items: center; gap: 2px; margin: -3px -5px 0 0; }
   .pill { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0; border-radius: 11px; font-size: 12px; font-weight: 500; white-space: nowrap; color: var(--muted); }
   .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-  .pill.ok { color: var(--ok); }
+  .pill.ok::before { background: var(--ok); }
   .pill.warn { padding: 0 9px; background: var(--warn-soft); color: var(--warn); }
   .pill.bad { padding: 0 9px; background: var(--bad-soft); color: var(--bad); }
-  .pill.limited { color: var(--warn); }
   .meters { display: grid; gap: 9px; margin-top: 13px; }
   .meter { display: grid; grid-template-columns: 92px minmax(40px, 1fr) 38px 104px; align-items: center; gap: 10px; font-size: 13px; }
   .meter-name { color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -217,6 +217,7 @@
   .cell-sub { color: var(--muted); font-size: 12px; white-space: normal; }
   .machine-name { display: flex; align-items: center; gap: 9px; font-weight: 500; }
   .status-cell { display: inline-flex; align-items: center; gap: 8px; }
+  .status-cell .dot { box-shadow: none; }
   .badge { padding: 0 6px; border-radius: 5px; font-size: 11.5px; font-weight: 500; background: var(--hover); color: var(--fg-2); }
 
   .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -297,7 +298,7 @@
   .msg-who { font-size: 12px; font-weight: 500; color: var(--muted); margin-bottom: 1px; }
   .msg.user { align-self: flex-end; max-width: min(620px, 88%); padding: 8px 12px 9px; border-radius: 12px 12px 4px 12px; background: var(--bubble); }
   .tool { max-width: 760px; border: 1px solid var(--line); border-radius: 8px; background: var(--raised); font-size: 12.5px; }
-  .tool.failed { border-color: color-mix(in srgb, var(--bad) 55%, var(--line)); }
+  .tool.failed { border-color: color-mix(in srgb, var(--bad) 30%, var(--line)); }
   .tool summary { display: flex; align-items: center; gap: 8px; padding: 6px 10px; cursor: pointer; list-style: none; min-width: 0; }
   .tool summary::-webkit-details-marker { display: none; }
   .tool summary::after { content: ""; flex: none; margin-left: 2px; width: 6px; height: 6px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(-45deg); transition: transform .12s; }
@@ -308,7 +309,6 @@
   .tool[open] .tool-preview { visibility: hidden; }
   .tool pre { margin: 0; padding: 9px 11px 10px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 420px; overflow-y: auto; }
   .tool pre + pre { border-top-style: dashed; }
-  .tool.failed pre { border-color: color-mix(in srgb, var(--bad) 28%, var(--line)); }
 
   dialog#modal { width: min(460px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--popover); color: var(--fg); box-shadow: var(--shadow-pop); }
   dialog#modal::backdrop { background: var(--backdrop); backdrop-filter: blur(3px); }
@@ -333,6 +333,7 @@
   #toast.bad { background: var(--bad-fill); color: #ffffff; }
 
   @media (min-width: 761px) {
+    .sub-list > span + span::before { content: "·"; margin-right: 7px; color: var(--muted); }
     .note + .note::before { content: "·"; margin-right: 7px; color: var(--muted); font-weight: 400; }
     #recent, #request-log { table-layout: fixed; min-width: 960px; }
     #request-log { min-width: 1120px; }
@@ -345,7 +346,7 @@
     .col-via { width: 52px; }
     #recent th.status, #request-log th.status { width: 60px; }
     #recent th.lat, #request-log th.lat { width: 72px; }
-    .col-tokens { width: 88px; }
+    .col-tokens { width: 96px; }
     #recent td, #request-log td { overflow: hidden; text-overflow: ellipsis; }
   }
   @media (hover: hover) {
@@ -384,7 +385,8 @@
     .account-sub { grid-area: sub; min-width: 0; margin: 0; }
     .account-actions .icon-btn { width: 40px; height: 40px; }
     .account, .panel { padding-left: 14px; padding-right: 14px; }
-    .pill { grid-area: pill; justify-self: end; }
+    .pill { grid-area: pill; justify-self: end; align-self: start; }
+    .page-head .btn { height: 40px; }
     .account-actions { grid-area: actions; justify-self: end; margin: -8px -9px -8px 0; }
     .alert-row { flex-wrap: wrap; align-items: flex-start; }
     .alert-text { flex: 1 1 calc(100% - 28px); }
@@ -693,7 +695,9 @@ function statusPill(a) {
   if (!a.enabled) return '<span class="pill">Disabled</span>';
   const cooling = accountCooldown(a);
   if (cooling) return `<span class="pill warn" title="${esc(cooling.reason)}">Cooling ${esc(until(cooling.until))}</span>`;
-  return a.cooldowns.length ? '<span class="pill limited">Limited</span>' : '<span class="pill ok">Ready</span>';
+  if (!a.cooldowns.length) return '<span class="pill ok">Ready</span>';
+  const n = a.cooldowns.length;
+  return `<span class="pill warn">${n} ${n === 1 ? "model" : "models"} cooling</span>`;
 }
 
 function windowElapsed(w) {
@@ -724,7 +728,6 @@ function renderNotes(a) {
   for (const c of a.cooldowns) {
     if (c.scope !== "account") notes.push(`<span class="note" title="${esc(c.reason)}">${esc(c.scope.replace("model:", ""))} cooling ${esc(until(c.until))}</span>`);
   }
-  if (a.billing_blocked) notes.push('<span class="note quiet">Skipped until a usage check shows quota again</span>');
   if (a.usage.overage_in_use) notes.push('<span class="note info">Using extra usage</span>');
   if (usageStale(a)) notes.push(`<span class="note quiet">Usage checked ${esc(ago(a.usage.updated_at))}</span>`);
   if (a.refresh !== "ok" && !a.needs_login) notes.push(`<span class="note bad">Token refresh: ${esc(a.refresh)}</span>`);
@@ -744,8 +747,10 @@ function loginButton(a) {
   return `<button class="btn" data-add="${esc(a.provider)}" data-email="${esc(a.email || "")}">Log in again</button>`;
 }
 
-function renderLoginRow(a) {
-  return `<div class="account-login"><span>${esc(a.needs_login)}</span>${loginButton(a)}</div>`;
+function renderActionRow(a) {
+  if (a.needs_login) return `<div class="account-login"><span>${esc(a.needs_login)}</span>${loginButton(a)}</div>`;
+  if (a.billing_blocked) return `<div class="account-login"><span>Skipped until a usage check shows quota again.</span><button class="btn" data-act="usage" data-id="${esc(a.id)}">Check usage</button></div>`;
+  return "";
 }
 
 function renderAccount(a, requests) {
@@ -766,7 +771,7 @@ function renderAccount(a, requests) {
     </div>
     ${body}
     ${renderNotes(a)}
-    ${a.needs_login ? renderLoginRow(a) : ""}
+    ${renderActionRow(a)}
   </div>`;
 }
 
@@ -806,7 +811,7 @@ function renderStats(d) {
   const cooling = d.accounts.filter((a) => a.enabled && !a.needs_login && !a.billing_blocked && accountCooldown(a)).length;
   const disabled = d.accounts.filter((a) => !a.enabled).length;
   const accountParts = [blocked && `<span class="stat-sub bad nb">${blocked} blocked</span>`, cooling && `<span class="stat-sub warn nb">${cooling} cooling</span>`, disabled && `<span class="nb">${disabled} disabled</span>`].filter(Boolean);
-  const accountSub = !d.accounts.length ? "No accounts" : accountParts.join(" · ") || "All available";
+  const accountSub = !d.accounts.length ? "No accounts" : accountParts.length ? `<span class="sub-list">${accountParts.join("")}</span>` : "All available";
   const failureRate = hour.length ? failed / hour.length : 0;
   const severityClass = failureRate >= 0.1 ? "bad" : failureRate >= 0.03 ? "warn" : "";
   setHtml("stats", [
