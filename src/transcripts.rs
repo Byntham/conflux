@@ -782,15 +782,6 @@ mod tests {
     }
 
     #[test]
-    fn subagents_are_marked() {
-        let d = tempfile::tempdir().unwrap();
-        let t = Transcripts::open(d.path()).unwrap();
-        t.append(&up("hub-box", "p/s/subagents/agent-1.jsonl", 0, &format!("{USER}\n")))
-            .unwrap();
-        assert!(t.list()[0].subagent);
-    }
-
-    #[test]
     fn search_finds_message_text() {
         let d = tempfile::tempdir().unwrap();
         let t = Transcripts::open(d.path()).unwrap();

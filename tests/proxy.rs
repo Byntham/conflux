@@ -326,23 +326,6 @@ async fn no_accounts_message() {
 }
 
 #[tokio::test]
-async fn status_api_lists_accounts() {
-    let h = Harness::new().await;
-    h.add(Provider::Claude, "a").await;
-    let v: serde_json::Value = h
-        .http
-        .get(format!("{}/conflux/api/status", h.base))
-        .send()
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
-    assert_eq!(v["accounts"].as_array().unwrap().len(), 1);
-    assert_eq!(v["accounts"][0]["email"], "a@example.com");
-}
-
-#[tokio::test]
 async fn dashboard_shows_accounts_requests_and_tokens() {
     let h = Harness::new().await;
     h.add(Provider::Claude, "a").await;

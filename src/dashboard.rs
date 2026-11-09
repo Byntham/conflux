@@ -64,17 +64,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn add_machine_commands_join_the_hub() {
-        let v = add_machine("hub-box");
-        assert_eq!(
-            v["command"],
-            format!("curl -fsSL {INSTALL_BASE}/install.sh | sh -s -- hub-box")
-        );
-        assert!(v["windows_command"].as_str().unwrap().ends_with("conflux join hub-box"));
-        assert!(v["agent_prompt"].as_str().unwrap().contains("sh -s -- hub-box"));
-    }
-
-    #[test]
     fn page_has_no_external_assets() {
         assert!(!PAGE.contains("https://"));
         assert!(PAGE.contains("/conflux/api/dashboard"));

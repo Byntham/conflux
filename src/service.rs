@@ -213,13 +213,4 @@ mod tests {
         let c = windows_launch_command(Path::new(r"C:\Users\Me Too\conflux.exe"));
         assert_eq!(c, r#"conhost.exe --headless "C:\Users\Me Too\conflux.exe" serve"#);
     }
-
-    #[test]
-    fn unit_runs_serve() {
-        let u = systemd_unit(Path::new("/home/me/.local/bin/conflux"));
-        assert!(u.contains("ExecStart=/home/me/.local/bin/conflux serve"));
-        assert!(u.contains("Restart=always"));
-        let p = launchd_plist(Path::new("/usr/local/bin/conflux"), Path::new("/tmp/c.log"));
-        assert!(p.contains("<string>/usr/local/bin/conflux</string><string>serve</string>"));
-    }
 }

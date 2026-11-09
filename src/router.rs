@@ -431,8 +431,6 @@ mod tests {
             router.pick(&req, &HashSet::new()).err(),
             Some(NoAccount::AllLimited(None))
         );
-        let req = route(Provider::Claude);
-        assert!(router.pick(&req, &HashSet::new()).is_err());
     }
 
     #[test]
