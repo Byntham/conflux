@@ -216,7 +216,7 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, path: S
                 body,
             }) => {
                 let rejection = proxy::classify_codex_429(&h, &body, route.model.as_deref(), Utc::now());
-                apply_rejection(&app, &account, &route, &rejection);
+                apply_rejection(&app, &account, &rejection);
                 tried.insert(account.id.clone());
                 last_rejection = Some(String::from_utf8_lossy(&body).to_string()).filter(|s| !s.is_empty());
             }
@@ -304,14 +304,9 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, path: S
     }
 }
 
-fn apply_rejection(app: &App, account: &AccountEntry, route: &RouteRequest, rejection: &Rejection) {
+fn apply_rejection(app: &App, account: &AccountEntry, rejection: &Rejection) {
     match rejection {
-        Rejection::Quota { scope, until, reason } => {
-            app.router.cool(&account.id, scope, *until, reason);
-            if let Some(s) = &route.session {
-                app.router.unpin(Provider::Codex, s);
-            }
-        }
+        Rejection::Quota { scope, until, reason } => app.router.cool(&account.id, scope, *until, reason),
         Rejection::Short { scope, until } => app.router.cool(&account.id, scope, *until, "short rate limit"),
     }
 }
@@ -388,7 +383,7 @@ fn inspect_event(app: &App, account: &AccountEntry, route: &RouteRequest, turn: 
                 until,
                 reason: "Codex usage limit".into(),
             };
-            apply_rejection(app, account, route, &rejection);
+            apply_rejection(app, account, &rejection);
             true
         }
         _ => false,

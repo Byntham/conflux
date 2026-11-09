@@ -208,14 +208,6 @@ impl Router {
         );
     }
 
-    pub fn unpin(&self, provider: Provider, session: &str) {
-        self.state
-            .lock()
-            .unwrap()
-            .pins
-            .remove(&format!("{}:{session}", provider.as_str()));
-    }
-
     pub fn record_response_owner(&self, response_id: &str, account: &str) {
         self.state
             .lock()
@@ -371,7 +363,7 @@ mod tests {
     }
 
     #[test]
-    fn session_affinity_and_unpin() {
+    fn a_session_stays_pinned_when_the_ranking_changes() {
         let (_d, _s, usage, router) = setup(&[("a", Provider::Claude), ("b", Provider::Claude)]);
         usage.set(&id(Provider::Claude, "a"), snap(100, 10.0, 40.0));
         usage.set(&id(Provider::Claude, "b"), snap(20, 50.0, 60.0));
@@ -382,11 +374,6 @@ mod tests {
         let first = router.pick(&req, &HashSet::new()).unwrap().id.clone();
         usage.set(&id(Provider::Claude, "a"), snap(1, 0.0, 0.0));
         assert_eq!(router.pick(&req, &HashSet::new()).unwrap().id, first);
-        router.unpin(Provider::Claude, "s1");
-        assert_eq!(
-            router.pick(&req, &HashSet::new()).unwrap().id,
-            id(Provider::Claude, "a")
-        );
     }
 
     #[test]
