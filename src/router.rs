@@ -164,7 +164,10 @@ impl Router {
                         let s = self.usage.get(&e.id);
                         let fresh = s.is_fresh(now);
                         let reset = if fresh {
-                            s.longest().and_then(|w| w.resets_at).unwrap_or(far)
+                            s.longest()
+                                .and_then(|w| w.resets_at)
+                                .filter(|r| *r > now)
+                                .unwrap_or(far)
                         } else {
                             far
                         };
@@ -329,6 +332,21 @@ mod tests {
         };
         let account = router.pick(&req, &HashSet::new()).unwrap();
         assert_eq!(account.id, id(Provider::Claude, "b"));
+    }
+
+    #[test]
+    fn a_reset_that_already_passed_does_not_count_as_soonest() {
+        let (_d, _s, usage, router) = setup(&[("a", Provider::Claude), ("b", Provider::Claude)]);
+        usage.set(&id(Provider::Claude, "a"), snap(-1, 10.0, 40.0));
+        usage.set(&id(Provider::Claude, "b"), snap(24, 10.0, 40.0));
+        let req = RouteRequest {
+            provider: Some(Provider::Claude),
+            ..Default::default()
+        };
+        assert_eq!(
+            router.pick(&req, &HashSet::new()).unwrap().id,
+            id(Provider::Claude, "b")
+        );
     }
 
     #[test]
