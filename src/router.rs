@@ -302,7 +302,6 @@ mod tests {
                 },
             ],
             overage_in_use: false,
-            extra_usage: None,
             updated_at: Some(now),
         }
     }
