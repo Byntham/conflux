@@ -56,6 +56,7 @@
   .nav .alert { margin-left: auto; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--bad-soft); color: var(--bad); font-size: 11.5px; font-weight: 600; text-align: center; }
   .hub-card { margin-top: auto; padding: 8px 10px; }
   .hub-state { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 500; }
+  .dot.on + #hub-status { color: var(--fg-2); font-weight: 400; }
   .hub-meta { margin-top: 2px; font-size: 12px; color: var(--muted); }
 
   .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
@@ -89,6 +90,7 @@
   .btn:hover { background: var(--hover); }
   .btn.primary { background: var(--primary); border-color: var(--primary); color: var(--primary-fg); }
   .btn.primary:hover { background: color-mix(in srgb, var(--primary) 86%, var(--bg)); }
+  .btn:disabled { opacity: .45; cursor: default; }
   .btn.danger { background: var(--bad-fill); border-color: var(--bad-fill); color: #ffffff; }
   .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 29px; height: 29px; border-radius: 7px; border: 0; background: transparent; color: var(--fg-2); }
   .icon-btn:hover { background: var(--hover); color: var(--fg); }
@@ -124,7 +126,7 @@
   .account.off { background: transparent; box-shadow: none; }
   .account.off .track { opacity: .45; }
   .account.blocked .track { opacity: .55; }
-  .account.off .email { color: var(--fg-2); }
+  .account.off .email { color: var(--muted); }
   .account.off .meter > span, .account.blocked .meter > span { color: var(--muted); font-weight: 400; }
   .account-head { display: flex; align-items: flex-start; gap: 10px; }
   .account-title { flex: 1; min-width: 0; }
@@ -150,8 +152,9 @@
   .track > i.full { background: var(--bad-fill); }
   .track > b { position: absolute; z-index: 1; top: -3px; width: 2px; height: 11px; margin-left: -1px; border-radius: 1px; background: var(--fg); }
   .no-usage { margin-top: 13px; font-size: 12.5px; color: var(--muted); }
-  .account-login { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--fg-2); }
+  .account-login { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: auto; padding-top: 11px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--fg-2); }
   .account-login .btn { flex: none; }
+  .account:has(.account-login) > :nth-last-child(2) { margin-bottom: 12px; }
   .account-notes { display: flex; flex-wrap: wrap; gap: 2px 7px; margin-top: 11px; }
   .note { color: var(--warn); font-size: 12.5px; font-weight: 500; }
   .note.bad { color: var(--bad); }
@@ -189,7 +192,7 @@
   .table-wrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td { padding: 8px 12px; text-align: left; white-space: nowrap; border-top: 1px solid var(--line); vertical-align: baseline; }
-  td.dim { color: var(--fg-2); }
+  td.dim, td.lat { color: var(--fg-2); }
   td.num.dim { color: var(--muted); }
   th { border-top: 0; font-size: 12px; font-weight: 500; color: var(--muted); }
   th:first-child, td:first-child { padding-left: 16px; }
@@ -216,6 +219,8 @@
   .show-sm-inline { display: none; }
   .cell-sub { color: var(--muted); font-size: 12px; white-space: normal; }
   .machine-name { display: flex; align-items: center; gap: 9px; font-weight: 500; }
+  .offline .machine-name { color: var(--fg-2); font-weight: 400; }
+  .offline .mono { color: var(--muted); }
   .status-cell { display: inline-flex; align-items: center; gap: 8px; }
   .status-cell .dot { box-shadow: none; }
   .badge { padding: 0 6px; border-radius: 5px; font-size: 11.5px; font-weight: 500; background: var(--hover); color: var(--fg-2); }
@@ -349,10 +354,6 @@
     .col-tokens { width: 96px; }
     #recent td, #request-log td { overflow: hidden; text-overflow: ellipsis; }
   }
-  @media (hover: hover) {
-    .account-actions { opacity: .7; transition: opacity .12s; }
-    .account:hover .account-actions, .account-actions:focus-within { opacity: 1; }
-  }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
   @media (max-width: 1080px) {
     .stats { grid-template-columns: repeat(6, minmax(0, 1fr)); row-gap: 16px; }
@@ -398,6 +399,7 @@
     .alert-part { display: block; }
     .panel .seg { display: flex; }
     .panel .seg button { flex: 1 1 auto; padding: 0 6px; }
+    .sub-list { flex-direction: column; gap: 2px; }
     .show-sm { display: block; }
     .show-sm-inline { display: inline; }
     .hide-sm { display: none; }
@@ -862,7 +864,7 @@ function requestTable(requests, full) {
     const via = full ? `<td class="hide-sm dim">${esc(r.transport)}</td>` : "";
     const write = full ? `<td class="num hide-sm dim">${tokens(r.usage.cache_write)}</td>` : "";
     const account = r.email || r.account;
-    return `<tr class="${r.status < 400 ? "" : "failed"}"><td class="when">${esc(ago(r.at))}</td><td class="hide-sm dim">${esc(r.machine)}</td><td class="acct" title="${esc(account)}">${esc(account)}<div class="cell-sub show-sm">${esc([r.machine, r.model].filter(Boolean).join(" · "))}</div></td><td class="mono hide-sm">${esc(r.model || "")}</td>${via}<td class="num status"><span class="code ${r.status < 400 ? "ok" : "bad"}">${r.status}</span></td><td class="num lat">${seconds(r.latency_ms)}<div class="cell-sub show-sm">${esc(ago(r.at))}</div></td><td class="num hide-sm dim">${tokens(r.usage.input)}</td><td class="num hide-sm dim">${tokens(r.usage.cache_read)}</td>${write}<td class="num hide-sm dim">${tokens(r.usage.output)}</td></tr>`;
+    return `<tr class="${r.status < 400 ? "" : "failed"}"><td class="when">${esc(ago(r.at))}</td><td class="hide-sm dim">${esc(r.machine)}</td><td class="acct" title="${esc(account)}">${esc(account)}<div class="cell-sub show-sm">${esc([r.machine, r.model].filter(Boolean).join(" · "))}</div></td><td class="mono hide-sm dim">${esc(r.model || "")}</td>${via}<td class="num status"><span class="code ${r.status < 400 ? "ok" : "bad"}">${r.status}</span></td><td class="num lat">${seconds(r.latency_ms)}<div class="cell-sub show-sm">${esc(ago(r.at))}</div></td><td class="num hide-sm dim">${tokens(r.usage.input)}</td><td class="num hide-sm dim">${tokens(r.usage.cache_read)}</td>${write}<td class="num hide-sm dim">${tokens(r.usage.output)}</td></tr>`;
   }).join("") : `<tr><td colspan="${span}"><div class="empty"><strong>No requests yet</strong>Requests appear here once a machine sends one through the hub.</div></td></tr>`;
   return `${head}<tbody>${rows}</tbody>`;
 }
@@ -881,7 +883,7 @@ function renderMachines(d) {
   $("nav-machines").textContent = `${online}/${d.machines.length}`;
   $("machines-sub").textContent = `${online} of ${d.machines.length} online`;
   setHtml("machine-list", `<thead><tr><th>Machine</th><th>Status</th><th class="hide-sm">Version</th><th class="hide-sm">Transcript sync</th><th class="num">Last seen</th></tr></thead><tbody>${d.machines.map((m) =>
-    `<tr><td><span class="machine-name">${esc(m.hostname)}${m.role === "hub" ? '<span class="badge">Hub</span>' : ""}</span><div class="cell-sub show-sm">v${esc(m.version)} · sync ${m.transcript_sync ? "on" : "off"}</div></td><td class="${m.online ? "" : "muted"}"><span class="status-cell"><span class="dot ${m.online ? "on" : ""}"></span>${m.online ? "Online" : "Offline"}</span></td><td class="mono hide-sm">${esc(m.version)}</td><td class="hide-sm ${m.transcript_sync ? "" : "muted"}">${m.transcript_sync ? "On" : "Off"}</td><td class="num when">${esc(ago(m.last_seen))}</td></tr>`
+    `<tr class="${m.online ? "" : "offline"}"><td><span class="machine-name">${esc(m.hostname)}${m.role === "hub" ? '<span class="badge">Hub</span>' : ""}</span><div class="cell-sub show-sm">v${esc(m.version)} · sync ${m.transcript_sync ? "on" : "off"}</div></td><td class="${m.online ? "" : "muted"}"><span class="status-cell"><span class="dot ${m.online ? "on" : ""}"></span>${m.online ? "Online" : "Offline"}</span></td><td class="mono hide-sm">${esc(m.version)}</td><td class="hide-sm ${m.transcript_sync ? "" : "muted"}">${m.transcript_sync ? "On" : "Off"}</td><td class="num when">${esc(ago(m.last_seen))}</td></tr>`
   ).join("")}</tbody>`);
   setHtml("takeover-command", commandHtml(`conflux hub take-over ${d.hub.name} --code <code>`));
   renderInstall();
@@ -1124,6 +1126,8 @@ async function loginClaude(email) {
       <div class="modal-msg" id="login-msg"></div>
       <div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn primary" id="claude-finish">Finish</button></div>`);
     $("claude-url").href = start.url;
+    $("claude-finish").disabled = true;
+    $("claude-code").oninput = (ev) => { $("claude-finish").disabled = !ev.target.value.trim(); };
     $("claude-finish").onclick = async () => {
       try {
         const done = await api("POST", "/conflux/api/login/claude/finish", { login_id: start.login_id, code: $("claude-code").value });
