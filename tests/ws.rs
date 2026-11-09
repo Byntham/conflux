@@ -118,6 +118,31 @@ async fn handshake_401_with_a_failed_refresh_reports_the_401() {
 }
 
 #[tokio::test]
+async fn a_second_handshake_401_after_a_refresh_moves_to_the_next_account() {
+    let h = Harness::new().await;
+    let a = h.add(Provider::Codex, "a").await;
+    let b = h.add(Provider::Codex, "b").await;
+    let (first, first_id, second) = if a < b {
+        ("at-a", &a, "at-b")
+    } else {
+        ("at-b", &b, "at-a")
+    };
+    h.ws_script(first, WsScript::RejectHandshake401);
+    h.ws_script("renewed", WsScript::RejectHandshake401);
+    h.fake.refresh_replies.lock().unwrap().push_back(Reply::Json(
+        200,
+        vec![],
+        json!({"access_token": "renewed", "refresh_token": "next", "expires_in": 3600}).to_string(),
+    ));
+    let mut ws = open(&h, &[]).await.unwrap();
+    ws.send(create("m")).await.unwrap();
+    next_json(&mut ws).await.unwrap();
+    next_json(&mut ws).await.unwrap();
+    assert_eq!(next_json(&mut ws).await.unwrap()["response"]["token"], second);
+    assert_eq!(h.app.router.cooldowns(first_id).len(), 1);
+}
+
+#[tokio::test]
 async fn quota_error_mid_socket_is_forwarded_then_closed() {
     let h = Harness::new().await;
     let id = h.add(Provider::Codex, "c").await;
