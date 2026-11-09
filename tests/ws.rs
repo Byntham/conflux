@@ -140,6 +140,15 @@ async fn a_second_handshake_401_after_a_refresh_moves_to_the_next_account() {
     next_json(&mut ws).await.unwrap();
     assert_eq!(next_json(&mut ws).await.unwrap()["response"]["token"], second);
     assert_eq!(h.app.router.cooldowns(first_id).len(), 1);
+    let sent: Vec<String> = h
+        .fake
+        .ws_headers
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|headers| headers["authorization"].to_str().unwrap().replace("Bearer ", ""))
+        .collect();
+    assert_eq!(sent, [first, "renewed", second]);
 }
 
 #[tokio::test]
