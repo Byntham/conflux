@@ -341,7 +341,9 @@ async fn take_over(mut cfg: Config, paths: Paths, old_hub: &str, code: Option<St
             let code = code.context("pass --code with the code from `conflux hub move-code`")?;
             let id = uuid::Uuid::new_v4().to_string();
             let base = format!("http://{old_hub}:{}", cfg.port);
-            println!("Asking {old_hub} to stop and export its accounts. This can take up to two minutes.");
+            println!(
+                "Asking {old_hub} to stop and export its accounts. Requests running through this machine end when it becomes the hub."
+            );
             let resp = http
                 .post(format!("{base}/conflux/move/prepare"))
                 .json(&json!({ "code": code, "id": id }))
