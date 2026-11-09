@@ -13,7 +13,7 @@
     --brand: #0e5f72; --accent: #0e6b80; --accent-soft: #e3f1f4; --primary: #18181b; --primary-fg: #ffffff;
     --track: #ececef; --fill: #71717a; --bubble: #ebebee; --seg-on: #ffffff; --popover: #ffffff; --row-on: #f1f1f3; --fail-mix: 7%;
     --ok: #047857; --warn: #a15c00; --warn-soft: #fdf1dd; --warn-fill: #e8930c; --bad: #c81e1e; --bad-fill: #c81e1e; --bad-soft: #fdeaea;
-    --claude: #c2653c; --codex: #5a5fd0; --claude-bar: #c47a5a; --codex-bar: #7276d0;
+    --claude: #c2653c; --codex: #5a5fd0;
     --shadow: 0 1px 2px rgb(24 24 27 / 4%);
     --shadow-pop: 0 16px 40px rgb(24 24 27 / 16%), 0 2px 6px rgb(24 24 27 / 8%);
     --backdrop: rgb(24 24 27 / 40%);
@@ -26,7 +26,7 @@
       --brand: #4fb8cc; --accent: #6cc7d9; --accent-soft: #10292f; --primary: #f4f4f5; --primary-fg: #0a0a0b;
       --track: #232326; --fill: #a1a1aa; --bubble: #242427; --seg-on: #2c2c30; --popover: #1a1a1c; --row-on: #242427; --fail-mix: 14%;
       --ok: #34d399; --warn: #fbbf24; --warn-soft: #2c2108; --warn-fill: #f59e0b; --bad: #f87171; --bad-fill: #e5484d; --bad-soft: #321414;
-      --claude: #d4764c; --codex: #8086ec; --claude-bar: #b9623a; --codex-bar: #6a6fcb;
+      --claude: #d4764c; --codex: #8086ec;
       --shadow: none;
       --shadow-pop: 0 18px 44px rgb(0 0 0 / 70%);
       --backdrop: rgb(0 0 0 / 62%);
@@ -77,7 +77,7 @@
   .section-note { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
   .key { display: inline-flex; align-items: center; gap: 6px; }
   .key i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; }
-  .key i.tick { width: 2px; height: 5px; border-radius: 1px; background: var(--fg); }
+  .key i.tick { width: 2px; height: 11px; border-radius: 1px; background: var(--fg); }
   .key i.used { background: var(--fill); width: 16px; height: 5px; border-radius: 3px; }
   .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .link { color: var(--accent); text-decoration: none; font-size: 12.5px; font-weight: 500; }
@@ -97,7 +97,8 @@
 
   .alerts { display: grid; margin-bottom: 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
   .alerts.urgent { border-color: color-mix(in srgb, var(--bad) 35%, var(--line)); }
-  #hub-alert { border-color: color-mix(in srgb, var(--warn) 35%, var(--line)); margin-bottom: 12px; }
+  #hub-alert { border-color: color-mix(in srgb, var(--warn) 35%, var(--line)); background: var(--warn-soft); margin-bottom: 12px; }
+  #hub-alert .alert-detail { color: var(--fg-2); }
   #hub-alert + #alerts[hidden] { margin: 0; }
   .alert-row { display: flex; align-items: center; gap: 11px; min-height: 44px; padding: 7px 12px 7px 14px; border-top: 1px solid var(--line); }
   .alert-row:first-child { border-top: 0; }
@@ -147,7 +148,7 @@
   .track > i { display: block; height: 100%; border-radius: 3px; background: var(--fill); }
   .track > i.high { background: var(--warn-fill); }
   .track > i.full { background: var(--bad-fill); }
-  .track > b { position: absolute; z-index: 1; top: -6px; width: 2px; height: 5px; margin-left: -1px; border-radius: 1px 1px 0 0; background: var(--fg); }
+  .track > b { position: absolute; z-index: 1; top: -3px; width: 2px; height: 11px; margin-left: -1px; border-radius: 1px; background: var(--fg); }
   .no-usage { margin-top: 13px; font-size: 12.5px; color: var(--muted); }
   .account-login { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--fg-2); }
   .account-login .btn { flex: none; }
@@ -174,11 +175,11 @@
   .bars { position: absolute; inset: 0; z-index: 1; display: flex; align-items: stretch; }
   .col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 0 2px; border-radius: 3px; }
   .col:hover { background: color-mix(in srgb, var(--fg) 7%, transparent); }
-  .col i { display: block; width: 100%; max-width: 12px; }
+  .col i { display: block; width: 100%; max-width: 9px; }
   .col i { margin-bottom: 2px; }
   .col i:last-child { margin-bottom: 0; }
-  .col i.claude { background: var(--claude-bar); }
-  .col i.codex { background: var(--codex-bar); }
+  .col i.claude { background: var(--claude); }
+  .col i.codex { background: var(--codex); }
   .col i.other { background: var(--muted); }
   .col i.failed, .key i.failed { background: repeating-linear-gradient(135deg, var(--bad-fill) 0 2px, color-mix(in srgb, var(--bad-fill) 62%, var(--bg)) 2px 4px); }
   .col i:first-child { border-radius: 3px 3px 0 0; }
@@ -189,6 +190,7 @@
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td { padding: 8px 12px; text-align: left; white-space: nowrap; border-top: 1px solid var(--line); vertical-align: baseline; }
   td.dim { color: var(--fg-2); }
+  td.num.dim { color: var(--muted); }
   th { border-top: 0; font-size: 12px; font-weight: 500; color: var(--muted); }
   th:first-child, td:first-child { padding-left: 16px; }
   th:last-child, td:last-child { padding-right: 16px; }
@@ -203,8 +205,15 @@
   tbody tr.failed:hover td { background: color-mix(in srgb, var(--bad) calc(var(--fail-mix) + 4%), transparent); }
   .log { max-height: calc(100vh - 125px); overflow: auto; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
   main:has(#view-requests:not([hidden])) { padding-bottom: 26px; }
+  @supports selector(::-webkit-scrollbar) {
+    .log { scrollbar-width: auto; scrollbar-color: auto; }
+    .log::-webkit-scrollbar { width: 8px; height: 8px; }
+    .log::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 4px; }
+    .log::-webkit-scrollbar-track, .log::-webkit-scrollbar-corner { background: transparent; }
+  }
   .log th { position: sticky; top: 0; z-index: 1; background: var(--surface); box-shadow: inset 0 -1px var(--line); }
   .show-sm { display: none; }
+  .show-sm-inline { display: none; }
   .cell-sub { color: var(--muted); font-size: 12px; white-space: normal; }
   .machine-name { display: flex; align-items: center; gap: 9px; font-weight: 500; }
   .status-cell { display: inline-flex; align-items: center; gap: 8px; }
@@ -282,7 +291,7 @@
   .viewer-meta > span { min-width: 0; }
   .viewer-back { display: none; margin: -3px 0 0 -7px; }
   .events { display: flex; flex-direction: column; gap: 8px; padding: 16px 18px 22px; }
-  .msg:not(:first-child) { margin-top: 10px; }
+  .msg:has(.msg-who):not(:first-child) { margin-top: 10px; }
   .msg.assistant { max-width: 76ch; }
   .msg { max-width: 760px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
   .msg-who { font-size: 12px; font-weight: 500; color: var(--muted); margin-bottom: 1px; }
@@ -363,9 +372,9 @@
     main { padding: 18px 16px 92px; }
     .page-head { align-items: center; }
     h1 { font-size: 20px; }
-    .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .stat, .stat:nth-child(n+4) { grid-column: auto; }
-    .stat:first-child { grid-column: span 2; }
+    .stats { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px 12px; }
+    .stat, .stat:nth-child(n+4) { grid-column: span 2; }
+    .stat:nth-child(-n+2) { grid-column: span 3; }
     .stat-value { font-size: 21px; }
     .meter { grid-template-columns: minmax(0, 1fr) auto 36px; grid-template-areas: "name reset pct" "track track track"; gap: 5px 8px; }
     .meter-name { grid-area: name; } .meter-reset { grid-area: reset; } .meter-pct { grid-area: pct; } .track { grid-area: track; }
@@ -388,6 +397,7 @@
     .panel .seg { display: flex; }
     .panel .seg button { flex: 1 1 auto; padding: 0 6px; }
     .show-sm { display: block; }
+    .show-sm-inline { display: inline; }
     .hide-sm { display: none; }
     th:first-child, td:first-child { padding-left: 14px; }
     th:last-child, td:last-child { padding-right: 14px; }
@@ -417,9 +427,13 @@
     .viewer-meta .meta-path + .sep { display: none; }
     #quota-key { flex-basis: 100%; font-size: 12.5px; }
     .search { flex-basis: 100%; }
-    .toolbar .select { flex: 1 1 100%; }
+    .toolbar .select { flex: 1 1 110px; }
     .toolbar .select select { width: 100%; }
-    .chip { flex: 1 1 0; justify-content: center; }
+    .toolbar input[type=search], .toolbar select, .chip { height: 40px; }
+    .chip { padding: 0 9px; }
+    .search svg { top: 12px; }
+    .select::after { top: 15px; }
+    .account-notes { flex-direction: column; }
     #toast { bottom: 78px; }
   }
 </style>
@@ -462,7 +476,7 @@
     </div>
     <main>
       <div id="connection" class="alerts" hidden></div>
-      <div class="unavailable" id="unavailable" hidden><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg><strong>Can't reach the hub</strong><span>Retrying every 5 seconds.</span></div>
+      <div id="unavailable" hidden><div class="page-head"><div><h1 id="down-title"></h1></div></div><div class="unavailable"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg><strong>Can't reach the hub</strong><span>Retrying every 5 seconds.</span></div></div>
 
       <section id="view-overview" hidden>
         <div class="page-head">
@@ -485,7 +499,7 @@
         <div class="section hide-first-run">
             <div class="section-head">
               <h2 id="chart-title">Requests per minute</h2>
-              <div class="section-note" id="chart-key"><span class="key"><i style="background:var(--claude-bar)"></i>Claude</span><span class="key"><i style="background:var(--codex-bar)"></i>Codex</span><span class="key"><i class="failed"></i>Failed</span></div>
+              <div class="section-note" id="chart-key"><span class="key"><i style="background:var(--claude)"></i>Claude</span><span class="key"><i style="background:var(--codex)"></i>Codex</span><span class="key"><i class="failed"></i>Failed</span></div>
             </div>
           <div id="chart"></div>
         </div>
@@ -537,7 +551,7 @@
           <div class="search"><svg class="i" aria-hidden="true"><use href="#i-search"/></svg><input type="search" id="thread-search" placeholder="Search every transcript" aria-label="Search every transcript"></div>
           <span class="select"><select id="thread-machine" aria-label="Machine"><option value="">All machines</option></select></span>
           <label class="chip"><input type="checkbox" id="thread-errors">Has errors</label>
-          <label class="chip"><input type="checkbox" id="thread-subagents">Include subagents</label>
+          <label class="chip"><input type="checkbox" id="thread-subagents"><span class="hide-sm">Include subagents</span><span class="show-sm-inline">Subagents</span></label>
         </div>
         <div class="card notice" id="sync-note" hidden><svg class="i muted" aria-hidden="true"><use href="#i-info"/></svg><span>Transcript sync is off on every machine. Run <code>conflux sync on</code> on each machine you want here.</span></div>
         <div class="threads-layout" id="threads-layout">
@@ -898,6 +912,7 @@ function setConnection(ok, message) {
   const detail = message ? message[0].toUpperCase() + message.slice(1) : "";
   $("connection").hidden = ok || !latest;
   $("unavailable").hidden = ok || Boolean(latest);
+  $("down-title").textContent = titleCase(currentView());
   $("unavailable").title = detail;
   if (!latest) $("hub-line").textContent = ok ? "" : "Waiting for the hub";
   setHtml("connection", ok ? "" : `<div class="alert-row" role="alert">${icon("alert")}<div class="alert-text"><div class="alert-title">Can't reach the hub</div><div class="alert-detail">${esc(detail)}. Showing the last data received, retrying every 5 seconds.</div></div></div>`);
@@ -1007,10 +1022,13 @@ function toolHtml(call, result, query) {
 
 function eventsHtml(events, query) {
   const parts = [];
+  let speaker = null;
   for (let i = 0; i < events.length; i++) {
     const e = events[i];
     if (e.kind === "user" || e.kind === "assistant") {
-      parts.push(`<div class="msg ${e.kind}"><div class="msg-who">${e.kind === "user" ? "You" : "Agent"}</div>${shownText(e.text, query)}</div>`);
+      const who = e.kind === speaker ? "" : `<div class="msg-who">${e.kind === "user" ? "You" : "Agent"}</div>`;
+      speaker = e.kind;
+      parts.push(`<div class="msg ${e.kind}">${who}${shownText(e.text, query)}</div>`);
       continue;
     }
     const next = events[i + 1];
