@@ -584,12 +584,7 @@ pub async fn handle(State(app): State<Arc<App>>, req: Request) -> Response {
                 Provider::Codex => classify_codex_429(&headers, &bytes, route.model.as_deref(), now),
             };
             match &rejection {
-                Rejection::Quota { scope, until, reason } => {
-                    app.router.cool(&account.id, scope, *until, reason);
-                    if let Some(s) = &route.session {
-                        app.router.unpin(provider, s);
-                    }
-                }
+                Rejection::Quota { scope, until, reason } => app.router.cool(&account.id, scope, *until, reason),
                 Rejection::Short { scope, until } => app.router.cool(&account.id, scope, *until, "short rate limit"),
             }
             log_attempt(&app, provider, &account, &route, &machine, 429, started);
