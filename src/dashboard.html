@@ -11,8 +11,8 @@
     --bg: #fafafa; --sidebar: #f4f4f5; --surface: #ffffff; --raised: #f7f7f8; --hover: #f1f1f3; --selected: #ffffff; --line: #e8e8eb; --line-strong: #d6d6db;
     --fg: #18181b; --fg-2: #52525b; --muted: #70707a;
     --brand: #0e5f72; --accent: #0e6b80; --accent-soft: #e3f1f4; --primary: #18181b; --primary-fg: #ffffff;
-    --track: #ececef; --fill: #71717a; --bubble: #ebebee; --seg-on: #ffffff; --popover: #ffffff;
-    --ok: #047857; --warn: #b45309; --warn-soft: #fdf1dd; --warn-fill: #e8930c; --bad: #c81e1e; --bad-fill: #c81e1e; --bad-soft: #fdeaea;
+    --track: #ececef; --fill: #71717a; --bubble: #ebebee; --seg-on: #ffffff; --popover: #ffffff; --row-on: #f1f1f3; --fail-mix: 7%;
+    --ok: #047857; --warn: #946200; --warn-soft: #fdf1dd; --warn-fill: #e8930c; --bad: #c81e1e; --bad-fill: #c81e1e; --bad-soft: #fdeaea;
     --claude: #c2653c; --codex: #5a5fd0; --claude-bar: #c47a5a; --codex-bar: #7276d0;
     --shadow: 0 1px 2px rgb(24 24 27 / 4%);
     --shadow-pop: 0 16px 40px rgb(24 24 27 / 16%), 0 2px 6px rgb(24 24 27 / 8%);
@@ -24,7 +24,7 @@
       --bg: #000000; --sidebar: #000000; --surface: #0f0f10; --raised: #161618; --hover: #1c1c1f; --selected: #1c1c1f; --line: #1f1f22; --line-strong: #303034;
       --fg: #f4f4f5; --fg-2: #c6c6cc; --muted: #a1a1aa;
       --brand: #4fb8cc; --accent: #6cc7d9; --accent-soft: #10292f; --primary: #f4f4f5; --primary-fg: #0a0a0b;
-      --track: #232326; --fill: #a1a1aa; --bubble: #242427; --seg-on: #2c2c30; --popover: #1a1a1c;
+      --track: #232326; --fill: #a1a1aa; --bubble: #242427; --seg-on: #2c2c30; --popover: #1a1a1c; --row-on: #242427; --fail-mix: 14%;
       --ok: #34d399; --warn: #fbbf24; --warn-soft: #2c2108; --warn-fill: #f59e0b; --bad: #f87171; --bad-fill: #e5484d; --bad-soft: #321414;
       --claude: #d4764c; --codex: #8086ec; --claude-bar: #b9623a; --codex-bar: #6a6fcb;
       --shadow: none;
@@ -49,9 +49,9 @@
   .brand { display: flex; align-items: center; gap: 9px; padding: 2px 8px; font-size: 16px; font-weight: 600; letter-spacing: -.015em; }
   .brand svg { width: 21px; height: 21px; fill: var(--brand); }
   .nav { display: flex; flex-direction: column; gap: 2px; }
-  .nav a { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 7px; color: var(--fg-2); text-decoration: none; font-weight: 500; }
+  .nav a { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 8px; color: var(--fg-2); text-decoration: none; font-weight: 400; }
   .nav a:hover { background: var(--hover); color: var(--fg); }
-  .nav a[aria-current="page"] { background: var(--selected); color: var(--fg); box-shadow: 0 0 0 1px var(--line); }
+  .nav a[aria-current="page"] { font-weight: 500; background: var(--selected); color: var(--fg); box-shadow: 0 0 0 1px var(--line); }
   .nav .count { margin-left: auto; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 400; }
   .nav .alert { margin-left: auto; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--bad-soft); color: var(--bad); font-size: 11.5px; font-weight: 600; text-align: center; }
   .hub-card { margin-top: auto; padding: 8px 10px; }
@@ -89,7 +89,7 @@
   .btn:hover { background: var(--hover); }
   .btn.primary { background: var(--primary); border-color: var(--primary); color: var(--primary-fg); }
   .btn.primary:hover { background: color-mix(in srgb, var(--primary) 86%, var(--bg)); }
-  .btn.danger { background: var(--bad); border-color: var(--bad); color: var(--surface); }
+  .btn.danger { background: var(--bad-fill); border-color: var(--bad-fill); color: #ffffff; }
   .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 29px; height: 29px; border-radius: 7px; border: 0; background: transparent; color: var(--fg-2); }
   .icon-btn:hover { background: var(--hover); color: var(--fg); }
   .spin svg { animation: spin .8s linear infinite; }
@@ -111,6 +111,7 @@
   .stat-value { margin-top: 3px; font-size: 26px; line-height: 1.2; font-weight: 600; letter-spacing: -.024em; font-variant-numeric: tabular-nums; }
   .stat-value small { font-size: 14px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
   .stat-sub { margin-top: 3px; font-size: 12px; color: var(--muted); }
+  .stat-sub.nb { margin: 0; }
   .stat-sub.bad, .stat-value.bad { color: var(--bad); }
   .stat-sub.warn, .stat-value.warn { color: var(--warn); }
 
@@ -118,7 +119,7 @@
   .account { padding: 13px 14px 14px 16px; display: flex; flex-direction: column; min-width: 0; }
   .account.off { background: transparent; box-shadow: none; }
   .account.off .track { opacity: .45; }
-  .account.blocked .track { opacity: .75; }
+  .account.blocked .track { opacity: .55; }
   .account.off .email { color: var(--fg-2); }
   .account.off .meter > span, .account.blocked .meter > span { color: var(--muted); font-weight: 400; }
   .account-head { display: flex; align-items: flex-start; gap: 10px; }
@@ -196,8 +197,8 @@
   .code { font-size: 12.5px; font-weight: 500; font-variant-numeric: tabular-nums; }
   .code.ok { color: var(--muted); font-weight: 400; }
   .code.bad { color: var(--bad); }
-  tr.failed td { background: color-mix(in srgb, var(--bad) 7%, transparent); }
-  tbody tr.failed:hover td { background: color-mix(in srgb, var(--bad) 11%, transparent); }
+  tr.failed td { background: color-mix(in srgb, var(--bad) var(--fail-mix), transparent); }
+  tbody tr.failed:hover td { background: color-mix(in srgb, var(--bad) calc(var(--fail-mix) + 4%), transparent); }
   .log { max-height: calc(100vh - 125px); overflow: auto; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
   main:has(#view-requests:not([hidden])) { padding-bottom: 26px; }
   .log th { position: sticky; top: 0; z-index: 1; background: var(--surface); box-shadow: inset 0 -1px var(--line); }
@@ -256,8 +257,9 @@
   .list-head button { border: 0; background: none; padding: 0; color: var(--accent); font-size: 12px; font-weight: 500; }
   .thread { display: block; width: 100%; padding: 11px 14px; border: 0; border-bottom: 1px solid var(--line); background: transparent; text-align: left; }
   .thread:hover { background: var(--raised); }
-  .thread.selected { background: var(--bubble); }
-  .thread-title { font-weight: 500; font-size: 13.5px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .thread.selected { background: var(--row-on); box-shadow: inset 2px 0 var(--accent); }
+  .thread.selected .thread-title { font-weight: 500; }
+  .thread-title { font-weight: 400; font-size: 13.5px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .thread-meta { display: flex; gap: 6px; margin-top: 4px; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; }
   .thread-meta .project { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .thread-meta .ago { margin-left: auto; flex: none; }
@@ -316,12 +318,15 @@
   #menu button.danger { color: var(--bad); }
   #menu hr { margin: 4px 0; border: 0; border-top: 1px solid var(--line); }
   #toast { position: fixed; z-index: 50; left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; align-items: center; gap: 7px; max-width: calc(100vw - 32px); padding: 8px 13px; border-radius: 8px; background: var(--fg); color: var(--bg); font-size: 13px; font-weight: 500; box-shadow: var(--shadow-pop); }
-  #toast.bad { background: var(--bad); color: var(--surface); }
+  #toast.bad { background: var(--bad-fill); color: #ffffff; }
 
   @media (min-width: 761px) {
     .note + .note::before { content: "·"; margin-right: 7px; color: var(--muted); font-weight: 400; }
     #recent, #request-log { table-layout: fixed; min-width: 960px; }
     #request-log { min-width: 1120px; }
+    #recent .col-machine { width: 120px; }
+    #recent .col-model { width: 210px; }
+    #recent .col-tokens { width: 104px; }
     #recent th.when, #request-log th.when { width: 76px; }
     .col-machine { width: 104px; }
     .col-model { width: 168px; }
@@ -462,6 +467,7 @@
             <button class="btn" data-add="codex"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>Add Codex</button>
           </div>
         </div>
+        <div class="alerts" id="hub-alert" hidden></div>
         <div class="alerts" id="alerts" hidden></div>
         <div class="stats hide-first-run" id="stats"></div>
         <div class="section">
@@ -526,7 +532,7 @@
           <div class="search"><svg class="i" aria-hidden="true"><use href="#i-search"/></svg><input type="search" id="thread-search" placeholder="Search every transcript" aria-label="Search every transcript"></div>
           <span class="select"><select id="thread-machine" aria-label="Machine"><option value="">All machines</option></select></span>
           <label class="chip"><input type="checkbox" id="thread-errors">Has errors</label>
-          <label class="chip"><input type="checkbox" id="thread-subagents">Subagents</label>
+          <label class="chip"><input type="checkbox" id="thread-subagents">Include subagents</label>
         </div>
         <div class="card notice" id="sync-note" hidden><svg class="i muted" aria-hidden="true"><use href="#i-info"/></svg><span>Transcript sync is off on every machine. Run <code>conflux sync on</code> on each machine you want here.</span></div>
         <div class="threads-layout" id="threads-layout">
@@ -699,6 +705,7 @@ function renderNotes(a) {
   for (const c of a.cooldowns) {
     if (c.scope !== "account") notes.push(`<span class="note" title="${esc(c.reason)}">${esc(c.scope.replace("model:", ""))} cooling ${esc(until(c.until))}</span>`);
   }
+  if (a.billing_blocked) notes.push('<span class="note quiet">Skipped until a usage check shows quota again</span>');
   if (a.usage.overage_in_use) notes.push('<span class="note info">Using extra usage</span>');
   if (usageStale(a)) notes.push(`<span class="note quiet">Usage checked ${esc(ago(a.usage.updated_at))}</span>`);
   if (a.refresh !== "ok" && !a.needs_login) notes.push(`<span class="note bad">Token refresh: ${esc(a.refresh)}</span>`);
@@ -746,9 +753,9 @@ function renderAccount(a, requests) {
 
 function renderAlerts(d) {
   const rows = [];
-  if (d.hub.state && d.hub.state.state === "moving") {
-    rows.push(`<div class="alert-row warn" role="status">${icon("alert")}<div class="alert-text"><div class="alert-title">The hub is moving</div><div class="alert-detail">Requests are paused until it finishes.</div></div></div>`);
-  }
+  const moving = d.hub.state && d.hub.state.state === "moving";
+  $("hub-alert").hidden = !moving;
+  setHtml("hub-alert", moving ? `<div class="alert-row warn" role="status">${icon("alert")}<div class="alert-text"><div class="alert-title">The hub is moving</div><div class="alert-detail">Requests are paused until it finishes.</div></div></div>` : "");
   for (const a of d.accounts.filter((x) => x.needs_login)) {
     rows.push(`<div class="alert-row">${icon("alert")}<div class="alert-text"><div class="alert-title">${esc(accountKind(a))} account needs a new login</div><div class="alert-detail">${breakableEmail(a.email || a.id)}</div></div>${loginButton(a)}</div>`);
   }
@@ -758,8 +765,9 @@ function renderAlerts(d) {
   $("alerts").hidden = !rows.length;
   $("alerts").classList.toggle("urgent", d.accounts.some((x) => x.needs_login || x.billing_blocked));
   setHtml("alerts", rows.join(""));
-  $("nav-alert").hidden = !rows.length;
-  $("nav-alert").textContent = rows.length;
+  const alertCount = rows.length + (moving ? 1 : 0);
+  $("nav-alert").hidden = !alertCount;
+  $("nav-alert").textContent = alertCount;
 }
 
 function stat(label, value, sub, subClass = "", valueClass = "") {
@@ -778,8 +786,7 @@ function renderStats(d) {
   const blocked = d.accounts.filter((a) => a.enabled && (a.needs_login || a.billing_blocked)).length;
   const cooling = d.accounts.filter((a) => a.enabled && !a.needs_login && !a.billing_blocked && accountCooldown(a)).length;
   const disabled = d.accounts.filter((a) => !a.enabled).length;
-  const limited = d.accounts.filter((a) => isReady(a) && a.cooldowns.length).length;
-  const accountParts = [blocked && `<span class="stat-sub bad" style="display:inline">${blocked} blocked</span>`, cooling && `<span class="stat-sub warn" style="display:inline">${cooling} cooling</span>`, limited && `${limited} limited`, disabled && `${disabled} disabled`].filter(Boolean);
+  const accountParts = [blocked && `<span class="stat-sub bad nb">${blocked} blocked</span>`, cooling && `<span class="stat-sub warn nb">${cooling} cooling</span>`, disabled && `<span class="nb">${disabled} disabled</span>`].filter(Boolean);
   const accountSub = !d.accounts.length ? "No accounts" : accountParts.join(" · ") || "All available";
   const failureRate = hour.length ? failed / hour.length : 0;
   const severityClass = failureRate >= 0.1 ? "bad" : failureRate >= 0.03 ? "warn" : "";
