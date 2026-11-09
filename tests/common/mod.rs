@@ -29,6 +29,7 @@ pub enum WsScript {
     Normal,
     QuotaMidStream,
     RejectHandshake429,
+    RejectHandshake401,
 }
 
 #[derive(Default)]
@@ -109,6 +110,12 @@ async fn fake_ws(fake: Arc<Fake>, req: Request) -> Response {
     if let WsScript::RejectHandshake429 = script {
         let body = json!({"error": {"type": "usage_limit_reached", "resets_in_seconds": 3600}}).to_string();
         return Response::builder().status(429).body(Body::from(body)).unwrap();
+    }
+    if let WsScript::RejectHandshake401 = script {
+        return Response::builder()
+            .status(401)
+            .body(Body::from("token revoked"))
+            .unwrap();
     }
     let upgrade = WebSocketUpgrade::from_request_parts(&mut parts, &()).await.unwrap();
     upgrade.on_upgrade(move |mut socket| async move {
