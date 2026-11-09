@@ -15,9 +15,9 @@ pub fn model_scope(model: &str) -> String {
     format!("model:{model}")
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct RouteRequest {
-    pub provider: Option<Provider>,
+    pub provider: Provider,
     pub model: Option<String>,
     pub session: Option<String>,
     pub previous_response_id: Option<String>,
@@ -95,7 +95,7 @@ impl Router {
         let mut overage_pool = Vec::new();
 
         for e in self.store.all() {
-            if req.provider.is_some_and(|p| p != e.provider) {
+            if req.provider != e.provider {
                 continue;
             }
             if e.credentials().generation == 0 || !e.settings().enabled || e.needs_login().is_some() {
@@ -145,10 +145,7 @@ impl Router {
         }
 
         let find = |id: &str| eligible.iter().find(|e| e.id == id).cloned();
-        let pin_key = req
-            .session
-            .as_ref()
-            .map(|s| format!("{}:{s}", req.provider.map(|p| p.as_str()).unwrap_or("any")));
+        let pin_key = req.session.as_ref().map(|s| format!("{}:{s}", req.provider.as_str()));
 
         let chosen = req
             .previous_response_id
@@ -306,6 +303,15 @@ mod tests {
         }
     }
 
+    fn route(provider: Provider) -> RouteRequest {
+        RouteRequest {
+            provider,
+            model: None,
+            session: None,
+            previous_response_id: None,
+        }
+    }
+
     fn id(p: Provider, ident: &str) -> String {
         crate::accounts::account_id(p, ident)
     }
@@ -315,10 +321,7 @@ mod tests {
         let (_d, _s, usage, router) = setup(&[("a", Provider::Claude), ("b", Provider::Claude)]);
         usage.set(&id(Provider::Claude, "a"), snap(100, 10.0, 40.0));
         usage.set(&id(Provider::Claude, "b"), snap(20, 50.0, 60.0));
-        let req = RouteRequest {
-            provider: Some(Provider::Claude),
-            ..Default::default()
-        };
+        let req = route(Provider::Claude);
         let account = router.pick(&req, &HashSet::new()).unwrap();
         assert_eq!(account.id, id(Provider::Claude, "b"));
     }
@@ -328,10 +331,7 @@ mod tests {
         let (_d, _s, usage, router) = setup(&[("a", Provider::Claude), ("b", Provider::Claude)]);
         usage.set(&id(Provider::Claude, "a"), snap(-1, 10.0, 40.0));
         usage.set(&id(Provider::Claude, "b"), snap(24, 10.0, 40.0));
-        let req = RouteRequest {
-            provider: Some(Provider::Claude),
-            ..Default::default()
-        };
+        let req = route(Provider::Claude);
         assert_eq!(
             router.pick(&req, &HashSet::new()).unwrap().id,
             id(Provider::Claude, "b")
@@ -348,10 +348,7 @@ mod tests {
         idle.windows[0].used_pct = 10.0;
         usage.set(&lower_id, busy);
         usage.set(&higher_id, idle);
-        let req = RouteRequest {
-            provider: Some(Provider::Claude),
-            ..Default::default()
-        };
+        let req = route(Provider::Claude);
         assert_eq!(router.pick(&req, &HashSet::new()).unwrap().id, lower_id);
     }
 
@@ -364,10 +361,7 @@ mod tests {
         ]);
         usage.set(&id(Provider::Claude, "a"), snap(10, 100.0, 50.0));
         usage.set(&id(Provider::Claude, "b"), snap(90, 10.0, 10.0));
-        let req = RouteRequest {
-            provider: Some(Provider::Claude),
-            ..Default::default()
-        };
+        let req = route(Provider::Claude);
         assert_eq!(
             router.pick(&req, &HashSet::new()).unwrap().id,
             id(Provider::Claude, "b")
@@ -382,9 +376,8 @@ mod tests {
         usage.set(&id(Provider::Claude, "a"), snap(100, 10.0, 40.0));
         usage.set(&id(Provider::Claude, "b"), snap(20, 50.0, 60.0));
         let req = RouteRequest {
-            provider: Some(Provider::Claude),
             session: Some("s1".into()),
-            ..Default::default()
+            ..route(Provider::Claude)
         };
         let first = router.pick(&req, &HashSet::new()).unwrap().id.clone();
         usage.set(&id(Provider::Claude, "a"), snap(1, 0.0, 0.0));
@@ -405,9 +398,8 @@ mod tests {
         usage.set(&b, snap(1, 10.0, 10.0));
         router.record_response_owner("resp_1", &a);
         let req = RouteRequest {
-            provider: Some(Provider::Codex),
             previous_response_id: Some("resp_1".into()),
-            ..Default::default()
+            ..route(Provider::Codex)
         };
         assert_eq!(router.pick(&req, &HashSet::new()).unwrap().id, a);
         let tried: HashSet<_> = [a.clone()].into();
@@ -425,14 +417,12 @@ mod tests {
             "fable weekly",
         );
         let fable = RouteRequest {
-            provider: Some(Provider::Claude),
             model: Some("claude-fable-5-1".into()),
-            ..Default::default()
+            ..route(Provider::Claude)
         };
         let sonnet = RouteRequest {
-            provider: Some(Provider::Claude),
             model: Some("claude-sonnet-5-5".into()),
-            ..Default::default()
+            ..route(Provider::Claude)
         };
         assert!(matches!(
             router.pick(&fable, &HashSet::new()),
@@ -449,18 +439,12 @@ mod tests {
         let a = id(Provider::Claude, "a");
         router.cool(&a, ACCOUNT, Utc::now() + chrono::Duration::days(20), "quota");
         assert!(router.billing_blocked(&a).is_some());
-        let req = RouteRequest {
-            provider: Some(Provider::Claude),
-            ..Default::default()
-        };
+        let req = route(Provider::Claude);
         assert_eq!(
             router.pick(&req, &HashSet::new()).err(),
             Some(NoAccount::AllLimited(None))
         );
-        let req = RouteRequest {
-            provider: Some(Provider::Claude),
-            ..Default::default()
-        };
+        let req = route(Provider::Claude);
         assert!(router.pick(&req, &HashSet::new()).is_err());
     }
 
@@ -473,10 +457,7 @@ mod tests {
         s.overage_in_use = true;
         usage.set(&a, s);
         usage.set(&b, snap(100, 10.0, 10.0));
-        let req = RouteRequest {
-            provider: Some(Provider::Claude),
-            ..Default::default()
-        };
+        let req = route(Provider::Claude);
         assert_eq!(router.pick(&req, &HashSet::new()).unwrap().id, b);
         let tried: HashSet<_> = [b.clone()].into();
         assert!(router.pick(&req, &tried).is_err());
@@ -496,10 +477,7 @@ mod tests {
         let b = id(Provider::Claude, "b");
         usage.set(&a, snap(10, 100.0, 50.0));
         usage.set(&b, snap(100, 10.0, 10.0));
-        let req = RouteRequest {
-            provider: Some(Provider::Claude),
-            ..Default::default()
-        };
+        let req = route(Provider::Claude);
         let without_b: HashSet<_> = [b.clone()].into();
         assert!(router.pick(&req, &without_b).is_err());
         store
@@ -517,10 +495,7 @@ mod tests {
         let a = id(Provider::Claude, "a");
         usage.set(&a, snap(100, 10.0, 10.0));
         router.cool(&a, ACCOUNT, Utc::now() + chrono::Duration::days(20), "quota");
-        let req = RouteRequest {
-            provider: Some(Provider::Claude),
-            ..Default::default()
-        };
+        let req = route(Provider::Claude);
         assert!(
             router.pick(&req, &HashSet::new()).is_err(),
             "a snapshot from before the block proves nothing"
@@ -534,10 +509,7 @@ mod tests {
     #[test]
     fn provider_filter_and_none_configured() {
         let (_d, _s, _u, router) = setup(&[("a", Provider::Claude)]);
-        let req = RouteRequest {
-            provider: Some(Provider::Codex),
-            ..Default::default()
-        };
+        let req = route(Provider::Codex);
         assert_eq!(
             router.pick(&req, &HashSet::new()).err(),
             Some(NoAccount::NoneConfigured)

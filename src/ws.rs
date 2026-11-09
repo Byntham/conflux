@@ -84,7 +84,7 @@ pub fn first_frame_route(headers: &HeaderMap, first: &str) -> RouteRequest {
         .or_else(|| v["response"]["previous_response_id"].as_str())
         .map(str::to_string);
     RouteRequest {
-        provider: Some(Provider::Codex),
+        provider: Provider::Codex,
         model,
         session: proxy::codex_session(headers, &v),
         previous_response_id: previous,

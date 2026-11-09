@@ -202,7 +202,7 @@ pub fn route_request(provider: Provider, h: &HeaderMap, body: &[u8]) -> RouteReq
         serde_json::from_slice(body).unwrap_or(Value::Null)
     };
     RouteRequest {
-        provider: Some(provider),
+        provider,
         model: json["model"].as_str().map(str::to_string),
         session: match provider {
             Provider::Claude => claude_session(h, &json),
