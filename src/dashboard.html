@@ -12,7 +12,7 @@
     --fg: #18181b; --fg-2: #52525b; --muted: #70707a;
     --brand: #0e5f72; --accent: #0e6b80; --accent-soft: #e3f1f4; --primary: #18181b; --primary-fg: #ffffff;
     --track: #ececef; --fill: #71717a; --bubble: #ebebee; --seg-on: #ffffff; --popover: #ffffff; --row-on: #f1f1f3; --fail-mix: 7%;
-    --ok: #047857; --warn: #a15c00; --warn-soft: #fdf1dd; --warn-fill: #e8930c; --bad: #c81e1e; --bad-fill: #c81e1e; --bad-soft: #fdeaea;
+    --ok: #047857; --warn: #a15c00; --warn-soft: #fdf1dd; --warn-fill: #d97f06; --bad: #c81e1e; --bad-fill: #c81e1e; --bad-soft: #fdeaea;
     --claude: #c2653c; --codex: #5a5fd0;
     --shadow: 0 1px 2px rgb(24 24 27 / 4%);
     --shadow-pop: 0 16px 40px rgb(24 24 27 / 16%), 0 2px 6px rgb(24 24 27 / 8%);
@@ -117,6 +117,7 @@
   .stat-sub { margin-top: 3px; font-size: 12px; color: var(--muted); }
   .stat-sub.nb { margin: 0; }
   .sub-list { display: flex; flex-wrap: wrap; gap: 0 7px; }
+  .sub-list > span + span::before { content: "·"; margin-right: 7px; color: var(--muted); }
   .stat-sub.bad, .stat-value.bad { color: var(--bad); }
   .stat-sub.warn, .stat-value.warn { color: var(--warn); }
 
@@ -239,7 +240,7 @@
   .chip:has(input:checked) { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 500; }
   .chip:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-  .panels { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 12px; margin-top: 12px; align-items: start; }
+  .panels { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 12px; margin-top: 12px; }
   .panel { padding: 15px 16px; min-width: 0; }
   .panel p { margin: 3px 0 0; font-size: 12.5px; color: var(--muted); }
   .panel .seg { margin-top: 12px; }
@@ -330,7 +331,6 @@
   #toast.bad { background: var(--bad-fill); color: #ffffff; }
 
   @media (min-width: 761px) {
-    .sub-list > span + span::before { content: "·"; margin-right: 7px; color: var(--muted); }
     .note + .note::before { content: "·"; margin-right: 7px; color: var(--muted); font-weight: 400; }
     #recent, #request-log { table-layout: fixed; min-width: 960px; }
     #request-log { min-width: 1120px; }
@@ -366,9 +366,9 @@
     main { padding: 18px 16px 92px; }
     .page-head { align-items: center; }
     h1 { font-size: 20px; }
-    .stats { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px 12px; }
-    .stat, .stat:nth-child(n+4) { grid-column: span 2; }
-    .stat:nth-child(-n+2) { grid-column: span 3; }
+    .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 12px; }
+    .stat, .stat:nth-child(n+4) { grid-column: auto; }
+    .stat:first-child { grid-column: span 2; }
     .stat-value { font-size: 21px; }
     .meter { grid-template-columns: minmax(0, 1fr) auto 42px; grid-template-areas: "name reset pct" "track track track"; gap: 5px 8px; }
     .meter-name { grid-area: name; } .meter-reset { grid-area: reset; } .meter-pct { grid-area: pct; } .track { grid-area: track; }
@@ -393,7 +393,6 @@
     .alert-part { display: block; }
     .panel .seg { display: flex; }
     .panel .seg button { flex: 1 1 auto; padding: 0 6px; }
-    .sub-list { flex-direction: column; gap: 2px; }
     .show-sm { display: block; }
     .show-sm-inline { display: inline; }
     .hide-sm { display: none; }
@@ -740,8 +739,8 @@ function accountMeta(a, requests) {
   return parts.join("");
 }
 
-function loginButton(a) {
-  return `<button class="btn" data-add="${esc(a.provider)}" data-email="${esc(a.email || "")}">Log in again</button>`;
+function loginButton(a, primary = false) {
+  return `<button class="btn ${primary ? "primary" : ""}" data-add="${esc(a.provider)}" data-email="${esc(a.email || "")}">Log in again</button>`;
 }
 
 function renderActionRow(a) {
@@ -762,7 +761,7 @@ function renderAccount(a, requests) {
       </div>
       ${statusPill(a)}
       <div class="account-actions">
-        <button class="icon-btn" data-act="usage" data-id="${esc(a.id)}" title="${esc(refreshTitle)}" aria-label="Refresh usage for ${esc(name)}">${icon("refresh")}</button>
+        ${a.billing_blocked ? "" : `<button class="icon-btn" data-act="usage" data-id="${esc(a.id)}" title="${esc(refreshTitle)}" aria-label="Refresh usage for ${esc(name)}">${icon("refresh")}</button>`}
         <button class="icon-btn" data-menu="${esc(a.id)}" title="More actions" aria-label="More actions for ${esc(name)}" aria-haspopup="menu">${icon("more")}</button>
       </div>
     </div>
@@ -778,10 +777,10 @@ function renderAlerts(d) {
   $("hub-alert").hidden = !moving;
   setHtml("hub-alert", moving ? `<div class="alert-row warn" role="status">${icon("alert")}<div class="alert-text"><div class="alert-title">The hub is moving</div><div class="alert-detail">Requests are paused until it finishes.</div></div></div>` : "");
   for (const a of d.accounts.filter((x) => x.needs_login)) {
-    rows.push(`<div class="alert-row">${icon("alert")}<div class="alert-text"><div class="alert-title">${esc(accountKind(a))} account needs a new login</div><div class="alert-detail">${breakableEmail(a.email || a.id)}</div></div>${loginButton(a)}</div>`);
+    rows.push(`<div class="alert-row">${icon("alert")}<div class="alert-text"><div class="alert-title">${esc(accountKind(a))} account needs a new login</div><div class="alert-detail">${breakableEmail(a.email || a.id)}</div></div>${loginButton(a, true)}</div>`);
   }
   for (const a of d.accounts.filter((x) => x.billing_blocked)) {
-    rows.push(`<div class="alert-row">${icon("alert")}<div class="alert-text"><div class="alert-title">${esc(accountKind(a))} account is billing blocked</div><div class="alert-detail"><span class="alert-part">${breakableEmail(a.email || a.id)}</span><span class="alert-sep"> · </span><span class="alert-part">Skipped until a usage check shows quota again.</span></div></div><button class="btn" data-act="usage" data-id="${esc(a.id)}">Check usage</button></div>`);
+    rows.push(`<div class="alert-row">${icon("alert")}<div class="alert-text"><div class="alert-title">${esc(accountKind(a))} account is billing blocked</div><div class="alert-detail"><span class="alert-part">${breakableEmail(a.email || a.id)}</span><span class="alert-sep"> · </span><span class="alert-part">Skipped until a usage check shows quota again.</span></div></div><button class="btn primary" data-act="usage" data-id="${esc(a.id)}">Check usage</button></div>`);
   }
   $("alerts").hidden = !rows.length;
   $("alerts").classList.toggle("urgent", d.accounts.some((x) => x.needs_login || x.billing_blocked));
@@ -859,7 +858,7 @@ function requestTable(requests, full) {
     const via = full ? `<td class="hide-sm dim">${esc(r.transport)}</td>` : "";
     const write = full ? `<td class="num hide-sm dim">${tokens(r.usage.cache_write)}</td>` : "";
     const account = r.email || r.account;
-    return `<tr class="${r.status < 400 ? "" : "failed"}"><td class="when">${esc(ago(r.at))}</td><td class="hide-sm dim">${esc(r.machine)}</td><td class="acct" title="${esc(account)}">${esc(account)}<div class="cell-sub show-sm">${esc([r.machine, r.model, ago(r.at)].filter(Boolean).join(" · "))}</div></td><td class="mono hide-sm dim">${esc(r.model || "")}</td>${via}<td class="num status"><span class="code ${r.status < 400 ? "ok" : "bad"}">${r.status}</span></td><td class="num lat">${seconds(r.latency_ms)}</td><td class="num hide-sm dim">${tokens(r.usage.input)}</td><td class="num hide-sm dim">${tokens(r.usage.cache_read)}</td>${write}<td class="num hide-sm dim">${tokens(r.usage.output)}</td></tr>`;
+    return `<tr class="${r.status < 400 ? "" : "failed"}"><td class="when">${esc(ago(r.at))}</td><td class="hide-sm dim">${esc(r.machine)}</td><td class="acct" title="${esc(account)}">${esc(account)}<div class="cell-sub show-sm">${esc([r.machine, r.model].filter(Boolean).join(" · "))}</div></td><td class="mono hide-sm dim">${esc(r.model || "")}</td>${via}<td class="num status"><span class="code ${r.status < 400 ? "ok" : "bad"}">${r.status}</span></td><td class="num lat">${seconds(r.latency_ms)}<div class="cell-sub show-sm">${esc(ago(r.at))}</div></td><td class="num hide-sm dim">${tokens(r.usage.input)}</td><td class="num hide-sm dim">${tokens(r.usage.cache_read)}</td>${write}<td class="num hide-sm dim">${tokens(r.usage.output)}</td></tr>`;
   }).join("") : `<tr><td colspan="${span}"><div class="empty"><strong>No requests yet</strong>Requests appear here once a machine sends one through the hub.</div></td></tr>`;
   return `${head}<tbody>${rows}</tbody>`;
 }
