@@ -342,7 +342,7 @@ async fn take_over(mut cfg: Config, paths: Paths, old_hub: &str, code: Option<St
             let id = uuid::Uuid::new_v4().to_string();
             let base = format!("http://{old_hub}:{}", cfg.port);
             println!(
-                "Asking {old_hub} to stop and export its accounts. Requests running through this machine end when it becomes the hub."
+                "Asking {old_hub} to stop and export its accounts. Codex WebSocket sessions close now. HTTP responses running through this machine end when it becomes the hub."
             );
             let resp = http
                 .post(format!("{base}/conflux/move/prepare"))

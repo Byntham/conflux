@@ -108,7 +108,7 @@ conflux hub take-over <old-hub> --code <code>       # on the new machine, within
 conflux join <new-hub>                              # back on the old machine
 ```
 
-The first command prints the second one for you. Wait a minute before the third, with the old hub still running, so your other machines can switch and requests still running there can finish. A machine that was off during the move can run `conflux join <new-hub>` itself. If a move gets stuck before it finishes, `conflux hub resume` on the old hub puts it back in service.
+The first command prints the second one for you. Wait a minute before the third, with the old hub still running, so your other machines can switch and HTTP responses already streaming there can finish. Codex WebSocket sessions close when the move starts. A machine that was off during the move can run `conflux join <new-hub>` itself. If a move gets stuck before it finishes, `conflux hub resume` on the old hub puts it back in service.
 
 ## Optional features
 
