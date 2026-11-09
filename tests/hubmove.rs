@@ -1,6 +1,7 @@
 mod common;
 
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use common::Harness;
@@ -235,6 +236,24 @@ async fn commit_and_resume_racing_never_leave_both() {
 }
 
 #[tokio::test]
+async fn a_running_stream_neither_delays_a_move_nor_ends_with_it() {
+    let h = Harness::new().await;
+    h.add(Provider::Claude, "a").await;
+    h.reply("at-a", common::Reply::Endless);
+    let mut stream = h.claude(json!({})).send().await.unwrap();
+    assert!(stream.chunk().await.unwrap().is_some());
+
+    tokio::time::timeout(Duration::from_secs(5), prepare(&h))
+        .await
+        .expect("prepare does not wait for running streams");
+    assert_eq!(commit(&h, ID).await["status"], "ok");
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!h.fake.stream_dropped.load(Ordering::SeqCst));
+    assert!(stream.chunk().await.unwrap().is_some());
+}
+
+#[tokio::test]
 async fn websockets_are_closed_when_a_move_starts() {
     let h = Harness::new().await;
     h.add(Provider::Codex, "c").await;
@@ -257,7 +276,6 @@ async fn websockets_are_closed_when_a_move_starts() {
         .await
         .expect("socket closes promptly");
     assert!(matches!(next, None | Some(Ok(Message::Close(_))) | Some(Err(_))));
-    assert_eq!(h.app.router.total_inflight(), 0);
 }
 
 fn app_at(p: &Paths) -> Arc<App> {

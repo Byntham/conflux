@@ -170,17 +170,3 @@ async fn continuation_goes_to_the_account_that_made_the_response() {
         );
     }
 }
-
-#[tokio::test]
-async fn idle_sockets_do_not_use_up_an_account() {
-    let h = Harness::new().await;
-    h.add(Provider::Codex, "c").await;
-    let mut open_sockets = Vec::new();
-    for _ in 0..conflux::router::MAX_INFLIGHT + 2 {
-        let mut ws = open(&h, &[]).await.unwrap();
-        ws.send(create("m")).await.unwrap();
-        assert_eq!(next_json(&mut ws).await.unwrap()["type"], "response.created");
-        open_sockets.push(ws);
-    }
-    assert_eq!(h.app.router.total_inflight(), 0);
-}

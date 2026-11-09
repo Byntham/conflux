@@ -56,12 +56,6 @@ fn no_account_frame(why: NoAccount) -> String {
             "conflux: no codex account is logged in on the hub. Run `conflux login codex` there.",
             None,
         ),
-        NoAccount::Busy => error_frame(
-            503,
-            "server_error",
-            "conflux: every codex account is busy. Try again shortly.",
-            None,
-        ),
         NoAccount::AllLimited(soonest) => {
             let secs = soonest.map(|t| (t - Utc::now()).num_seconds().max(1));
             error_frame(
@@ -190,19 +184,18 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, path: S
     let mut tried = HashSet::new();
     let mut refreshed = HashSet::new();
     let mut last_rejection: Option<String> = None;
-    let (upstream, lease) = loop {
-        let lease = match app.router.pick(&route, &tried) {
-            Ok(l) => l,
+    let (upstream, account) = loop {
+        let account = match app.router.pick(&route, &tried) {
+            Ok(a) => a,
             Err(why) => return close_with(&mut client, last_rejection.unwrap_or_else(|| no_account_frame(why))).await,
         };
         if !app.accepting_requests() {
             let frame = error_frame(503, "server_error", proxy::HUB_NOT_ACTIVE, None);
             return close_with(&mut client, frame).await;
         }
-        let account = lease.account.clone();
         let sent_generation = account.credentials().generation;
         match connect(&app, &account, &headers, &url).await {
-            Ok(ws) => break (ws, lease),
+            Ok(ws) => break (ws, account),
             Err(ConnectError::Rejected { status: 401, .. }) if refreshed.insert(account.id.clone()) => {
                 if app.refresher.refresh_rejected(&account, sent_generation).await != RefreshResult::Refreshed {
                     app.router.cool(
@@ -250,8 +243,6 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, path: S
         }
     };
 
-    let account = lease.account.clone();
-    drop(lease);
     let turn = Turn {
         machine: proxy::machine_name(&app, &headers),
         started: std::cell::Cell::new(Instant::now()),

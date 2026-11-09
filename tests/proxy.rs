@@ -294,6 +294,29 @@ async fn client_disconnect_cancels_upstream() {
 }
 
 #[tokio::test]
+async fn a_pinned_session_stays_on_its_account_with_many_requests_open() {
+    let h = Harness::new().await;
+    h.add(Provider::Claude, "a").await;
+    h.add(Provider::Claude, "b").await;
+    let mut open = Vec::new();
+    for _ in 0..12 {
+        h.reply("at-a", Reply::Endless);
+        h.reply("at-b", Reply::Endless);
+        let r = h
+            .claude(json!({}))
+            .header("x-claude-code-session-id", "s1")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::OK);
+        open.push(r);
+    }
+    let mut hits = [h.hits_for("at-a"), h.hits_for("at-b")];
+    hits.sort_unstable();
+    assert_eq!(hits, [0, 12]);
+}
+
+#[tokio::test]
 async fn no_accounts_message() {
     let h = Harness::new().await;
     let r = h.claude(json!({})).send().await.unwrap();

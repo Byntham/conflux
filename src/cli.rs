@@ -341,7 +341,9 @@ async fn take_over(mut cfg: Config, paths: Paths, old_hub: &str, code: Option<St
             let code = code.context("pass --code with the code from `conflux hub move-code`")?;
             let id = uuid::Uuid::new_v4().to_string();
             let base = format!("http://{old_hub}:{}", cfg.port);
-            println!("Asking {old_hub} to stop and export its accounts. This can take up to two minutes.");
+            println!(
+                "Asking {old_hub} to stop and export its accounts. Codex WebSocket sessions close now. HTTP responses running through this machine end when it becomes the hub."
+            );
             let resp = http
                 .post(format!("{base}/conflux/move/prepare"))
                 .json(&json!({ "code": code, "id": id }))
@@ -524,8 +526,8 @@ fn print_status(v: &Value) -> Result<()> {
         return Ok(());
     }
     println!(
-        "{:<20} {:<7} {:<32} {:<6} {:<6} {:<10} STATUS",
-        "ACCOUNT", "TYPE", "EMAIL", "SHORT", "LONG", "INFLIGHT"
+        "{:<20} {:<7} {:<32} {:<6} {:<6} STATUS",
+        "ACCOUNT", "TYPE", "EMAIL", "SHORT", "LONG"
     );
     for a in accounts {
         let windows = a["usage"]["windows"].as_array().cloned().unwrap_or_default();
@@ -558,13 +560,12 @@ fn print_status(v: &Value) -> Result<()> {
             status.push("ok".into());
         }
         println!(
-            "{:<20} {:<7} {:<32} {:<6} {:<6} {:<10} {}",
+            "{:<20} {:<7} {:<32} {:<6} {:<6} {}",
             a["id"].as_str().unwrap_or(""),
             a["provider"].as_str().unwrap_or(""),
             a["email"].as_str().unwrap_or("-"),
             short.map(|w| pct(&w["used_pct"])).unwrap_or_else(|| "-".into()),
             long.map(|w| pct(&w["used_pct"])).unwrap_or_else(|| "-".into()),
-            a["inflight"].as_u64().unwrap_or(0),
             status.join(", ")
         );
     }

@@ -90,7 +90,6 @@ pub struct AccountView {
     pub refresh: String,
     pub expires_at: chrono::DateTime<chrono::Utc>,
     pub billing_blocked: Option<String>,
-    pub inflight: usize,
     pub cooldowns: Vec<crate::router::Cooldown>,
     pub usage: crate::usage::Snapshot,
 }
@@ -114,7 +113,6 @@ pub fn account_view(app: &App, e: &AccountEntry) -> AccountView {
         },
         expires_at: c.grant.expires_at,
         billing_blocked: app.router.billing_blocked(&e.id),
-        inflight: app.router.inflight(&e.id),
         cooldowns: app.router.cooldowns(&e.id),
         usage: app.usage.get(&e.id),
     }
