@@ -50,11 +50,6 @@ impl Snapshot {
         self.shared_windows().max_by_key(|w| w.duration_secs.unwrap_or(0))
     }
 
-    pub fn shortest(&self) -> Option<&Window> {
-        self.shared_windows()
-            .min_by_key(|w| w.duration_secs.unwrap_or(i64::MAX))
-    }
-
     pub fn exhausted(&self, now: DateTime<Utc>) -> bool {
         self.shared_windows()
             .any(|w| w.used_pct >= 100.0 && w.resets_at.is_none_or(|r| r > now))
@@ -353,7 +348,6 @@ mod tests {
         h.insert("x-codex-secondary-window-minutes", HeaderValue::from_static("10080"));
         let mut s = Snapshot::default();
         apply_codex_headers(&mut s, &h, Utc::now());
-        assert_eq!(s.shortest().unwrap().key, "primary");
         assert_eq!(s.longest().unwrap().key, "secondary");
         assert!(!s.exhausted(Utc::now()));
     }

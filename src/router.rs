@@ -171,21 +171,11 @@ impl Router {
                         } else {
                             far
                         };
-                        let short = if fresh {
-                            s.shortest().map(|w| w.used_pct).unwrap_or(0.0)
-                        } else {
-                            0.0
-                        };
-                        (!fresh, reset, short, e.id.clone(), e.clone())
+                        (!fresh, reset, e.id.clone(), e.clone())
                     })
                     .collect();
-                ranked.sort_by(|a, b| {
-                    a.0.cmp(&b.0)
-                        .then(a.1.cmp(&b.1))
-                        .then(a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal))
-                        .then(a.3.cmp(&b.3))
-                });
-                ranked.remove(0).4
+                ranked.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
+                ranked.remove(0).3
             });
 
         if let Some(k) = pin_key {
@@ -347,6 +337,23 @@ mod tests {
             router.pick(&req, &HashSet::new()).unwrap().id,
             id(Provider::Claude, "b")
         );
+    }
+
+    #[test]
+    fn equal_resets_fall_back_to_the_account_id() {
+        let (_d, _s, usage, router) = setup(&[("a", Provider::Claude), ("b", Provider::Claude)]);
+        let (a, b) = (id(Provider::Claude, "a"), id(Provider::Claude, "b"));
+        let (lower_id, higher_id) = if a < b { (a, b) } else { (b, a) };
+        let busy = snap(10, 90.0, 40.0);
+        let mut idle = busy.clone();
+        idle.windows[0].used_pct = 10.0;
+        usage.set(&lower_id, busy);
+        usage.set(&higher_id, idle);
+        let req = RouteRequest {
+            provider: Some(Provider::Claude),
+            ..Default::default()
+        };
+        assert_eq!(router.pick(&req, &HashSet::new()).unwrap().id, lower_id);
     }
 
     #[test]
