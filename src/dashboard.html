@@ -573,6 +573,7 @@ const HOUR_MS = 3600000;
 const REQUEST_ROWS = 100;
 const RECENT_ROWS = 8;
 const STALE_USAGE_MS = 30 * 60000;
+const REQUEST_LOG_SIZE = 500;
 const rendered = new Map();
 let latest = null;
 let requestFilter = "all";
@@ -667,15 +668,21 @@ function accountCooldown(a) {
   return a.cooldowns.find((c) => c.scope === "account");
 }
 
+function quotaExhausted(a) {
+  if (a.allow_overage || !a.usage.updated_at || Date.now() - new Date(a.usage.updated_at) >= STALE_USAGE_MS) return false;
+  const now = Date.now();
+  return a.usage.overage_in_use || a.usage.windows.some((w) => !w.model_scope && w.used_pct >= 100 && (!w.resets_at || new Date(w.resets_at) > now));
+}
+
 function isReady(a) {
-  return a.enabled && !a.needs_login && !a.billing_blocked && !accountCooldown(a);
+  return a.enabled && !a.needs_login && !a.billing_blocked && !accountCooldown(a) && !quotaExhausted(a);
 }
 
 function severity(a) {
   if (a.needs_login) return 0;
   if (a.billing_blocked) return 1;
   if (!a.enabled) return 4;
-  return accountCooldown(a) ? 2 : 3;
+  return accountCooldown(a) || quotaExhausted(a) ? 2 : 3;
 }
 
 const accountKind = (a) => [providerName(a.provider), titleCase(a.plan)].filter(Boolean).join(" ");
@@ -691,6 +698,7 @@ function statusPill(a) {
   if (!a.enabled) return '<span class="pill">Disabled</span>';
   const cooling = accountCooldown(a);
   if (cooling) return `<span class="pill warn" title="${esc(cooling.reason)}">Cooling ${esc(until(cooling.until))}</span>`;
+  if (quotaExhausted(a)) return '<span class="pill warn">Quota full</span>';
   if (!a.cooldowns.length) return '<span class="pill ok">Ready</span>';
   const n = a.cooldowns.length;
   return `<span class="pill warn">${n} ${n === 1 ? "model" : "models"} cooling</span>`;
@@ -800,11 +808,12 @@ function renderStats(d) {
   const now = Date.now();
   const hour = d.requests.filter((r) => now - new Date(r.at) < HOUR_MS);
   const failed = hour.filter((r) => r.status >= 400).length;
+  const capped = hour.length >= REQUEST_LOG_SIZE;
   const success = hour.length ? `${(((hour.length - failed) / hour.length) * 100).toFixed(1)}%` : "–";
   const latencies = hour.filter((r) => r.status < 400).map((r) => r.latency_ms).sort((x, y) => x - y);
   const cache = cacheTotals(hour);
   const blocked = d.accounts.filter((a) => a.enabled && (a.needs_login || a.billing_blocked)).length;
-  const cooling = d.accounts.filter((a) => a.enabled && !a.needs_login && !a.billing_blocked && accountCooldown(a)).length;
+  const cooling = d.accounts.filter((a) => a.enabled && !a.needs_login && !a.billing_blocked && (accountCooldown(a) || quotaExhausted(a))).length;
   const disabled = d.accounts.filter((a) => !a.enabled).length;
   const accountParts = [blocked && `<span class="stat-sub bad nb">${blocked} blocked</span>`, cooling && `<span class="stat-sub warn nb">${cooling} cooling</span>`, disabled && `<span class="nb">${disabled} disabled</span>`].filter(Boolean);
   const accountSub = !d.accounts.length ? "No accounts" : accountParts.length ? `<span class="sub-list">${accountParts.join("")}</span>` : "All available";
@@ -812,7 +821,7 @@ function renderStats(d) {
   const severityClass = failureRate >= 0.1 ? "bad" : failureRate >= 0.03 ? "warn" : "";
   setHtml("stats", [
     stat("Accounts available", d.accounts.length ? `${ready}<small> of ${d.accounts.length}</small>` : "0", accountSub, "", blocked || (d.accounts.length && !ready) ? "bad" : cooling ? "warn" : ""),
-    stat("Requests, last hour", hour.length.toLocaleString(), inflight ? `${inflight} in flight` : "None in flight"),
+    stat("Requests, last hour", `${hour.length.toLocaleString()}${capped ? "+" : ""}`, inflight ? `${inflight} in flight` : "None in flight"),
     stat("Success rate", success, hour.length ? (failed ? `${failed} failed` : "No failures") : "No requests", severityClass, severityClass),
     stat("Median latency", latencies.length ? seconds(percentile(latencies, 0.5)) : "–", latencies.length ? `p95 ${seconds(percentile(latencies, 0.95))}` : "No requests"),
     stat("Cache hit", cache.hit === null ? "–" : `${cache.hit}%`, cache.hit === null ? "No requests" : `${tokens(cache.read)} tokens read`),
@@ -1000,7 +1009,7 @@ async function loadThreads() {
     $("threads-layout").classList.toggle("no-list", !d.threads.length);
     const count = `${d.threads.length} ${d.threads.length === 1 ? "thread" : "threads"}`;
     const filtered = $("thread-machine").value || $("thread-errors").checked || $("thread-subagents").checked;
-    $("view-threads").classList.toggle("no-threads", !d.threads.length && !filtered);
+    $("view-threads").classList.toggle("no-threads", !d.threads.length && !filtered && !d.machines.length);
     setHtml("thread-pane", d.threads.length
       ? `<div class="list-head"><span>${count}</span></div>${d.threads.map(threadRow).join("")}`
       : `<div class="viewer-empty"><strong>${filtered ? "No matching threads" : "No threads yet"}</strong><span>${filtered ? "Nothing matches these filters." : "Threads appear here once a machine syncs its transcripts."}</span></div>`);
@@ -1033,7 +1042,8 @@ function eventsHtml(events, query) {
       continue;
     }
     const next = events[i + 1];
-    const paired = e.kind === "tool_call" && next && (next.kind === "tool_result" || next.kind === "failed") && next.name === e.name;
+    const isResult = (x) => x && (x.kind === "tool_result" || x.kind === "failed");
+    const paired = e.kind === "tool_call" && isResult(next) && (!next.name || next.name === e.name) && events[i - 1]?.kind !== "tool_call" && !isResult(events[i + 2]);
     if (paired) { parts.push(toolHtml(e, next, query)); i++; continue; }
     parts.push(e.kind === "tool_call" ? toolHtml(e, null, query) : toolHtml(null, e, query));
   }
