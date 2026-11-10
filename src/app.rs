@@ -301,8 +301,8 @@ impl update::Handoff for App {
     async fn resume(&self) {
         if self.hub_state.get() == HubState::Active {
             self.refresher.open_gate().await;
+            self.usage.set_paused(false);
         }
-        self.usage.set_paused(false);
     }
 }
 
