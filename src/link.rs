@@ -26,6 +26,7 @@ use crate::{dashboard, update};
 const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 const LINK_TIMEOUT: Duration = Duration::from_secs(15);
 const RESCAN_TAILNET: Duration = Duration::from_secs(30);
+const SHUTDOWN_LIMIT: Duration = Duration::from_secs(2);
 
 #[derive(Serialize)]
 struct Found {
@@ -39,11 +40,6 @@ struct Found {
 #[derive(Deserialize)]
 pub struct LinkRequest {
     address: IpAddr,
-}
-
-#[derive(Deserialize)]
-struct AcceptRequest {
-    hub: String,
 }
 
 fn url_host(ip: IpAddr) -> String {
@@ -78,7 +74,7 @@ async fn tailnet_status(app: &App) -> Result<Value, ApiError> {
 
 async fn probe(app: &App, address: IpAddr) -> &'static str {
     let url = format!("http://{}/conflux/link", SocketAddr::new(address, app.cfg.port));
-    let Ok(resp) = app.control_http.get(url).timeout(PROBE_TIMEOUT).send().await else {
+    let Ok(resp) = app.proxy_http.get(url).timeout(PROBE_TIMEOUT).send().await else {
         return "missing";
     };
     let v: Value = resp.json().await.unwrap_or(Value::Null);
@@ -120,14 +116,6 @@ pub async fn discover(State(app): State<Arc<App>>, headers: HeaderMap) -> Result
 
 pub async fn link(State(app): State<Arc<App>>, Json(req): Json<LinkRequest>) -> Result<Json<Value>, ApiError> {
     let status = tailnet_status(&app).await?;
-    let me = TailnetSelf::from_status(&status);
-    let hub = me
-        .ips
-        .iter()
-        .find(|ip| ip.is_ipv4())
-        .or(me.ips.first())
-        .map(|ip| url_host(*ip))
-        .ok_or_else(|| ApiError(StatusCode::SERVICE_UNAVAILABLE, "the hub has no tailnet address".into()))?;
     let peer = tailnet::same_user_peers(&status)
         .into_iter()
         .find(|p| p.machine.ips.contains(&req.address))
@@ -140,9 +128,9 @@ pub async fn link(State(app): State<Arc<App>>, Json(req): Json<LinkRequest>) -> 
     let name = peer_name(&peer, req.address);
     let url = format!("http://{}/conflux/link", SocketAddr::new(req.address, app.cfg.port));
     let resp = app
-        .control_http
+        .proxy_http
         .post(url)
-        .json(&json!({ "hub": hub }))
+        .json(&json!({}))
         .timeout(LINK_TIMEOUT)
         .send()
         .await
@@ -208,7 +196,7 @@ impl Waiting {
             .with_state(self.clone())
     }
 
-    pub fn linked(&self) -> impl Future<Output = ()> + Send + 'static {
+    fn linked(&self) -> impl Future<Output = ()> + Send + 'static {
         let mut linked = self.linked.subscribe();
         async move {
             let _ = linked.wait_for(|l| *l).await;
@@ -286,11 +274,7 @@ async fn not_linked() -> Response {
     )
 }
 
-async fn accept(
-    State(w): State<Arc<Waiting>>,
-    ConnectInfo(from): ConnectInfo<SocketAddr>,
-    Json(req): Json<AcceptRequest>,
-) -> Response {
+async fn accept(State(w): State<Arc<Waiting>>, ConnectInfo(from): ConnectInfo<SocketAddr>) -> Response {
     let tailscale = w.tailscale.clone();
     let caller = from.ip();
     let same_user = tokio::task::spawn_blocking(move || tailnet::is_same_user(&tailscale, caller))
@@ -303,7 +287,7 @@ async fn accept(
         );
     }
     let _one_at_a_time = w.accepting.lock().await;
-    match w.become_node(&req.hub) {
+    match w.become_node(&url_host(caller)) {
         Ok(None) => Json(json!({ "hostname": w.hostname })).into_response(),
         Ok(Some(reason)) => refuse(StatusCode::CONFLICT, reason),
         Err(e) => refuse(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
@@ -311,6 +295,21 @@ async fn accept(
 }
 
 impl Waiting {
+    pub async fn run(self: Arc<Self>, listener: tokio::net::TcpListener) {
+        let local = self.serve_on(listener);
+        let mut servers = self.clone().listen_on_tailnet().await;
+        servers.push(local);
+        let finished = futures_util::future::join_all(servers.iter_mut());
+        if tokio::time::timeout(SHUTDOWN_LIMIT, finished).await.is_err() {
+            for server in &servers {
+                server.abort();
+            }
+            for server in servers {
+                let _ = server.await;
+            }
+        }
+    }
+
     fn become_node(&self, hub: &str) -> Result<Option<String>> {
         let mut cfg = Config::load(&self.paths)?;
         if cfg.role != Role::Waiting {
@@ -338,12 +337,7 @@ pub async fn serve(cfg: Config, paths: Paths) -> Result<()> {
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .with_context(|| format!("bind {addr}"))?;
-    let local = waiting.serve_on(listener);
     tracing::info!(%addr, "conflux is waiting to be linked to a hub");
-    let mut servers = waiting.clone().listen_on_tailnet().await;
-    servers.push(local);
-    for server in servers {
-        let _ = server.await;
-    }
+    waiting.run(listener).await;
     Ok(())
 }

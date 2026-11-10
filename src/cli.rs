@@ -193,7 +193,10 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Wait => match link::become_waiting(&paths)? {
             Some(role) => {
                 let role = if role == Role::Node { "linked to a hub" } else { "a hub" };
-                println!("This machine is already {role}. Nothing changed.");
+                println!("This machine is already {role}. Its role did not change.");
+                if service::installed() {
+                    service::restart()?;
+                }
                 Ok(())
             }
             None => {

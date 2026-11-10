@@ -1260,7 +1260,7 @@ function confirmRemove(id, name, kind) {
 const OS_NAMES = { linux: "Linux", macOS: "macOS", windows: "Windows" };
 
 function foundRow(m, i) {
-  const what = { waiting: "Waiting to be linked", busy: "Runs conflux, but is not waiting to be linked", missing: "conflux is not running. Run this there:" }[m.state];
+  const what = { waiting: "Waiting to be linked", busy: "Not waiting to be linked", missing: "conflux is not running. Run this there:" }[m.state];
   const link = m.state === "waiting" ? `<button class="btn small primary" data-link="${esc(m.address)}">Link</button>` : "";
   const install = m.install ? `<div class="code-block"><span class="code-text" id="found-${i}">${commandHtml(m.install)}</span><button class="icon-btn" data-copy="found-${i}" title="Copy" aria-label="Copy">${icon("copy")}</button></div>` : "";
   return `<div class="found-row"><div class="found-text"><span class="machine-name">${esc(m.name)}</span><div class="cell-sub">${esc(OS_NAMES[m.os] || m.os)} · ${esc(what)}</div></div>${link}${install}</div>`;

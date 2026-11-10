@@ -42,13 +42,13 @@ pub struct Machine {
 struct Link {
     id: u64,
     commands: mpsc::UnboundedSender<Value>,
+    address: IpAddr,
 }
 
 struct Entry {
     report: Report,
     last_seen: DateTime<Utc>,
     link: Option<Link>,
-    address: Option<IpAddr>,
 }
 
 #[derive(Default)]
@@ -66,8 +66,7 @@ impl Machines {
             Entry {
                 report,
                 last_seen: Utc::now(),
-                link: Some(Link { id, commands }),
-                address: Some(address),
+                link: Some(Link { id, commands, address }),
             },
         );
         (id, receiver)
@@ -136,14 +135,18 @@ impl Machines {
                     },
                     last_seen,
                     link: None,
-                    address: None,
                 },
             );
         }
     }
 
     pub fn addresses(&self) -> HashSet<IpAddr> {
-        self.map.lock().unwrap().values().filter_map(|e| e.address).collect()
+        self.map
+            .lock()
+            .unwrap()
+            .values()
+            .filter_map(|e| e.link.as_ref().map(|l| l.address))
+            .collect()
     }
 
     pub fn list(&self) -> Vec<Machine> {
