@@ -897,12 +897,15 @@ function updatable(d) {
 }
 
 function updateCell(m, version) {
-  const wide = (text) => `<span class="hide-sm">${text}</span>`;
-  if (updating(m)) return `<span class="muted">${m.update.state === "downloading" ? "Downloading" : "Starting"}${wide(` v${esc(m.update.version)}`)}</span>`;
-  const failed = m.update ? `<span class="pill bad" data-tip="${esc(m.update.error)}">${wide("Update failed")}<span class="show-sm-inline">Failed</span></span>` : "";
+  const sized = (wide, narrow) => `<span class="hide-sm">${wide}</span><span class="show-sm-inline">${narrow}</span>`;
+  if (updating(m)) {
+    const step = m.update.state === "downloading" ? "Downloading" : "Starting";
+    return `<span class="muted">${sized(`${step} v${esc(m.update.version)}`, step)}</span>`;
+  }
+  const failed = m.update ? `<span class="pill bad" data-tip="${esc(m.update.error)}">${sized("Update failed", "Failed")}</span>` : "";
   if (!m.outdated) return failed;
-  if (!m.online) return `<span class="pill warn">Update${wide(" available")}</span>`;
-  return `${failed}<button class="btn small" data-update="${esc(m.hostname)}">${failed ? "Retry" : `Update${wide(` to v${esc(version)}`)}`}</button>`;
+  if (!m.online) return `<span class="pill warn">${sized("Update available", "Update")}</span>`;
+  return `${failed}<button class="btn small" data-update="${esc(m.hostname)}">${failed ? "Retry" : sized(`Update to v${esc(version)}`, "Update")}</button>`;
 }
 
 function renderMachines(d) {
