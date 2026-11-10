@@ -2,15 +2,40 @@
 
 Rust proxy that pools Claude Code and Codex subscription accounts on one hub machine.
 
+## Approach
+
+- Don't keep complexity just because it exists, or add machinery to look thorough. Find the real constraint, then make the smallest change that makes the right behavior obvious. Fight scope creep.
+- If a rule here fights the task, say so and get the developer's sign-off before breaking it.
+
+## Don't break the developer's setup
+
+- Never run `conflux` against the real install. Set `CONFLUX_HOME` to a temp dir and point the `CONFLUX_*` endpoint variables at a fake upstream. The real install holds OAuth tokens for live accounts.
+- Never run `conflux on`, `off`, `join` or `service` for real. `CONFLUX_HOME` does not isolate them. They rewrite `~/.claude/settings.json` and `~/.codex/config.toml` and restart the user's conflux service, which can cut off the agent running the command. Test that code through `ClientPaths` with temp paths, as `src/setup.rs` does.
+- Never kill conflux by name, for example with `pkill -f conflux`. The developer's hub may be serving their agent sessions, including yours. Kill only a PID you started.
+- Never call Anthropic or OpenAI for real. Tests use the fake upstream in `tests/common`.
+
+## Hit every path
+
+A fix that works on one path is often missing from the others. Before calling a change done, check each of these that applies:
+
+- HTTP (`src/proxy.rs`) and WebSocket (`src/ws.rs`)
+- Claude and Codex
+- Hub and node (`src/node.rs`)
+- The dashboard, `/conflux/api`, and `conflux status`
+
 ## Code style
 
 - No code comments. If code needs explaining, give it better names, add a test, or restructure it.
 - Commit at good checkpoints, with tests passing.
 - Never put real hostnames, IP addresses, tailnet names, or personal paths in code, tests, or docs.
+- Don't commit plans, research notes, or agent scratch files.
 
 ## Tests
 
 - Prefer integration tests in `tests/` that drive real behavior. Write unit tests only for logic that is hard to reach that way, such as parsers and security checks.
+- Extend an existing test before writing a new one.
+- Test at one layer: the lowest one that fails before the fix.
+- A bug fix starts with a test that fails on `main`.
 - Every test must be able to catch a real bug. Don't test defaults, string templates, trivial helpers, or behavior another test already covers.
 
 ## Pull requests
