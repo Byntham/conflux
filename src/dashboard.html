@@ -584,6 +584,7 @@ const HOUR_MS = 3600000;
 const REQUEST_ROWS = 100;
 const RECENT_ROWS = 8;
 const STALE_USAGE_MS = 30 * 60000;
+const SETTLE_AFTER_LOAD_MS = 15000;
 const REQUEST_LOG_SIZE = 500;
 const rendered = new Map();
 let latest = null;
@@ -976,7 +977,7 @@ function render(d) {
   const firstLoad = !latest;
   latest = d;
   clearTimeout(updateTimer);
-  if (d.machines.some(updating)) updateTimer = setTimeout(refresh, 1000);
+  if (d.machines.some(updating) || performance.now() < SETTLE_AFTER_LOAD_MS) updateTimer = setTimeout(refresh, 1000);
   document.body.classList.add("loaded");
   $("hub-line").textContent = `${d.hub.name} · v${d.hub.version}`;
   $("top-line").textContent = d.hub.name;
@@ -1317,7 +1318,7 @@ document.addEventListener("mouseover", (ev) => {
   const rect = col.getBoundingClientRect();
   const left = Math.max(8, Math.min(rect.left + rect.width / 2 - tip.offsetWidth / 2, window.innerWidth - tip.offsetWidth - 8));
   tip.style.left = `${left}px`;
-  tip.style.top = `${rect.top - tip.offsetHeight + 8}px`;
+  tip.style.top = `${rect.top - tip.offsetHeight + (col.classList.contains("col") ? 8 : -6)}px`;
 });
 
 document.addEventListener("click", (ev) => {
