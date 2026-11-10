@@ -76,8 +76,6 @@ conflux now runs in the background, and it has edited Claude Code's and Codex's 
 
 To check that it worked, start a new session on that machine and send a message. It appears under "Recent requests" on the dashboard.
 
-To update a machine later, run its install commands again, using the current hub's name if the hub has moved.
-
 On a system without a prebuilt binary, build it with Rust instead:
 
 ```sh
@@ -85,11 +83,29 @@ cargo install --git https://github.com/Byntham/conflux
 conflux join <hub>    # use self on the hub
 ```
 
+## Update conflux
+
+When a new release is out, the dashboard marks each machine that is behind. Click "Update all" there, or run this on any machine:
+
+```sh
+conflux update              # every machine that is online
+conflux update <machine>    # one machine
+```
+
+Each machine downloads the release and starts it next to the running version. The new version takes every new request. The old one finishes the requests it already has, then exits. A Codex WebSocket closes when its current turn ends, and Codex opens a new one for the next turn.
+
+A machine that is off during an update stays on its old version. The dashboard keeps it marked until you update it.
+
+Machines on v0.1.0 cannot update themselves. Run their install commands again once.
+
+A system without a prebuilt binary cannot update this way. Run `cargo install` on it again.
+
 ## Everyday commands
 
 | Command | What it does |
 | --- | --- |
 | `conflux status` | Show accounts, usage, and cooldowns |
+| `conflux update` | Update every online machine to the latest release |
 | `conflux login claude` or `codex` | Add an account, or log one in again |
 | `conflux disable <account>` | Stop using an account. `enable` brings it back |
 | `conflux remove <account>` | Delete an account from the hub |

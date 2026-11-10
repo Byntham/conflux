@@ -25,7 +25,7 @@ pub struct Report {
     #[serde(default)]
     pub transcript_sync: bool,
     #[serde(default)]
-    pub update: Option<UpdateStatus>,
+    pub update: Value,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -146,7 +146,7 @@ impl Machines {
                     now - e.last_seen < ONLINE_WINDOW
                 },
                 transcript_sync: e.report.transcript_sync,
-                update: e.report.update.clone(),
+                update: serde_json::from_value(e.report.update.clone()).unwrap_or(None),
                 remote_update: e.has_control_channel,
                 outdated: false,
             })

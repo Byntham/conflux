@@ -92,6 +92,7 @@
   .btn.primary:hover { background: color-mix(in srgb, var(--primary) 86%, var(--bg)); }
   .btn:disabled { opacity: .45; cursor: default; }
   .btn.danger { background: var(--bad-fill); border-color: var(--bad-fill); color: #ffffff; }
+  .btn.small { height: 25px; padding: 0 9px; font-size: 12.5px; }
   .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 29px; height: 29px; border-radius: 7px; border: 0; background: transparent; color: var(--fg-2); }
   .icon-btn:hover { background: var(--hover); color: var(--fg); }
   .spin svg { animation: spin .8s linear infinite; }
@@ -218,6 +219,7 @@
   .offline .mono { color: var(--muted); }
   .status-cell { display: inline-flex; align-items: center; gap: 8px; }
   .status-cell .dot { box-shadow: none; }
+  .update-cell { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; }
   .badge { padding: 0 6px; border-radius: 5px; font-size: 11.5px; font-weight: 500; background: var(--hover); color: var(--fg-2); }
 
   .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -519,7 +521,7 @@
       </section>
 
       <section id="view-machines" hidden>
-        <div class="page-head"><div><h1>Machines</h1><div class="page-sub" id="machines-sub"></div></div></div>
+        <div class="page-head"><div><h1>Machines</h1><div class="page-sub" id="machines-sub"></div></div><div id="update-all"></div></div>
         <div class="card table-wrap"><table id="machine-list"></table></div>
         <div class="panels">
           <div class="card panel">
@@ -583,6 +585,7 @@ let threadToken = 0;
 let listToken = 0;
 let loginTimer = null;
 let toastTimer = null;
+let updateTimer = null;
 let menuAnchor = null;
 
 function setHtml(id, html) {
@@ -789,10 +792,15 @@ function renderAlerts(d) {
   for (const a of d.accounts.filter((x) => x.billing_blocked)) {
     rows.push(`<div class="alert-row">${icon("alert")}<div class="alert-text"><div class="alert-title">${esc(accountKind(a))} account is billing blocked</div><div class="alert-detail"><span class="alert-part">${breakableEmail(a.email || a.id)}</span><span class="alert-sep"> · </span><span class="alert-part">Skipped until a usage check shows quota again.</span></div></div><button class="btn primary" data-act="usage" data-id="${esc(a.id)}">Check usage</button></div>`);
   }
+  const problems = rows.length;
+  const ready = updatable(d).length;
+  if (ready) {
+    rows.push(`<div class="alert-row warn">${icon("info")}<div class="alert-text"><div class="alert-title">conflux v${esc(d.latest_version)} is available</div><div class="alert-detail">${ready === 1 ? "1 machine" : `${ready} machines`} can update now. Running requests are not interrupted.</div></div><button class="btn primary" data-update-all>Update all</button></div>`);
+  }
   $("alerts").hidden = !rows.length;
   $("alerts").classList.toggle("urgent", d.accounts.some((x) => x.needs_login || x.billing_blocked));
   setHtml("alerts", rows.join(""));
-  const alertCount = rows.length + (moving ? 1 : 0);
+  const alertCount = problems + (moving ? 1 : 0);
   $("nav-alert").hidden = !alertCount;
   $("nav-alert").textContent = alertCount;
 }
@@ -880,12 +888,31 @@ function renderRequests(d) {
   setHtml("request-log", requestTable(shown, true));
 }
 
+function updating(m) {
+  return Boolean(m.update) && m.update.state !== "failed";
+}
+
+function updatable(d) {
+  return d.machines.filter((m) => m.outdated && m.online && m.remote_update && !updating(m));
+}
+
+function updateCell(m, version) {
+  const wide = (text) => `<span class="hide-sm">${text}</span>`;
+  if (updating(m)) return `<span class="muted">${m.update.state === "downloading" ? "Downloading" : "Starting"}${wide(` v${esc(m.update.version)}`)}</span>`;
+  const failed = m.update ? `<span class="pill bad" data-tip="${esc(m.update.error)}">${wide("Update failed")}<span class="show-sm-inline">Failed</span></span>` : "";
+  if (!m.outdated) return failed;
+  if (!m.remote_update) return `<span class="pill warn" data-tip="This version cannot update itself. Run the install command on this machine again.">Reinstall${wide(" to update")}</span>`;
+  if (!m.online) return `<span class="pill warn">Update${wide(" available")}</span>`;
+  return `${failed}<button class="btn small" data-update="${esc(m.hostname)}">${failed ? "Retry" : `Update${wide(` to v${esc(version)}`)}`}</button>`;
+}
+
 function renderMachines(d) {
   const online = d.machines.filter((m) => m.online).length;
   $("nav-machines").textContent = `${online}/${d.machines.length}`;
   $("machines-sub").textContent = `${online} of ${d.machines.length} online`;
-  setHtml("machine-list", `<thead><tr><th>Machine</th><th>Status</th><th class="hide-sm">Version</th><th class="hide-sm">Transcript sync</th><th class="num">Last seen</th></tr></thead><tbody>${d.machines.map((m) =>
-    `<tr class="${m.online ? "" : "offline"}"><td><span class="machine-name">${esc(m.hostname)}${m.role === "hub" ? '<span class="badge">Hub</span>' : ""}</span><div class="cell-sub show-sm">v${esc(m.version)} · sync ${m.transcript_sync ? "on" : "off"}</div></td><td class="${m.online ? "" : "muted"}"><span class="status-cell"><span class="dot ${m.online ? "on" : ""}"></span>${m.online ? "Online" : "Offline"}</span></td><td class="mono hide-sm">${esc(m.version)}</td><td class="hide-sm ${m.transcript_sync ? "" : "muted"}">${m.transcript_sync ? "On" : "Off"}</td><td class="num when">${esc(ago(m.last_seen))}</td></tr>`
+  setHtml("update-all", updatable(d).length ? `<button class="btn primary" data-update-all>Update all to v${esc(d.latest_version)}</button>` : "");
+  setHtml("machine-list", `<thead><tr><th>Machine</th><th>Status</th><th class="hide-sm">Version</th><th class="hide-sm">Transcript sync</th><th class="num hide-sm">Last seen</th><th class="num">Update</th></tr></thead><tbody>${d.machines.map((m) =>
+    `<tr class="${m.online ? "" : "offline"}"><td><span class="machine-name">${esc(m.hostname)}${m.role === "hub" ? '<span class="badge">Hub</span>' : ""}</span><div class="cell-sub show-sm">v${esc(m.version)} · sync ${m.transcript_sync ? "on" : "off"}</div></td><td class="${m.online ? "" : "muted"}"><span class="status-cell"><span class="dot ${m.online ? "on" : ""}"></span>${m.online ? "Online" : "Offline"}</span></td><td class="mono hide-sm">${esc(m.version)}</td><td class="hide-sm ${m.transcript_sync ? "" : "muted"}">${m.transcript_sync ? "On" : "Off"}</td><td class="num when hide-sm">${esc(ago(m.last_seen))}</td><td class="num"><span class="update-cell">${updateCell(m, d.latest_version)}</span></td></tr>`
   ).join("")}</tbody>`);
   setHtml("takeover-command", commandHtml(`conflux hub take-over ${d.hub.name} --code <code>`));
   renderInstall();
@@ -933,8 +960,11 @@ function currentView() {
 }
 
 function render(d) {
+  if (latest && latest.hub.version !== d.hub.version) return location.reload();
   const firstLoad = !latest;
   latest = d;
+  clearTimeout(updateTimer);
+  if (d.machines.some(updating)) updateTimer = setTimeout(refresh, 1000);
   document.body.classList.add("loaded");
   $("hub-line").textContent = `${d.hub.name} · v${d.hub.version}`;
   $("top-line").textContent = d.hub.name;
@@ -1200,6 +1230,19 @@ function confirmRemove(id, name, kind) {
   };
 }
 
+async function startUpdate(button) {
+  const machine = button.dataset.update;
+  button.disabled = true;
+  try {
+    const r = await api("POST", "/conflux/api/update", machine ? { machines: [machine] } : {});
+    const blocked = r.skipped.filter((s) => s.reason !== "already up to date");
+    if (r.started.length) toast(`Updating ${r.started.length === 1 ? r.started[0] : `${r.started.length} machines`} to v${r.version}`);
+    else if (blocked.length) toast(`${blocked[0].machine}: ${blocked[0].reason}`, true);
+    else toast(`Every machine is on v${r.version}`);
+    await refresh();
+  } catch (e) { showError(e); } finally { button.disabled = false; }
+}
+
 async function accountAction(button) {
   const { act, id, on, name, kind } = button.dataset;
   const path = `/conflux/api/accounts/${encodeURIComponent(id)}`;
@@ -1292,6 +1335,8 @@ document.addEventListener("click", (ev) => {
   if (thread) return openThread(thread.dataset.thread);
   const action = ev.target.closest("[data-act]");
   if (action) return accountAction(action);
+  const update = ev.target.closest("[data-update], [data-update-all]");
+  if (update) return startUpdate(update);
 });
 
 showView();

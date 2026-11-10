@@ -203,11 +203,13 @@ impl Successor {
         if let Some(mut child) = self.child.0.take() {
             std::thread::spawn(move || {
                 let status = child.wait();
-                tracing::error!(
-                    ?status,
-                    "the new conflux stopped while this one was finishing its requests"
-                );
-                std::process::exit(1);
+                if !status.as_ref().is_ok_and(|s| s.success()) {
+                    tracing::error!(
+                        ?status,
+                        "the new conflux crashed while this one was finishing its requests"
+                    );
+                    std::process::exit(1);
+                }
             });
         }
         Ok(())
