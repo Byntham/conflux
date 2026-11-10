@@ -205,7 +205,6 @@ impl App {
             online: true,
             transcript_sync: Config::load(&self.paths).map(|c| c.transcript_sync).unwrap_or(false),
             update: self.updater.status(),
-            remote_update: true,
             outdated: false,
         };
         std::iter::once(hub)
@@ -257,7 +256,6 @@ impl App {
             .route("/conflux/move/commit", post(hubmove::commit))
             .route("/conflux/move/abort", post(hubmove::abort))
             .route("/conflux/api/dashboard", get(dashboard::data))
-            .route("/conflux/heartbeat", post(machines::heartbeat))
             .route("/conflux/control", get(machines::control))
             .route("/conflux/api/update", post(api::update))
             .route("/conflux/api/status", get(api::status))

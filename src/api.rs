@@ -159,8 +159,6 @@ pub async fn update(State(app): State<Arc<App>>, Json(req): Json<UpdateRequest>)
         let is_hub = m.role == "hub";
         let obstacle = if !m.outdated {
             Some("already up to date")
-        } else if !m.remote_update {
-            Some("its version cannot update itself. Run the install command on it again.")
         } else if !m.online {
             Some("offline")
         } else if m.update.as_ref().is_some_and(update::UpdateStatus::in_progress) {

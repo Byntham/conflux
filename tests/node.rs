@@ -133,7 +133,6 @@ async fn a_node_is_online_while_its_control_connection_is_open() {
     let machines = hub.app.machines.list();
     assert_eq!(machines.len(), 1);
     assert_eq!(machines[0].hostname, "node-one");
-    assert!(machines[0].remote_update);
     control.abort();
     eventually(|| hub.app.machines.list().into_iter().find(|m| !m.online)).await;
 }
@@ -164,22 +163,13 @@ async fn nodes_follow_a_hub_move_at_once() {
 async fn update_reaches_connected_nodes_and_shows_their_failures() {
     let hub = Harness::new().await;
     *hub.fake.release.lock().unwrap() = Some(("9.9.9".into(), "unused".into()));
-    let r = hub
-        .http
-        .post(format!("{}/conflux/heartbeat", hub.base))
-        .json(&json!({"hostname": "old-node", "version": "0.1.0", "role": "node"}))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(r.status(), 200);
     let n = start_node(hub.port).await;
-    tokio::spawn(n.node.clone().run_control());
-    eventually(|| hub.app.machines.list().into_iter().find(|m| m.remote_update)).await;
+    connect(&hub, &n).await;
 
     let v: Value = hub
         .http
         .post(format!("{}/conflux/api/update", hub.base))
-        .json(&json!({"machines": ["node-one", "old-node"]}))
+        .json(&json!({"machines": ["node-one"]}))
         .send()
         .await
         .unwrap()
@@ -188,8 +178,6 @@ async fn update_reaches_connected_nodes_and_shows_their_failures() {
         .unwrap();
     assert_eq!(v["version"], "9.9.9");
     assert_eq!(v["started"], json!(["node-one"]));
-    assert_eq!(v["skipped"][0]["machine"], "old-node");
-    assert!(v["skipped"][0]["reason"].as_str().unwrap().contains("install command"));
 
     let failed = eventually(|| {
         hub.app

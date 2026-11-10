@@ -893,7 +893,7 @@ function updating(m) {
 }
 
 function updatable(d) {
-  return d.machines.filter((m) => m.outdated && m.online && m.remote_update && !updating(m));
+  return d.machines.filter((m) => m.outdated && m.online && !updating(m));
 }
 
 function updateCell(m, version) {
@@ -901,7 +901,6 @@ function updateCell(m, version) {
   if (updating(m)) return `<span class="muted">${m.update.state === "downloading" ? "Downloading" : "Starting"}${wide(` v${esc(m.update.version)}`)}</span>`;
   const failed = m.update ? `<span class="pill bad" data-tip="${esc(m.update.error)}">${wide("Update failed")}<span class="show-sm-inline">Failed</span></span>` : "";
   if (!m.outdated) return failed;
-  if (!m.remote_update) return `<span class="pill warn" data-tip="This version cannot update itself. Run the install command on this machine again.">Reinstall${wide(" to update")}</span>`;
   if (!m.online) return `<span class="pill warn">Update${wide(" available")}</span>`;
   return `${failed}<button class="btn small" data-update="${esc(m.hostname)}">${failed ? "Retry" : `Update${wide(` to v${esc(version)}`)}`}</button>`;
 }

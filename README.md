@@ -96,8 +96,6 @@ Each machine downloads the release and starts it next to the running version. Th
 
 A machine that is off during an update stays on its old version. The dashboard keeps it marked until you update it.
 
-Machines on v0.1.0 cannot update themselves. Run their install commands again once.
-
 A system without a prebuilt binary cannot update this way. Run `cargo install` on it again.
 
 ## Everyday commands

@@ -3,7 +3,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use axum::Json;
 use axum::extract::State;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::Response;
@@ -15,7 +14,6 @@ use tokio::sync::mpsc;
 use crate::app::App;
 use crate::update::UpdateStatus;
 
-pub const ONLINE_WINDOW: chrono::Duration = chrono::Duration::minutes(2);
 const SILENCE_LIMIT: Duration = Duration::from_secs(75);
 
 #[derive(Clone, Debug, Deserialize)]
@@ -37,7 +35,6 @@ pub struct Machine {
     pub online: bool,
     pub transcript_sync: bool,
     pub update: Option<UpdateStatus>,
-    pub remote_update: bool,
     pub outdated: bool,
 }
 
@@ -49,7 +46,6 @@ struct Link {
 struct Entry {
     report: Report,
     last_seen: DateTime<Utc>,
-    has_control_channel: bool,
     link: Option<Link>,
 }
 
@@ -60,22 +56,6 @@ pub struct Machines {
 }
 
 impl Machines {
-    pub fn heartbeat(&self, report: Report) {
-        let mut map = self.map.lock().unwrap();
-        if map.get(&report.hostname).is_some_and(|e| e.link.is_some()) {
-            return;
-        }
-        map.insert(
-            report.hostname.clone(),
-            Entry {
-                report,
-                last_seen: Utc::now(),
-                has_control_channel: false,
-                link: None,
-            },
-        );
-    }
-
     pub fn connect(&self, report: Report) -> (u64, mpsc::UnboundedReceiver<Value>) {
         let id = self.next_link.fetch_add(1, Ordering::SeqCst);
         let (commands, receiver) = mpsc::unbounded_channel();
@@ -84,7 +64,6 @@ impl Machines {
             Entry {
                 report,
                 last_seen: Utc::now(),
-                has_control_channel: true,
                 link: Some(Link { id, commands }),
             },
         );
@@ -140,23 +119,13 @@ impl Machines {
                 version: e.report.version.clone(),
                 role: "node".into(),
                 last_seen: if e.link.is_some() { now } else { e.last_seen },
-                online: if e.has_control_channel {
-                    e.link.is_some()
-                } else {
-                    now - e.last_seen < ONLINE_WINDOW
-                },
+                online: e.link.is_some(),
                 transcript_sync: e.report.transcript_sync,
                 update: serde_json::from_value(e.report.update.clone()).unwrap_or(None),
-                remote_update: e.has_control_channel,
                 outdated: false,
             })
             .collect()
     }
-}
-
-pub async fn heartbeat(State(app): State<Arc<App>>, Json(report): Json<Report>) -> Json<Value> {
-    app.machines.heartbeat(report);
-    Json(json!({ "hub": app.redirect_hub() }))
 }
 
 pub fn hub_moved(hub: &str) -> Value {

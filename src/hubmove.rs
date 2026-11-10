@@ -253,7 +253,7 @@ pub async fn resume(State(app): State<Arc<App>>, ConnectInfo(addr): ConnectInfo<
 }
 
 fn is_always_allowed(path: &str) -> bool {
-    path == "/conflux/heartbeat" || path == "/conflux/control" || path.starts_with("/conflux/move/")
+    path == "/conflux/control" || path.starts_with("/conflux/move/")
 }
 
 pub async fn state_guard(State(app): State<Arc<App>>, req: Request, next: Next) -> Response {
