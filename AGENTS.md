@@ -18,3 +18,6 @@ Rust proxy that pools Claude Code and Codex subscription accounts on one hub mac
 - `cargo fmt`
 - `cargo clippy --all-targets -- -D warnings`
 - `cargo test`
+- Build in this worktree's own `target/`. Never point `CARGO_TARGET_DIR` at `/tmp` or a scratchpad, because a cold build is several GB.
+- Read-only review means no source edits. Building and running tests in the worktree is still fine.
+- Reviewers and subagents run focused tests, such as `cargo test --lib router::`. The main agent runs the full suite.
