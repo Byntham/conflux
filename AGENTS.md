@@ -21,7 +21,8 @@ Rust proxy that pools Claude Code and Codex subscription accounts on one hub mac
 - UI changes need before/after screenshots. Motion or timing needs a short video.
 - Upload PR evidence to GitHub. Never commit PR-only screenshots or assets.
 - Keep each PR focused. One request is one PR.
-- When babysitting, call `watch_pull_request` and end your turn. T3 Code wakes you on checks, comments, or conflicts. Do not poll or sleep. Verify each bot finding against the source, fix real ones, and dismiss false positives with a written reason. Stay quiet when nothing is new. Stop when checks are green on the latest commit. If review bots run on the PR, also wait until they are green on it.
+- When babysitting, call `watch_pull_request` and end your turn. T3 Code wakes you on checks, comments, or conflicts. Do not poll or sleep. Stay quiet when nothing is new. Stop when checks are green on the latest commit.
+- If review bots run on the PR, verify each bot finding against the source, fix real ones, and dismiss false positives with a written reason. Wait until the bots are green on the latest commit before you stop.
 
 ## Checks
 
