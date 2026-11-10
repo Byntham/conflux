@@ -137,7 +137,6 @@ impl Node {
         let report = json!({
             "hostname": self.hostname,
             "version": update::CURRENT,
-            "role": "node",
             "transcript_sync": Config::load(&self.paths).map(|c| c.transcript_sync).unwrap_or(false),
             "update": self.updater.status(),
         });
