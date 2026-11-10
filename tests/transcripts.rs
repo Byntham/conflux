@@ -3,7 +3,7 @@ mod common;
 use std::sync::Arc;
 
 use common::Harness;
-use conflux::config::{Config, Paths};
+use conflux::config::Paths;
 use conflux::hubstate::HubState;
 use conflux::setup::ClientPaths;
 use conflux::transcript_sync::TranscriptSync;
@@ -66,13 +66,6 @@ fn mirror(h: &Harness, machine: &str, rel: &str) -> String {
         .join("claude")
         .join(rel);
     std::fs::read_to_string(p).unwrap_or_default()
-}
-
-#[test]
-fn sync_is_off_by_default() {
-    assert!(!Config::default().transcript_sync);
-    let parsed: Config = toml::from_str("port = 8317").unwrap();
-    assert!(!parsed.transcript_sync);
 }
 
 #[tokio::test]

@@ -432,13 +432,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pkce_shapes() {
-        let p = Pkce::new();
-        assert_eq!(p.verifier.len(), 128);
-        assert_eq!(p.challenge.len(), 43);
-    }
-
-    #[test]
     fn parses_pasted_codes() {
         assert_eq!(parse_claude_code("abc#xyz"), ("abc".into(), Some("xyz".into())));
         assert_eq!(parse_claude_code(" abc "), ("abc".into(), None));

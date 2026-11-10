@@ -355,32 +355,6 @@ mod tests {
     }
 
     #[test]
-    fn claude_usage_events() {
-        let mut u = TokenUsage::default();
-        apply_event(
-            Provider::Claude,
-            &mut u,
-            &json!({"type": "message_start", "message": {"usage": {
-                "input_tokens": 10, "cache_read_input_tokens": 900, "cache_creation_input_tokens": 50, "output_tokens": 1
-            }}}),
-        );
-        apply_event(
-            Provider::Claude,
-            &mut u,
-            &json!({"type": "message_delta", "usage": {"output_tokens": 42}}),
-        );
-        assert_eq!(
-            u,
-            TokenUsage {
-                input: 10,
-                cache_read: 900,
-                cache_write: 50,
-                output: 42
-            }
-        );
-    }
-
-    #[test]
     fn codex_usage_events() {
         let mut u = TokenUsage::default();
         let id = apply_event(

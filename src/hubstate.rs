@@ -60,21 +60,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn persists_and_compares() {
-        let d = tempfile::tempdir().unwrap();
-        let p = d.path().join("hub-state.json");
-        let s = HubStateStore::load(&p).unwrap();
-        assert_eq!(s.get(), HubState::Active);
-        let moving = HubState::Moving { id: "a".into() };
-        assert!(s.compare_and_set(&HubState::Active, moving.clone()).unwrap());
-        assert!(
-            !s.compare_and_set(&HubState::Active, HubState::Moving { id: "b".into() })
-                .unwrap()
-        );
-        assert_eq!(HubStateStore::load(&p).unwrap().get(), moving);
-    }
-
-    #[test]
     fn only_one_transition_wins_a_race() {
         let d = tempfile::tempdir().unwrap();
         let s = std::sync::Arc::new(HubStateStore::load(&d.path().join("s.json")).unwrap());

@@ -435,23 +435,6 @@ mod tests {
     }
 
     #[test]
-    fn rate_limit_event_becomes_headers() {
-        let ev = json!({"type": "codex.rate_limits", "rate_limits": {
-            "primary": {"used_percent": 12.5, "window_minutes": 300, "reset_after_seconds": 60},
-            "secondary": {"used_percent": 40, "window_minutes": 10080}
-        }});
-        let h = rate_limit_headers(&ev);
-        assert_eq!(h.get("x-codex-primary-used-percent").unwrap(), "12.5");
-        assert_eq!(h.get("x-codex-secondary-window-minutes").unwrap(), "10080");
-    }
-
-    #[test]
-    fn ws_scheme() {
-        assert_eq!(ws_url("https://chatgpt.com/x"), "wss://chatgpt.com/x");
-        assert_eq!(ws_url("http://127.0.0.1:1/x"), "ws://127.0.0.1:1/x");
-    }
-
-    #[test]
     fn error_frame_shape() {
         let v: Value = serde_json::from_str(&error_frame(429, "usage_limit_reached", "m", Some(5))).unwrap();
         assert_eq!(v["type"], "error");

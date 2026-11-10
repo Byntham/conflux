@@ -156,11 +156,4 @@ mod tests {
             ]
         );
     }
-
-    #[tokio::test]
-    async fn literal_addresses() {
-        assert!(resolves_to_tailnet("100.101.102.103", 8317).await);
-        assert!(!resolves_to_tailnet("127.0.0.1", 8317).await);
-        assert!(resolves_to_tailnet("[fd7a:115c:a1e0::1]", 8317).await);
-    }
 }

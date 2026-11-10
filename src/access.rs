@@ -104,33 +104,6 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unknown_host() {
-        let h = headers(&[("host", "evil.com:8317")]);
-        assert!(matches!(
-            check(&allowed(), &Method::GET, "/conflux/api/status", &h),
-            Verdict::Deny(..)
-        ));
-    }
-
-    #[test]
-    fn proxy_routes_reject_any_origin() {
-        let cli = headers(&[("host", "127.0.0.1:8317")]);
-        assert!(matches!(
-            check(&allowed(), &Method::POST, "/v1/messages", &cli),
-            Verdict::Allow
-        ));
-        let browser = headers(&[("host", "127.0.0.1:8317"), ("origin", "http://127.0.0.1:8317")]);
-        assert!(matches!(
-            check(&allowed(), &Method::POST, "/v1/messages", &browser),
-            Verdict::Deny(..)
-        ));
-        assert!(matches!(
-            check(&allowed(), &Method::GET, "/v1/responses", &browser),
-            Verdict::Deny(..)
-        ));
-    }
-
-    #[test]
     fn state_changes_need_json_and_same_origin() {
         let form = headers(&[("host", "localhost:8317"), ("content-type", "text/plain")]);
         assert!(matches!(

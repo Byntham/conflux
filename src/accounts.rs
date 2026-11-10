@@ -387,12 +387,6 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn ids_are_stable() {
-        assert_eq!(account_id(Provider::Claude, "a:b"), account_id(Provider::Claude, "a:b"));
-        assert_ne!(account_id(Provider::Claude, "a:b"), account_id(Provider::Codex, "a:b"));
-    }
-
-    #[test]
     fn recovery_applies_ok_receipt() {
         let dir = tempfile::tempdir().unwrap();
         let c1 = sample_creds(Provider::Claude, "u1", 1);

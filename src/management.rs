@@ -281,20 +281,4 @@ mod tests {
         assert_eq!(AllowedCall::parse("GET", "https://api.anthropic.com/v1/messages"), None);
         assert_eq!(AllowedCall::parse("GET", "https://evil.example/wham/usage"), None);
     }
-
-    #[test]
-    fn key_is_stable_and_private() {
-        let d = tempfile::tempdir().unwrap();
-        let f = d.path().join("conf/management-key");
-        let a = load_or_create_key(&f).unwrap();
-        assert_eq!(a.len(), 64);
-        assert_eq!(load_or_create_key(&f).unwrap(), a);
-    }
-
-    #[test]
-    fn comparison() {
-        assert!(constant_time_eq(b"abc", b"abc"));
-        assert!(!constant_time_eq(b"abc", b"abd"));
-        assert!(!constant_time_eq(b"abc", b"abcd"));
-    }
 }

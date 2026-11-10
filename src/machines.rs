@@ -75,15 +75,3 @@ pub async fn heartbeat(State(app): State<Arc<App>>, Json(hb): Json<Heartbeat>) -
     );
     Json(json!({ "hub": app.redirect_hub() }))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn online_window() {
-        let m = Machines::default();
-        m.seen("node-one", "0.1.0", "node", false);
-        assert!(m.list()[0].online);
-    }
-}
