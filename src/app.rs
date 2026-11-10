@@ -8,6 +8,7 @@ use axum::extract::DefaultBodyLimit;
 use axum::routing::{any, get, patch, post};
 use fs2::FileExt;
 use serde_json::{Value, json};
+use tokio::sync::mpsc;
 
 use crate::accounts::Store;
 use crate::api::{self, Logins};
@@ -216,14 +217,17 @@ impl App {
             .collect()
     }
 
-    fn export_state(&self) -> Value {
-        json!({
-            "router": self.router.export(),
+    fn export_state(&self) -> (Value, mpsc::UnboundedReceiver<Value>) {
+        let (router, later_owners) = self.router.export();
+        let state = json!({
+            "router": router,
             "usage": self.usage.export(),
             "requests": self.requests.export(),
             "machines": self.machines.export(),
+            "latest": self.updater.latest(),
             "tailnet": *self.tailnet.read().unwrap(),
-        })
+        });
+        (state, later_owners)
     }
 
     fn import_state(&self, state: &Value) {
@@ -231,6 +235,7 @@ impl App {
         self.usage.import(&state["usage"]);
         self.requests.import(&state["requests"]);
         self.machines.import(&state["machines"]);
+        self.updater.set_latest(state["latest"].as_str().map(str::to_string));
     }
 
     pub fn routes(self: &Arc<Self>) -> axum::Router {
@@ -277,22 +282,26 @@ impl App {
             .with_state(self.clone())
     }
 
-    pub fn start_background(self: &Arc<Self>) {
-        tokio::spawn(self.refresher.clone().run_scheduler());
-        tokio::spawn(self.usage.clone().run_poller(self.store.clone()));
-        tokio::spawn(self.transcripts.clone().run_maintenance());
+    pub fn start_background(self: &Arc<Self>) -> Vec<tokio::task::JoinHandle<()>> {
+        vec![
+            tokio::spawn(self.refresher.clone().run_scheduler()),
+            tokio::spawn(self.usage.clone().run_poller(self.store.clone())),
+            tokio::spawn(self.transcripts.clone().run_maintenance()),
+        ]
     }
 }
 
 impl update::Handoff for App {
-    async fn pause(&self) -> Value {
+    async fn pause(&self) -> (Value, mpsc::UnboundedReceiver<Value>) {
         self.refresher.close_gate().await;
         self.usage.set_paused(true);
         self.export_state()
     }
 
     async fn resume(&self) {
-        self.refresher.open_gate().await;
+        if self.hub_state.get() == HubState::Active {
+            self.refresher.open_gate().await;
+        }
         self.usage.set_paused(false);
     }
 }
@@ -350,7 +359,7 @@ pub async fn serve(cfg: Config, paths: Paths, ep: Endpoints) -> Result<()> {
     }
     let exe = std::env::current_exe().context("find the conflux binary")?;
     app.updater.replaces(exe.clone());
-    app.start_background();
+    let mut background = app.start_background();
     let listener = lifecycle.listen(addr).with_context(|| format!("bind {addr}"))?;
     app.serve_on(listener);
     let mut bound = HashSet::new();
@@ -365,14 +374,15 @@ pub async fn serve(cfg: Config, paths: Paths, ep: Endpoints) -> Result<()> {
         &crate::setup::ClientPaths::from_env()?,
         Arc::new(move || local.clone()),
     );
-    let background = [
+    background.extend([
         tokio::spawn(app.clone().watch_tailnet(bound)),
         tokio::spawn(sync.run()),
         tokio::spawn(app.updater.clone().run_checks()),
-    ];
+    ]);
     tracing::info!(%addr, accounts = app.store.all().len(), "conflux hub listening");
     if let Some(takeover) = takeover {
-        takeover.ready().await?;
+        let router = app.router.clone();
+        takeover.ready(move |owner| router.import_later_owner(&owner)).await?;
     }
     update::remove_old_binaries(&exe);
     lifecycle.drain_started().await;

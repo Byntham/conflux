@@ -14,6 +14,7 @@ use futures_util::{SinkExt, StreamExt};
 use http::{HeaderMap, HeaderValue, StatusCode};
 use serde::Serialize;
 use serde_json::{Value, json};
+use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::{self, Message, client::IntoClientRequest};
 
 use crate::access::{self, Verdict};
@@ -198,8 +199,11 @@ impl Node {
         let mut status = self.updater.watch_status();
         let mut report_due = tokio::time::interval(REPORT_EVERY);
         report_due.reset();
+        let quiet = tokio::time::sleep(HUB_SILENCE_LIMIT);
+        tokio::pin!(quiet);
         loop {
             tokio::select! {
+                () = &mut quiet => bail!("the hub went quiet"),
                 _ = report_due.tick() => {
                     hub.send(self.report()).await?;
                     hub.send(Message::Ping(Vec::new().into())).await?;
@@ -208,15 +212,16 @@ impl Node {
                     changed?;
                     hub.send(self.report()).await?;
                 }
-                frame = tokio::time::timeout(HUB_SILENCE_LIMIT, hub.next()) => match frame.context("the hub went quiet")? {
+                frame = hub.next() => match frame {
                     Some(Ok(Message::Text(command))) => {
+                        quiet.as_mut().reset(tokio::time::Instant::now() + HUB_SILENCE_LIMIT);
                         if self.obey(command.as_str()).await {
                             return Ok(());
                         }
                     }
                     Some(Ok(Message::Close(_))) | None => bail!("the hub closed the connection"),
                     Some(Err(e)) => return Err(e.into()),
-                    Some(Ok(_)) => {}
+                    Some(Ok(_)) => quiet.as_mut().reset(tokio::time::Instant::now() + HUB_SILENCE_LIMIT),
                 },
             }
         }
@@ -243,8 +248,8 @@ impl Node {
 }
 
 impl update::Handoff for Node {
-    async fn pause(&self) -> Value {
-        Value::Null
+    async fn pause(&self) -> (Value, mpsc::UnboundedReceiver<Value>) {
+        (Value::Null, mpsc::unbounded_channel().1)
     }
 
     async fn resume(&self) {}
@@ -356,11 +361,7 @@ async fn pipe(
     let mut turns = TurnTracker::default();
     loop {
         tokio::select! {
-            () = ws::stop_requested(&mut drain), if turns.idle() => {
-                let _ = client.send(ClientMsg::Close(None)).await;
-                let _ = up_tx.send(Message::Close(None)).await;
-                break;
-            }
+            biased;
             msg = client.recv() => {
                 let Some(Ok(msg)) = msg else {
                     let _ = up_tx.send(tungstenite::Message::Close(None)).await;
@@ -385,6 +386,11 @@ async fn pipe(
                 if client.send(out).await.is_err() || closing {
                     break;
                 }
+            }
+            () = ws::stop_requested(&mut drain), if turns.idle() => {
+                let _ = client.send(ClientMsg::Close(None)).await;
+                let _ = up_tx.send(Message::Close(None)).await;
+                break;
             }
         }
     }
@@ -420,7 +426,7 @@ pub async fn serve(cfg: Config, paths: Paths) -> Result<()> {
     });
     let background = [tokio::spawn(node.clone().run_control()), tokio::spawn(sync.run())];
     if let Some(takeover) = takeover {
-        takeover.ready().await?;
+        takeover.ready(|_| {}).await?;
     }
     update::remove_old_binaries(&exe);
     node.lifecycle.drain_started().await;

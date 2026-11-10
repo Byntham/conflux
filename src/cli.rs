@@ -478,13 +478,21 @@ async fn update(daemon: &Daemon, machines: Vec<String>) -> Result<()> {
         .flatten()
         .filter_map(|m| m.as_str().map(str::to_string))
         .collect();
+    let unknown = asked["skipped"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|s| s["reason"] == "unknown machine");
     if waiting.is_empty() {
+        if unknown {
+            bail!("the hub does not know every machine you named");
+        }
         println!("Nothing to update. The latest release is v{version}.");
         return Ok(());
     }
     println!("Updating {} to v{version}.", waiting.join(", "));
     let deadline = std::time::Instant::now() + UPDATE_WAIT;
-    let mut failed = false;
+    let mut failed = unknown;
     while !waiting.is_empty() && std::time::Instant::now() < deadline {
         tokio::time::sleep(Duration::from_secs(1)).await;
         let Ok(dashboard) = daemon.get("/conflux/api/dashboard").await else {

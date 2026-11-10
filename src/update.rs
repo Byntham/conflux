@@ -7,7 +7,7 @@ use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::io::AsyncWriteExt;
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 
 use crate::lifecycle::Lifecycle;
 
@@ -59,7 +59,7 @@ impl UpdateStatus {
 }
 
 pub trait Handoff: Send + Sync + 'static {
-    fn pause(&self) -> impl Future<Output = Value> + Send;
+    fn pause(&self) -> impl Future<Output = (Value, mpsc::UnboundedReceiver<Value>)> + Send;
     fn resume(&self) -> impl Future<Output = ()> + Send;
 }
 
@@ -143,6 +143,10 @@ impl Updater {
 
     pub fn latest(&self) -> Option<String> {
         self.latest.read().unwrap().clone()
+    }
+
+    pub fn set_latest(&self, version: Option<String>) {
+        *self.latest.write().unwrap() = version;
     }
 
     pub async fn check_latest(&self) -> Result<String> {
@@ -242,8 +246,8 @@ impl Updater {
         }));
         let handed_over = async {
             let successor = lifecycle.spawn_successor(exe).await?;
-            let state = host.pause().await;
-            let result = successor.hand_over(&state).await;
+            let (state, later) = host.pause().await;
+            let result = successor.hand_over(&state, later).await;
             if result.is_err() {
                 host.resume().await;
             }

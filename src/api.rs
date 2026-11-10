@@ -182,6 +182,10 @@ pub async fn update(State(app): State<Arc<App>>, Json(req): Json<UpdateRequest>)
             }
         }
     }
+    let known: Vec<String> = app.fleet().into_iter().map(|m| m.hostname).collect();
+    for name in req.machines.iter().flatten().filter(|name| !known.contains(name)) {
+        skipped.push(json!({ "machine": name, "reason": "unknown machine" }));
+    }
     if hub_starts {
         tokio::spawn(
             app.updater

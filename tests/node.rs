@@ -169,7 +169,7 @@ async fn update_reaches_connected_nodes_and_shows_their_failures() {
     let v: Value = hub
         .http
         .post(format!("{}/conflux/api/update", hub.base))
-        .json(&json!({"machines": ["node-one"]}))
+        .json(&json!({"machines": ["node-one", "node-typo"]}))
         .send()
         .await
         .unwrap()
@@ -178,6 +178,10 @@ async fn update_reaches_connected_nodes_and_shows_their_failures() {
         .unwrap();
     assert_eq!(v["version"], "9.9.9");
     assert_eq!(v["started"], json!(["node-one"]));
+    assert_eq!(
+        v["skipped"],
+        json!([{"machine": "node-typo", "reason": "unknown machine"}])
+    );
 
     let failed = eventually(|| {
         hub.app

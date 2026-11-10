@@ -305,12 +305,8 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, path: S
     let mut turns = TurnTracker::started();
     loop {
         tokio::select! {
+            biased;
             () = stop_requested(&mut shutdown) => {
-                let _ = client.send(ClientMsg::Close(None)).await;
-                let _ = up_tx.send(UpstreamMsg::Close(None)).await;
-                break;
-            }
-            () = stop_requested(&mut drain), if turns.idle() => {
                 let _ = client.send(ClientMsg::Close(None)).await;
                 let _ = up_tx.send(UpstreamMsg::Close(None)).await;
                 break;
@@ -349,6 +345,11 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, path: S
                     let _ = up_tx.send(UpstreamMsg::Close(None)).await;
                     break;
                 }
+            }
+            () = stop_requested(&mut drain), if turns.idle() => {
+                let _ = client.send(ClientMsg::Close(None)).await;
+                let _ = up_tx.send(UpstreamMsg::Close(None)).await;
+                break;
             }
         }
     }

@@ -86,6 +86,12 @@ fn claude(http: &reqwest::Client, base: &str) -> reqwest::RequestBuilder {
         .json(&json!({"model": "claude-sonnet-5-5"}))
 }
 
+fn codex(http: &reqwest::Client, base: &str, body: Value) -> reqwest::RequestBuilder {
+    http.post(format!("{base}/v1/responses"))
+        .header("user-agent", "codex_cli_rs/0.200.0")
+        .json(&body)
+}
+
 fn message_hits(h: &Harness, token: &str) -> usize {
     let hits = h.fake.hits.lock().unwrap();
     hits.iter()
@@ -110,6 +116,8 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
     let h = Harness::new().await;
     h.add(Provider::Claude, "a").await;
     h.add(Provider::Claude, "b").await;
+    h.add(Provider::Codex, "c").await;
+    h.add(Provider::Codex, "d").await;
     offer_release(&h);
     let port = free_port();
     Config {
@@ -171,6 +179,30 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
     let mut stream = claude(&http, &base).send().await.unwrap().bytes_stream();
     assert!(stream.next().await.unwrap().is_ok());
 
+    let usual: Value = codex(&http, &base, json!({"model": "m"}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let usual = usual["token"].as_str().unwrap().to_string();
+    let owner = if usual == "at-c" { "at-d" } else { "at-c" };
+    h.reply(&usual, Reply::Json(429, vec![("retry-after", "1".into())], "{}".into()));
+    h.reply(
+        owner,
+        Reply::Delayed(
+            Duration::from_secs(3),
+            Box::new(Reply::Json(200, vec![], json!({"id": "resp_late"}).to_string())),
+        ),
+    );
+    let late = tokio::spawn(codex(&http, &base, json!({"model": "m"})).send());
+    eventually("the Codex request to reach its account", async || {
+        let hits = h.fake.hits.lock().unwrap();
+        hits.iter().any(|(_, token)| token == owner).then_some(())
+    })
+    .await;
+
     let asked: Value = http
         .post(format!("{base}/conflux/api/update"))
         .json(&json!({}))
@@ -199,6 +231,20 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
         message_hits(&h, &preferred),
         hits_on_cooling_account,
         "the new hub still knows which account is cooling down"
+    );
+    let late: Value = late.await.unwrap().unwrap().json().await.unwrap();
+    assert_eq!(late["id"], "resp_late");
+    let next_turn = json!({"model": "m", "previous_response_id": "resp_late"});
+    let continued: Value = codex(&http, &base, next_turn)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        continued["token"], owner,
+        "the new hub knows which account owns a response that began on the old hub"
     );
     let still_listed = away().await.expect("the new hub still lists the offline node");
     assert_eq!(still_listed["online"], false);

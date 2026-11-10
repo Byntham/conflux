@@ -3,7 +3,8 @@ use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
+use tokio::sync::mpsc;
 
 use crate::accounts::{AccountEntry, Provider, Store};
 use crate::usage::{Snapshot, Usage};
@@ -50,6 +51,8 @@ struct State {
     pins: HashMap<String, (String, DateTime<Utc>)>,
     billing_blocked: HashMap<String, BillingBlock>,
     response_owner: HashMap<String, (String, DateTime<Utc>)>,
+    #[serde(skip)]
+    later_owners: Option<mpsc::UnboundedSender<Value>>,
 }
 
 pub struct Router {
@@ -186,8 +189,17 @@ impl Router {
         Ok(chosen)
     }
 
-    pub fn export(&self) -> Value {
-        serde_json::to_value(&*self.state.lock().unwrap()).unwrap_or_default()
+    pub fn export(&self) -> (Value, mpsc::UnboundedReceiver<Value>) {
+        let (later_owners, later) = mpsc::unbounded_channel();
+        let mut st = self.state.lock().unwrap();
+        st.later_owners = Some(later_owners);
+        (serde_json::to_value(&*st).unwrap_or_default(), later)
+    }
+
+    pub fn import_later_owner(&self, owner: &Value) {
+        if let Ok((response_id, account)) = serde_json::from_value::<(String, String)>(owner.clone()) {
+            self.record_response_owner(&response_id, &account);
+        }
     }
 
     pub fn import(&self, state: &Value) {
@@ -223,11 +235,12 @@ impl Router {
     }
 
     pub fn record_response_owner(&self, response_id: &str, account: &str) {
-        self.state
-            .lock()
-            .unwrap()
-            .response_owner
+        let mut st = self.state.lock().unwrap();
+        st.response_owner
             .insert(response_id.to_string(), (account.to_string(), Utc::now()));
+        if let Some(successor) = &st.later_owners {
+            let _ = successor.send(json!([response_id, account]));
+        }
     }
 
     pub fn clear(&self, account: &str) {

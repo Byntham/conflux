@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 
 const HANDOFF_ENV: &str = "CONFLUX_HANDOFF";
 const HELLO_TIMEOUT: Duration = Duration::from_secs(30);
@@ -194,7 +194,7 @@ pub struct Successor {
 }
 
 impl Successor {
-    pub async fn hand_over(mut self, state: &Value) -> Result<()> {
+    pub async fn hand_over(mut self, state: &Value, mut later: mpsc::UnboundedReceiver<Value>) -> Result<()> {
         send(&mut self.link, state).await?;
         let reply = receive(&mut self.link, READY_TIMEOUT).await?;
         if reply["ready"] != true {
@@ -212,6 +212,14 @@ impl Successor {
                 }
             });
         }
+        let mut link = self.link;
+        tokio::spawn(async move {
+            while let Some(message) = later.recv().await {
+                if send(&mut link, &message).await.is_err() {
+                    break;
+                }
+            }
+        });
         Ok(())
     }
 }
@@ -222,8 +230,20 @@ pub struct Takeover {
 }
 
 impl Takeover {
-    pub async fn ready(mut self) -> Result<()> {
-        send(&mut self.link, &json!({ "ready": true })).await
+    pub async fn ready(mut self, mut later: impl FnMut(Value) + Send + 'static) -> Result<()> {
+        send(&mut self.link, &json!({ "ready": true })).await?;
+        tokio::spawn(async move {
+            let mut line = String::new();
+            while let Ok(read) = self.link.read_line(&mut line).await
+                && read > 0
+            {
+                if let Ok(message) = serde_json::from_str(&line) {
+                    later(message);
+                }
+                line.clear();
+            }
+        });
+        Ok(())
     }
 }
 
