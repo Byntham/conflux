@@ -22,6 +22,7 @@ pub enum Reply {
     Raw(Vec<(&'static str, String)>, Vec<u8>),
     Endless,
     Delayed(Duration, Box<Reply>),
+    EventsWithPause(String, Duration, String),
 }
 
 #[derive(Clone, Copy)]
@@ -72,6 +73,19 @@ fn build(reply: Reply, dropped: Arc<AtomicBool>) -> Response {
             r.body(Body::from(bytes)).unwrap()
         }
         Reply::Delayed(..) => unreachable!("delays are handled before building"),
+        Reply::EventsWithPause(first, pause, rest) => {
+            let parts = [(Duration::ZERO, first), (pause, rest)];
+            let s = futures_util::stream::unfold(parts.into_iter(), |mut parts| async move {
+                let (wait, part) = parts.next()?;
+                tokio::time::sleep(wait).await;
+                Some((Ok::<_, std::io::Error>(bytes::Bytes::from(part)), parts))
+            });
+            Response::builder()
+                .status(200)
+                .header("content-type", "text/event-stream")
+                .body(Body::from_stream(s))
+                .unwrap()
+        }
         Reply::Endless => {
             let flag = DropFlag(dropped);
             let s = futures_util::stream::unfold(flag, |flag| async move {

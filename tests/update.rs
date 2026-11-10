@@ -189,11 +189,16 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
     let usual = usual["token"].as_str().unwrap().to_string();
     let owner = if usual == "at-c" { "at-d" } else { "at-c" };
     h.reply(&usual, Reply::Json(429, vec![("retry-after", "1".into())], "{}".into()));
+    let event = |kind: &str| format!("data: {}\n\n", json!({"type": kind, "response": {"id": "resp_late"}}));
     h.reply(
         owner,
         Reply::Delayed(
             Duration::from_secs(3),
-            Box::new(Reply::Json(200, vec![], json!({"id": "resp_late"}).to_string())),
+            Box::new(Reply::EventsWithPause(
+                event("response.created"),
+                Duration::from_secs(1),
+                event("response.completed"),
+            )),
         ),
     );
     let late = tokio::spawn(codex(&http, &base, json!({"model": "m"})).send());
@@ -232,8 +237,8 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
         hits_on_cooling_account,
         "the new hub still knows which account is cooling down"
     );
-    let late: Value = late.await.unwrap().unwrap().json().await.unwrap();
-    assert_eq!(late["id"], "resp_late");
+    let late = late.await.unwrap().unwrap().text().await.unwrap();
+    assert!(late.contains("response.completed"), "{late}");
     let next_turn = json!({"model": "m", "previous_response_id": "resp_late"});
     let continued: Value = codex(&http, &base, next_turn)
         .send()
