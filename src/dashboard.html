@@ -54,7 +54,11 @@
   .nav a[aria-current="page"] { font-weight: 500; background: var(--selected); color: var(--fg); box-shadow: 0 0 0 1px var(--line); }
   .nav .count { margin-left: auto; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 400; }
   .nav .alert { margin-left: auto; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--bad-soft); color: var(--bad); font-size: 11.5px; font-weight: 600; text-align: center; }
-  .hub-card { margin-top: auto; padding: 8px 10px; }
+  .hub-card { display: flex; align-items: center; gap: 8px; margin-top: auto; padding: 8px 10px; }
+  .hub-card > div:first-child { flex: 1; min-width: 0; }
+  .update-all { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 28px; height: 28px; padding: 0; border-radius: 50%; border: 1.5px solid var(--fg); background: transparent; color: var(--fg); cursor: pointer; }
+  .update-all:hover { background: var(--hover); }
+  .update-all:disabled { opacity: .45; cursor: default; }
   .hub-state { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 500; }
   .dot.on + #hub-status { color: var(--fg-2); font-weight: 400; }
   .hub-meta { margin-top: 2px; font-size: 12px; color: var(--muted); }
@@ -360,6 +364,7 @@
     .topbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 16px; background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 10; }
     .sidebar { position: fixed; top: auto; bottom: 0; left: 0; right: 0; z-index: 20; height: auto; flex-direction: row; padding: 5px 8px calc(5px + env(safe-area-inset-bottom)); border-right: 0; border-top: 1px solid var(--line); }
     .sidebar .brand, .sidebar .hub-card { display: none; }
+    .update-all { width: 34px; height: 34px; margin-left: 4px; }
     .nav { flex: 1; flex-direction: row; justify-content: space-around; }
     .nav a { position: relative; flex: 1; flex-direction: column; gap: 1px; padding: 5px 2px; font-size: 11.5px; }
     .nav a svg { width: 19px; height: 19px; }
@@ -454,6 +459,7 @@
   <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
   <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.500"/><path d="M12 11v5M12 8h.01"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
 </svg>
 <div class="app">
   <aside class="sidebar">
@@ -465,14 +471,17 @@
       <a href="#threads" data-view="threads"><svg class="i" aria-hidden="true"><use href="#i-threads"/></svg>Threads</a>
     </nav>
     <div class="hub-card">
-      <div class="hub-state"><span class="dot" id="hub-dot"></span><span id="hub-status">Connecting</span></div>
-      <div class="hub-meta truncate" id="hub-line">&nbsp;</div>
+      <div>
+        <div class="hub-state"><span class="dot" id="hub-dot"></span><span id="hub-status">Connecting</span></div>
+        <div class="hub-meta truncate" id="hub-line">&nbsp;</div>
+      </div>
+      <span id="update-all"></span>
     </div>
   </aside>
   <div>
     <div class="topbar">
       <div class="brand" style="padding:0"><svg aria-hidden="true"><use href="#logo"/></svg>conflux</div>
-      <div class="hub-state"><span class="dot" id="top-dot"></span><span class="muted" id="top-line"></span></div>
+      <div class="hub-state"><span class="dot" id="top-dot"></span><span class="muted" id="top-line"></span><span id="top-update-all"></span></div>
     </div>
     <main>
       <div id="connection" class="alerts" hidden></div>
@@ -521,7 +530,7 @@
       </section>
 
       <section id="view-machines" hidden>
-        <div class="page-head"><div><h1>Machines</h1><div class="page-sub" id="machines-sub"></div></div><div id="update-all"></div></div>
+        <div class="page-head"><div><h1>Machines</h1><div class="page-sub" id="machines-sub"></div></div></div>
         <div class="card table-wrap"><table id="machine-list"></table></div>
         <div class="panels">
           <div class="card panel">
@@ -792,15 +801,10 @@ function renderAlerts(d) {
   for (const a of d.accounts.filter((x) => x.billing_blocked)) {
     rows.push(`<div class="alert-row">${icon("alert")}<div class="alert-text"><div class="alert-title">${esc(accountKind(a))} account is billing blocked</div><div class="alert-detail"><span class="alert-part">${breakableEmail(a.email || a.id)}</span><span class="alert-sep"> · </span><span class="alert-part">Skipped until a usage check shows quota again.</span></div></div><button class="btn primary" data-act="usage" data-id="${esc(a.id)}">Check usage</button></div>`);
   }
-  const problems = rows.length;
-  const ready = updatable(d).length;
-  if (ready) {
-    rows.push(`<div class="alert-row warn">${icon("info")}<div class="alert-text"><div class="alert-title">conflux v${esc(d.latest_version)} is available</div><div class="alert-detail">${ready === 1 ? "1 machine" : `${ready} machines`} can update now. Running requests are not interrupted.</div></div><button class="btn primary" data-update-all>Update all</button></div>`);
-  }
   $("alerts").hidden = !rows.length;
   $("alerts").classList.toggle("urgent", d.accounts.some((x) => x.needs_login || x.billing_blocked));
   setHtml("alerts", rows.join(""));
-  const alertCount = problems + (moving ? 1 : 0);
+  const alertCount = rows.length + (moving ? 1 : 0);
   $("nav-alert").hidden = !alertCount;
   $("nav-alert").textContent = alertCount;
 }
@@ -896,6 +900,13 @@ function updatable(d) {
   return d.machines.filter((m) => m.outdated && m.online && !updating(m));
 }
 
+function renderUpdateAll(d) {
+  const label = `Update all machines to v${esc(d.latest_version)}`;
+  const button = updatable(d).length ? `<button class="update-all" data-update-all data-tip="${label}" aria-label="${label}">${icon("up")}</button>` : "";
+  setHtml("update-all", button);
+  setHtml("top-update-all", button);
+}
+
 function updateCell(m, version) {
   const sized = (wide, narrow) => `<span class="hide-sm">${wide}</span><span class="show-sm-inline">${narrow}</span>`;
   if (updating(m)) {
@@ -912,7 +923,6 @@ function renderMachines(d) {
   const online = d.machines.filter((m) => m.online).length;
   $("nav-machines").textContent = `${online}/${d.machines.length}`;
   $("machines-sub").textContent = `${online} of ${d.machines.length} online`;
-  setHtml("update-all", updatable(d).length ? `<button class="btn primary" data-update-all>Update all to v${esc(d.latest_version)}</button>` : "");
   setHtml("machine-list", `<thead><tr><th>Machine</th><th>Status</th><th class="hide-sm">Version</th><th class="hide-sm">Transcript sync</th><th class="num hide-sm">Last seen</th><th class="num">Update</th></tr></thead><tbody>${d.machines.map((m) =>
     `<tr class="${m.online ? "" : "offline"}"><td><span class="machine-name">${esc(m.hostname)}${m.role === "hub" ? '<span class="badge">Hub</span>' : ""}</span><div class="cell-sub show-sm">v${esc(m.version)} · sync ${m.transcript_sync ? "on" : "off"}</div></td><td class="${m.online ? "" : "muted"}"><span class="status-cell"><span class="dot ${m.online ? "on" : ""}"></span>${m.online ? "Online" : "Offline"}</span></td><td class="mono hide-sm">${esc(m.version)}</td><td class="hide-sm ${m.transcript_sync ? "" : "muted"}">${m.transcript_sync ? "On" : "Off"}</td><td class="num when hide-sm">${esc(ago(m.last_seen))}</td><td class="num"><span class="update-cell">${updateCell(m, d.latest_version)}</span></td></tr>`
   ).join("")}</tbody>`);
@@ -977,6 +987,7 @@ function render(d) {
   renderChart(d);
   renderRequests(d);
   renderMachines(d);
+  renderUpdateAll(d);
   if (firstLoad && currentView() === "threads") loadThreads();
 }
 

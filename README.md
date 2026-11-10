@@ -85,7 +85,7 @@ conflux join <hub>    # use self on the hub
 
 ## Update conflux
 
-When a new release is out, the dashboard marks each machine that is behind. Click "Update all" there, or run this on any machine:
+When a new release is out, the dashboard marks each machine that is behind and shows a round arrow button in its bottom left corner. Click that button to update every machine, or run this on any machine:
 
 ```sh
 conflux update              # every machine that is online
