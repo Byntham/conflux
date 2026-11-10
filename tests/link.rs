@@ -45,7 +45,8 @@ async fn waiting_machine(listener: tokio::net::TcpListener) -> Machine {
     let tailscale = fake_tailscale(json!({ "Self": { "UserID": 1 } }), caller.clone());
     let addr = listener.local_addr().unwrap();
     let waiting = Waiting::new(addr.port(), paths.clone(), clients.clone(), tailscale);
-    let running = tokio::spawn(waiting.run(listener));
+    let second = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let running = tokio::spawn(waiting.run(vec![listener, second]));
     Machine {
         paths,
         clients,

@@ -130,7 +130,6 @@ pub async fn link(State(app): State<Arc<App>>, Json(req): Json<LinkRequest>) -> 
     let resp = app
         .proxy_http
         .post(url)
-        .json(&json!({}))
         .timeout(LINK_TIMEOUT)
         .send()
         .await
@@ -295,18 +294,16 @@ async fn accept(State(w): State<Arc<Waiting>>, ConnectInfo(from): ConnectInfo<So
 }
 
 impl Waiting {
-    pub async fn run(self: Arc<Self>, listener: tokio::net::TcpListener) {
-        let local = self.serve_on(listener);
-        let mut servers = self.clone().listen_on_tailnet().await;
-        servers.push(local);
-        let finished = futures_util::future::join_all(servers.iter_mut());
-        if tokio::time::timeout(SHUTDOWN_LIMIT, finished).await.is_err() {
-            for server in &servers {
-                server.abort();
+    pub async fn run(self: Arc<Self>, listeners: Vec<tokio::net::TcpListener>) {
+        let mut servers: Vec<_> = listeners.into_iter().map(|l| self.serve_on(l)).collect();
+        servers.extend(self.clone().listen_on_tailnet().await);
+        let aborts: Vec<_> = servers.iter().map(JoinHandle::abort_handle).collect();
+        let mut finished = std::pin::pin!(futures_util::future::join_all(servers));
+        if tokio::time::timeout(SHUTDOWN_LIMIT, &mut finished).await.is_err() {
+            for abort in &aborts {
+                abort.abort();
             }
-            for server in servers {
-                let _ = server.await;
-            }
+            finished.await;
         }
     }
 
@@ -338,6 +335,6 @@ pub async fn serve(cfg: Config, paths: Paths) -> Result<()> {
         .await
         .with_context(|| format!("bind {addr}"))?;
     tracing::info!(%addr, "conflux is waiting to be linked to a hub");
-    waiting.run(listener).await;
+    waiting.run(vec![listener]).await;
     Ok(())
 }
