@@ -1,6 +1,7 @@
 use std::net::IpAddr;
 use std::process::Command;
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 const TAILSCALE_COMMANDS: &[&str] = &[
@@ -9,7 +10,7 @@ const TAILSCALE_COMMANDS: &[&str] = &[
     r"C:\Program Files\Tailscale\tailscale.exe",
 ];
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TailnetSelf {
     pub ips: Vec<IpAddr>,
     pub host_name: Option<String>,

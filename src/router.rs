@@ -2,7 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::accounts::{AccountEntry, Provider, Store};
 use crate::usage::{Snapshot, Usage};
@@ -23,13 +24,14 @@ pub struct RouteRequest {
     pub previous_response_id: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Cooldown {
     pub scope: String,
     pub until: DateTime<Utc>,
     pub reason: String,
 }
 
+#[derive(Serialize, Deserialize)]
 struct BillingBlock {
     reason: String,
     at: DateTime<Utc>,
@@ -41,7 +43,8 @@ impl BillingBlock {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
 struct State {
     cooldowns: HashMap<String, HashMap<String, Cooldown>>,
     pins: HashMap<String, (String, DateTime<Utc>)>,
@@ -181,6 +184,17 @@ impl Router {
         drop(st);
         self.usage.mark_used(&chosen.id);
         Ok(chosen)
+    }
+
+    pub fn export(&self) -> Value {
+        serde_json::to_value(&*self.state.lock().unwrap()).unwrap_or_default()
+    }
+
+    pub fn import(&self, state: &Value) {
+        match serde_json::from_value(state.clone()) {
+            Ok(state) => *self.state.lock().unwrap() = state,
+            Err(e) => tracing::warn!("could not carry over routing state: {e}"),
+        }
     }
 
     pub fn cool(&self, account: &str, scope: &str, until: DateTime<Utc>, reason: &str) {

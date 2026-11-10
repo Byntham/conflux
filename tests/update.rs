@@ -1,0 +1,273 @@
+mod common;
+
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::time::Duration;
+
+use common::{Harness, Reply};
+use conflux::accounts::Provider;
+use conflux::config::{Config, Paths, Role};
+use futures_util::StreamExt;
+use serde_json::{Value, json};
+
+const BUILT: &str = env!("CARGO_BIN_EXE_conflux");
+
+fn kill(pid: u32) {
+    #[cfg(unix)]
+    let _ = Command::new("kill").args(["-9", &pid.to_string()]).output();
+    #[cfg(windows)]
+    let _ = Command::new("taskkill").args(["/F", "/PID", &pid.to_string()]).output();
+}
+
+struct Started {
+    child: Child,
+    later_pids: Vec<u32>,
+    _bin: tempfile::TempDir,
+}
+
+impl Drop for Started {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        for pid in &self.later_pids {
+            kill(*pid);
+        }
+    }
+}
+
+fn start(command: &str, home: &Path, fake: &str) -> Started {
+    let bin = tempfile::tempdir().unwrap();
+    let exe = bin.path().join(format!("conflux{}", std::env::consts::EXE_SUFFIX));
+    std::fs::copy(BUILT, &exe).unwrap();
+    let nothing_on_path = bin.path().join("empty");
+    std::fs::create_dir(&nothing_on_path).unwrap();
+    let child = Command::new(&exe)
+        .arg(command)
+        .env("CONFLUX_HOME", home)
+        .env("HOME", home)
+        .env("USERPROFILE", home)
+        .env("PATH", &nothing_on_path)
+        .env("CONFLUX_ANTHROPIC_API", fake)
+        .env("CONFLUX_CLAUDE_TOKEN", format!("{fake}/v1/oauth/token"))
+        .env("CONFLUX_CLAUDE_AUTHORIZE", format!("{fake}/oauth/authorize"))
+        .env("CONFLUX_CODEX_API", format!("{fake}/backend-api/codex"))
+        .env("CONFLUX_CHATGPT_BACKEND", format!("{fake}/backend-api"))
+        .env("CONFLUX_OPENAI_AUTH", fake)
+        .env("CONFLUX_RELEASES", format!("{fake}/releases"))
+        .stdin(Stdio::null())
+        .spawn()
+        .unwrap();
+    Started {
+        child,
+        later_pids: Vec::new(),
+        _bin: bin,
+    }
+}
+
+async fn eventually<T>(what: &str, mut check: impl AsyncFnMut() -> Option<T>) -> T {
+    for _ in 0..600 {
+        if let Some(found) = check().await {
+            return found;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("timed out waiting for {what}");
+}
+
+async fn pid_at(url: &str) -> Option<u32> {
+    let v: Value = reqwest::get(url).await.ok()?.json().await.ok()?;
+    v["pid"].as_u64().map(|p| p as u32)
+}
+
+fn claude(http: &reqwest::Client, base: &str) -> reqwest::RequestBuilder {
+    http.post(format!("{base}/v1/messages"))
+        .header("user-agent", "claude-cli/2.1.280 (external, cli)")
+        .header("x-app", "cli")
+        .json(&json!({"model": "claude-sonnet-5-5"}))
+}
+
+fn message_hits(h: &Harness, token: &str) -> usize {
+    let hits = h.fake.hits.lock().unwrap();
+    hits.iter()
+        .filter(|(path, t)| path == "/v1/messages" && t == token)
+        .count()
+}
+
+fn offer_release(h: &Harness) {
+    *h.fake.release.lock().unwrap() = Some(("999.0.0".into(), PathBuf::from(BUILT)));
+}
+
+fn free_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
+}
+
+#[tokio::test]
+async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
+    let h = Harness::new().await;
+    h.add(Provider::Claude, "a").await;
+    h.add(Provider::Claude, "b").await;
+    offer_release(&h);
+    let port = free_port();
+    Config {
+        port,
+        ..Config::default()
+    }
+    .save(&Paths::under(h.dir.path()))
+    .unwrap();
+    let mut hub = start("worker", h.dir.path(), &h.app.ep.anthropic_api);
+    let base = format!("http://127.0.0.1:{port}");
+    let status = format!("{base}/conflux/api/status");
+    let old_pid = eventually("the hub to start", async || pid_at(&status).await).await;
+    eventually("the first usage polls", async || {
+        let hits = h.fake.hits.lock().unwrap();
+        (hits.iter().filter(|(path, _)| path.ends_with("/usage")).count() >= 2).then_some(())
+    })
+    .await;
+
+    let http = reqwest::Client::new();
+    let first: Value = claude(&http, &base).send().await.unwrap().json().await.unwrap();
+    let preferred = first["token"].as_str().unwrap().to_string();
+    let other = if preferred == "at-a" { "at-b" } else { "at-a" };
+    h.reply(
+        &preferred,
+        Reply::Json(429, vec![("retry-after", "3600".into())], "{}".into()),
+    );
+    let failed_over: Value = claude(&http, &base).send().await.unwrap().json().await.unwrap();
+    assert_eq!(failed_over["token"], other);
+    let hits_on_cooling_account = message_hits(&h, &preferred);
+
+    h.reply(other, Reply::Endless);
+    let mut stream = claude(&http, &base).send().await.unwrap().bytes_stream();
+    assert!(stream.next().await.unwrap().is_ok());
+
+    let asked: Value = http
+        .post(format!("{base}/conflux/api/update"))
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(asked["started"].as_array().unwrap().len(), 1, "{asked}");
+    let new_pid = eventually("the new hub to take over", async || {
+        pid_at(&status).await.filter(|pid| *pid != old_pid)
+    })
+    .await;
+    hub.later_pids.push(new_pid);
+
+    for _ in 0..5 {
+        assert!(
+            stream.next().await.unwrap().is_ok(),
+            "the stream that began before the update keeps flowing"
+        );
+    }
+    let after: Value = claude(&http, &base).send().await.unwrap().json().await.unwrap();
+    assert_eq!(after["token"], other);
+    assert_eq!(
+        message_hits(&h, &preferred),
+        hits_on_cooling_account,
+        "the new hub still knows which account is cooling down"
+    );
+    assert!(
+        hub.child.try_wait().unwrap().is_none(),
+        "the old hub stays up while its stream is open"
+    );
+
+    drop(stream);
+    eventually("the old hub to exit", async || {
+        hub.child.try_wait().unwrap().map(|_| ())
+    })
+    .await;
+    assert_eq!(pid_at(&status).await, Some(new_pid));
+}
+
+#[tokio::test]
+async fn a_node_updates_on_the_hubs_command_and_its_supervisor_keeps_watch() {
+    let Ok(hub_listener) = tokio::net::TcpListener::bind("[::1]:0").await else {
+        eprintln!("skipped: this machine has no IPv6 loopback to put a hub and a node on one port");
+        return;
+    };
+    let port = hub_listener.local_addr().unwrap().port();
+    let hub = Harness::on(hub_listener).await;
+    hub.add(Provider::Claude, "a").await;
+    offer_release(&hub);
+    let home = tempfile::tempdir().unwrap();
+    Config {
+        role: Role::Node,
+        hub: Some("[::1]".into()),
+        port,
+        ..Config::default()
+    }
+    .save(&Paths::under(home.path()))
+    .unwrap();
+    let mut node = start("serve", home.path(), &hub.app.ep.anthropic_api);
+    let base = format!("http://127.0.0.1:{port}");
+    let status = format!("{base}/conflux/node");
+    let first_pid = eventually("the node to start", async || pid_at(&status).await).await;
+    node.later_pids.push(first_pid);
+    let name = eventually("the node to reach the hub", async || {
+        hub.app
+            .machines
+            .list()
+            .into_iter()
+            .find(|m| m.online)
+            .map(|m| m.hostname)
+    })
+    .await;
+
+    let http = reqwest::Client::new();
+    hub.reply(
+        "at-a",
+        Reply::Delayed(
+            Duration::from_secs(3),
+            Box::new(Reply::Json(200, vec![], json!({"slow": true}).to_string())),
+        ),
+    );
+    let slow = tokio::spawn(claude(&http, &base).send());
+    eventually("the slow request to reach the upstream", async || {
+        (message_hits(&hub, "at-a") == 1).then_some(())
+    })
+    .await;
+
+    let asked: Value = hub
+        .http
+        .post(format!("{}/conflux/api/update", hub.base))
+        .json(&json!({"machines": [name]}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(asked["started"], json!([name]), "{asked}");
+    let second_pid = eventually("the new node to take over", async || {
+        pid_at(&status).await.filter(|pid| *pid != first_pid)
+    })
+    .await;
+    node.later_pids.push(second_pid);
+
+    let answered: Value = slow.await.unwrap().unwrap().json().await.unwrap();
+    assert_eq!(
+        answered["slow"], true,
+        "the request sent before the update still gets its answer"
+    );
+    assert_eq!(claude(&http, &base).send().await.unwrap().status(), 200);
+    eventually("the new node to reach the hub", async || {
+        hub.app.machines.list().into_iter().find(|m| m.online).map(|_| ())
+    })
+    .await;
+
+    kill(second_pid);
+    let third_pid = eventually("the supervisor to start a new worker", async || {
+        pid_at(&status)
+            .await
+            .filter(|pid| *pid != first_pid && *pid != second_pid)
+    })
+    .await;
+    node.later_pids.push(third_pid);
+}

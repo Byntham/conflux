@@ -1,9 +1,10 @@
+use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::accounts::Provider;
@@ -13,7 +14,7 @@ pub const LOG_CAPACITY: usize = 500;
 const MAX_LINE: usize = 16 * 1024 * 1024;
 const MAX_WHOLE_BODY: usize = 8 * 1024 * 1024;
 
-#[derive(Clone, Copy, Debug, Default, Serialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct TokenUsage {
     pub input: u64,
     pub cache_read: u64,
@@ -21,7 +22,7 @@ pub struct TokenUsage {
     pub output: u64,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RequestRecord {
     pub id: u64,
     pub at: DateTime<Utc>,
@@ -31,13 +32,13 @@ pub struct RequestRecord {
     pub email: Option<String>,
     pub model: Option<String>,
     pub session: Option<String>,
-    pub transport: &'static str,
+    pub transport: Cow<'static, str>,
     pub status: u16,
     pub latency_ms: u64,
     pub usage: TokenUsage,
 }
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 struct LogState {
     next_id: u64,
     records: VecDeque<RequestRecord>,
@@ -71,7 +72,17 @@ impl RequestLog {
     pub fn set_transport(&self, id: u64, transport: &'static str) {
         let mut st = self.state.lock().unwrap();
         if let Some(r) = st.records.iter_mut().rev().find(|r| r.id == id) {
-            r.transport = transport;
+            r.transport = transport.into();
+        }
+    }
+
+    pub fn export(&self) -> Value {
+        serde_json::to_value(&*self.state.lock().unwrap()).unwrap_or_default()
+    }
+
+    pub fn import(&self, state: &Value) {
+        if let Ok(state) = serde_json::from_value(state.clone()) {
+            *self.state.lock().unwrap() = state;
         }
     }
 
@@ -403,7 +414,7 @@ mod tests {
             email: None,
             model: None,
             session: None,
-            transport: "http",
+            transport: "http".into(),
             status: 200,
             latency_ms: 1,
             usage: TokenUsage::default(),

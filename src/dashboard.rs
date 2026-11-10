@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 
 use crate::api::account_view;
 use crate::app::App;
-use crate::config::Config;
+use crate::update;
 
 const PAGE: &str = include_str!("dashboard.html");
 const INSTALL_BASE: &str = "https://raw.githubusercontent.com/Byntham/conflux/main";
@@ -39,8 +39,6 @@ pub fn add_machine(hub: &str) -> Value {
 }
 
 pub async fn data(State(app): State<Arc<App>>, headers: HeaderMap) -> Json<Value> {
-    let sync = Config::load(&app.paths).map(|c| c.transcript_sync).unwrap_or(false);
-    app.machines.seen(&app.hostname, env!("CARGO_PKG_VERSION"), "hub", sync);
     let host = headers.get(header::HOST).and_then(|v| v.to_str().ok());
     let name = hub_name(&app, host);
     let accounts: Vec<_> = app
@@ -51,9 +49,10 @@ pub async fn data(State(app): State<Arc<App>>, headers: HeaderMap) -> Json<Value
         .map(|e| account_view(&app, e))
         .collect();
     Json(json!({
-        "hub": { "name": name, "port": app.cfg.port, "version": env!("CARGO_PKG_VERSION"), "state": app.hub_state.get() },
+        "hub": { "name": name, "port": app.cfg.port, "version": update::CURRENT, "state": app.hub_state.get() },
+        "latest_version": app.updater.latest(),
         "accounts": accounts,
-        "machines": app.machines.list(),
+        "machines": app.fleet(),
         "requests": app.requests.recent(),
         "add_machine": add_machine(&name),
     }))

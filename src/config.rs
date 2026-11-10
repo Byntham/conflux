@@ -139,6 +139,7 @@ pub struct Endpoints {
     pub codex_api: String,
     pub chatgpt_backend: String,
     pub openai_auth: String,
+    pub releases: String,
 }
 
 impl Default for Endpoints {
@@ -150,6 +151,7 @@ impl Default for Endpoints {
             codex_api: "https://chatgpt.com/backend-api/codex".into(),
             chatgpt_backend: "https://chatgpt.com/backend-api".into(),
             openai_auth: "https://auth.openai.com".into(),
+            releases: "https://github.com/Byntham/conflux/releases".into(),
         }
     }
 }
@@ -168,6 +170,7 @@ impl Endpoints {
         set(&mut e.codex_api, "CONFLUX_CODEX_API");
         set(&mut e.chatgpt_backend, "CONFLUX_CHATGPT_BACKEND");
         set(&mut e.openai_auth, "CONFLUX_OPENAI_AUTH");
+        set(&mut e.releases, "CONFLUX_RELEASES");
         e
     }
 
@@ -180,6 +183,7 @@ impl Endpoints {
             codex_api: format!("{b}/backend-api/codex"),
             chatgpt_backend: format!("{b}/backend-api"),
             openai_auth: b.to_string(),
+            releases: format!("{b}/releases"),
         }
     }
 }

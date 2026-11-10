@@ -429,6 +429,7 @@ dependencies = [
  "fs2",
  "futures-util",
  "http",
+ "libc",
  "rand 0.9.5",
  "reqwest",
  "serde",
@@ -443,6 +444,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+ "windows-sys 0.61.2",
  "zstd",
 ]
 

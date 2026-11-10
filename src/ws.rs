@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
@@ -8,6 +9,7 @@ use axum::response::{IntoResponse, Response};
 use chrono::Utc;
 use futures_util::{SinkExt, StreamExt};
 use http::{HeaderMap, HeaderName, HeaderValue};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::protocol::CloseFrame as UpstreamCloseFrame;
@@ -33,11 +35,50 @@ pub async fn handle(app: Arc<App>, mut parts: http::request::Parts, path: String
     };
     let headers = parts.headers.clone();
     let query = parts.uri.query().map(str::to_string);
+    let in_flight = app.lifecycle.in_flight();
     upgrade
         .max_message_size(MAX_MESSAGE)
         .on_upgrade(move |socket| async move {
             relay(app, socket, headers, path, query).await;
+            drop(in_flight);
         })
+}
+
+#[derive(Deserialize)]
+struct FrameKind<'a> {
+    #[serde(rename = "type", borrow)]
+    kind: Option<Cow<'a, str>>,
+}
+
+#[derive(Default)]
+pub struct TurnTracker {
+    running: bool,
+}
+
+impl TurnTracker {
+    pub fn started() -> Self {
+        Self { running: true }
+    }
+
+    pub fn client_sent(&mut self, msg: &ClientMsg) {
+        if matches!(msg, ClientMsg::Text(_) | ClientMsg::Binary(_)) {
+            self.running = true;
+        }
+    }
+
+    pub fn upstream_sent(&mut self, text: &str) {
+        let kind = serde_json::from_str::<FrameKind>(text).ok().and_then(|f| f.kind);
+        if matches!(
+            kind.as_deref(),
+            Some("response.completed" | "response.failed" | "response.incomplete" | "response.cancelled" | "error")
+        ) {
+            self.running = false;
+        }
+    }
+
+    pub fn idle(&self) -> bool {
+        !self.running
+    }
 }
 
 pub fn error_frame(status: u16, kind: &str, message: &str, resets_in_seconds: Option<i64>) -> String {
@@ -165,7 +206,7 @@ async fn connect(
     }
 }
 
-async fn stop_requested(rx: &mut tokio::sync::watch::Receiver<bool>) {
+pub async fn stop_requested(rx: &mut tokio::sync::watch::Receiver<bool>) {
     let _ = rx.wait_for(|stop| *stop).await;
 }
 
@@ -260,9 +301,16 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, path: S
     }
 
     let mut shutdown = app.ws_shutdown.subscribe();
+    let mut drain = app.lifecycle.watch_drain();
+    let mut turns = TurnTracker::started();
     loop {
         tokio::select! {
             () = stop_requested(&mut shutdown) => {
+                let _ = client.send(ClientMsg::Close(None)).await;
+                let _ = up_tx.send(UpstreamMsg::Close(None)).await;
+                break;
+            }
+            () = stop_requested(&mut drain), if turns.idle() => {
                 let _ = client.send(ClientMsg::Close(None)).await;
                 let _ = up_tx.send(UpstreamMsg::Close(None)).await;
                 break;
@@ -272,6 +320,7 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, path: S
                     let _ = up_tx.send(UpstreamMsg::Close(None)).await;
                     break;
                 };
+                turns.client_sent(&msg);
                 let closing = matches!(msg, ClientMsg::Close(_));
                 if matches!(msg, ClientMsg::Text(_)) {
                     turn.started.set(Instant::now());
@@ -288,6 +337,7 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, path: S
                 let mut quota_hit = false;
                 if let UpstreamMsg::Text(t) = &msg {
                     quota_hit = inspect_event(&app, &account, &route, &turn, t.as_str());
+                    turns.upstream_sent(t.as_str());
                 }
                 let closing = matches!(msg, UpstreamMsg::Close(_));
                 let Some(out) = to_client(msg) else { continue };

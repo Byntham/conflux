@@ -221,6 +221,7 @@ pub async fn commit(State(app): State<Arc<App>>, Json(req): Json<Commit>) -> Res
     if let Err(e) = finish_retirement(&app.paths, &req.id) {
         return fail(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));
     }
+    app.machines.broadcast(&crate::machines::hub_moved(&req.hub));
     commit_response(true)
 }
 
@@ -252,7 +253,7 @@ pub async fn resume(State(app): State<Arc<App>>, ConnectInfo(addr): ConnectInfo<
 }
 
 fn is_always_allowed(path: &str) -> bool {
-    path == "/conflux/heartbeat" || path.starts_with("/conflux/move/")
+    path == "/conflux/heartbeat" || path == "/conflux/control" || path.starts_with("/conflux/move/")
 }
 
 pub async fn state_guard(State(app): State<Arc<App>>, req: Request, next: Next) -> Response {

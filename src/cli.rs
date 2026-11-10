@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use crate::config::{Config, Endpoints, Paths, Role};
 use crate::setup::{self, ClientPaths};
 use crate::tailnet::{self, TailnetSelf};
-use crate::{app, hubmove, node, service};
+use crate::{app, hubmove, node, service, supervisor};
 
 #[derive(Parser)]
 #[command(
@@ -24,6 +24,11 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Command {
     Serve,
+    #[command(hide = true)]
+    Worker,
+    Update {
+        machines: Vec<String>,
+    },
     Join {
         hub: String,
         #[arg(long)]
@@ -96,6 +101,8 @@ pub enum OnOff {
     Off,
 }
 
+const UPDATE_WAIT: Duration = Duration::from_secs(300);
+
 struct Daemon {
     base: String,
     http: reqwest::Client,
@@ -167,7 +174,9 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Hub {
             action: HubAction::TakeOver { old_hub, code, force },
         } => take_over(cfg, paths, &old_hub, code, force).await,
-        Command::Serve => {
+        Command::Serve => tokio::task::spawn_blocking(supervisor::run).await?,
+        Command::Update { machines } => update(&daemon, machines).await,
+        Command::Worker => {
             if let Some((_, pending)) = hubmove::find_pending(&paths)? {
                 tracing::warn!(old_hub = %pending.old_hub, "a hub move is unfinished. Run `conflux hub take-over` to finish it.");
             }
@@ -447,6 +456,61 @@ async fn join(mut cfg: Config, paths: Paths, hub: &str, no_service: bool, force:
         println!("Claude Code and Codex on this machine now go through {hub}.");
     }
     println!("New or restarted Claude Code and Codex sessions pick this up. Running ones keep their old settings.");
+    Ok(())
+}
+
+async fn update(daemon: &Daemon, machines: Vec<String>) -> Result<()> {
+    let only = (!machines.is_empty()).then_some(machines);
+    let asked = daemon.post("/conflux/api/update", json!({ "machines": only })).await?;
+    let version = asked["version"].as_str().context("no version")?.to_string();
+    for s in asked["skipped"].as_array().into_iter().flatten() {
+        if only.is_some() || s["reason"] != "already up to date" {
+            println!(
+                "{}: skipped, {}",
+                s["machine"].as_str().unwrap_or("?"),
+                s["reason"].as_str().unwrap_or("?")
+            );
+        }
+    }
+    let mut waiting: Vec<String> = asked["started"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|m| m.as_str().map(str::to_string))
+        .collect();
+    if waiting.is_empty() {
+        println!("Nothing to update. The latest release is v{version}.");
+        return Ok(());
+    }
+    println!("Updating {} to v{version}.", waiting.join(", "));
+    let deadline = std::time::Instant::now() + UPDATE_WAIT;
+    let mut failed = false;
+    while !waiting.is_empty() && std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let Ok(dashboard) = daemon.get("/conflux/api/dashboard").await else {
+            continue;
+        };
+        for m in dashboard["machines"].as_array().into_iter().flatten() {
+            let Some(name) = m["hostname"].as_str().filter(|n| waiting.iter().any(|w| w == n)) else {
+                continue;
+            };
+            if m["update"]["state"] == "failed" {
+                println!("{name}: failed, {}", m["update"]["error"].as_str().unwrap_or("?"));
+                failed = true;
+            } else if m["version"] == version.as_str() && m["online"] == true {
+                println!("{name}: now on v{version}");
+            } else {
+                continue;
+            }
+            waiting.retain(|w| w != name);
+        }
+    }
+    for name in &waiting {
+        println!("{name}: still updating. Check the dashboard.");
+    }
+    if failed || !waiting.is_empty() {
+        bail!("not every machine updated");
+    }
     Ok(())
 }
 

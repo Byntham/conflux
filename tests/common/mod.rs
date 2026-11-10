@@ -28,6 +28,7 @@ pub enum Reply {
 pub enum WsScript {
     Normal,
     QuotaMidStream,
+    SlowTurn,
     RejectHandshake429,
     RejectHandshake401,
 }
@@ -42,6 +43,7 @@ pub struct Fake {
     pub http_headers: Mutex<Vec<http::HeaderMap>>,
     pub body_lengths: Mutex<Vec<usize>>,
     pub stream_dropped: Arc<AtomicBool>,
+    pub release: Mutex<Option<(String, std::path::PathBuf)>>,
 }
 
 struct DropFlag(Arc<AtomicBool>);
@@ -123,6 +125,19 @@ async fn fake_ws(fake: Arc<Fake>, req: Request) -> Response {
         while let Some(Ok(msg)) = socket.recv().await {
             let Message::Text(_) = msg else { continue };
             n += 1;
+            if let WsScript::SlowTurn = script {
+                let id = format!("resp_{token}_{n}");
+                let created = json!({"type": "response.created", "response": {"id": id}});
+                if socket.send(Message::Text(created.to_string().into())).await.is_err() {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(400)).await;
+                let completed = json!({"type": "response.completed", "response": {"id": id}});
+                if socket.send(Message::Text(completed.to_string().into())).await.is_err() {
+                    return;
+                }
+                continue;
+            }
             let frames = match script {
                 WsScript::QuotaMidStream => vec![json!({
                     "type": "error", "status": 429,
@@ -151,6 +166,21 @@ async fn fake_handler(State(fake): State<Arc<Fake>>, req: Request) -> Response {
     fake.http_headers.lock().unwrap().push(req.headers().clone());
     if req.headers().get("upgrade").is_some() {
         return fake_ws(fake, req).await.into_response();
+    }
+    if let Some(rest) = path.strip_prefix("/releases/") {
+        let release = fake.release.lock().unwrap().clone();
+        return match release {
+            Some((version, _)) if rest == "latest" => Response::builder()
+                .status(302)
+                .header("location", format!("/releases/tag/v{version}"))
+                .body(Body::empty())
+                .unwrap(),
+            Some((_, binary)) if rest.starts_with("download/") => {
+                Response::new(Body::from(tokio::fs::read(binary).await.unwrap()))
+            }
+            Some(_) => Response::new(Body::empty()),
+            None => Response::builder().status(404).body(Body::empty()).unwrap(),
+        };
     }
     let body = axum::body::to_bytes(req.into_body(), usize::MAX)
         .await
@@ -190,6 +220,10 @@ pub struct Harness {
 
 impl Harness {
     pub async fn new() -> Self {
+        Self::on(tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap()).await
+    }
+
+    pub async fn on(listener: tokio::net::TcpListener) -> Self {
         let fake = Arc::new(Fake::default());
         let fake_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let fake_addr = fake_listener.local_addr().unwrap();
@@ -197,8 +231,8 @@ impl Harness {
         tokio::spawn(async move { axum::serve(fake_listener, fake_app).await.unwrap() });
 
         let dir = tempfile::tempdir().unwrap();
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
+        let addr = listener.local_addr().unwrap();
+        let port = addr.port();
         let cfg = Config {
             port,
             ..Config::default()
@@ -217,7 +251,7 @@ impl Harness {
             dir,
             app,
             fake,
-            base: format!("http://127.0.0.1:{port}"),
+            base: format!("http://{addr}"),
             port,
             http: reqwest::Client::new(),
         }

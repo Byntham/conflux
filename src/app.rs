@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
@@ -7,13 +7,15 @@ use anyhow::{Context, Result, bail};
 use axum::extract::DefaultBodyLimit;
 use axum::routing::{any, get, patch, post};
 use fs2::FileExt;
+use serde_json::{Value, json};
 
 use crate::accounts::Store;
 use crate::api::{self, Logins};
 use crate::config::{Config, Endpoints, Paths};
 use crate::hubmove::{self, MoveCode};
 use crate::hubstate::{HubState, HubStateStore};
-use crate::machines::{self, Machines};
+use crate::lifecycle::Lifecycle;
+use crate::machines::{self, Machine, Machines};
 use crate::oauth;
 use crate::refresh::Refresher;
 use crate::requests::RequestLog;
@@ -21,6 +23,7 @@ use crate::router::Router;
 use crate::tailnet::{self, TailnetSelf};
 use crate::transcript_sync::TranscriptSync;
 use crate::transcripts::{self, Transcripts};
+use crate::update::{self, Updater};
 use crate::usage::Usage;
 use crate::{access, dashboard, fsutil, management, proxy};
 
@@ -48,6 +51,8 @@ pub struct App {
     pub api_call_http: reqwest::Client,
     pub requests: Arc<RequestLog>,
     pub transcripts: Arc<Transcripts>,
+    pub lifecycle: Arc<Lifecycle>,
+    pub updater: Arc<Updater>,
 }
 
 pub fn proxy_client() -> reqwest::Client {
@@ -65,10 +70,16 @@ pub fn proxy_client() -> reqwest::Client {
 
 impl App {
     pub fn new(cfg: Config, paths: &Paths, ep: Endpoints) -> Result<Arc<Self>> {
-        Self::on_tailnet(cfg, paths, ep, TailnetSelf::default())
+        Self::with_lifecycle(cfg, paths, ep, TailnetSelf::default(), Arc::default())
     }
 
-    pub fn on_tailnet(cfg: Config, paths: &Paths, ep: Endpoints, tailnet: TailnetSelf) -> Result<Arc<Self>> {
+    fn with_lifecycle(
+        cfg: Config,
+        paths: &Paths,
+        ep: Endpoints,
+        tailnet: TailnetSelf,
+        lifecycle: Arc<Lifecycle>,
+    ) -> Result<Arc<Self>> {
         let hub_state = HubStateStore::load(&hubmove::hub_state_file(paths))?;
         match hub_state.get() {
             HubState::Aborted { id } => {
@@ -86,6 +97,7 @@ impl App {
         let router = Router::new(store.clone(), usage.clone());
         let mut allowed_hosts = access::local_hosts(cfg.port);
         allowed_hosts.extend(tailnet.host_headers(cfg.port));
+        let updater = Updater::new(&ep.releases);
         Ok(Arc::new(Self {
             cfg,
             ep,
@@ -108,6 +120,8 @@ impl App {
             api_call_http: management::api_call_client(),
             requests: Arc::new(RequestLog::default()),
             transcripts: Transcripts::open(&paths.transcripts_dir()?)?,
+            lifecycle,
+            updater,
         }))
     }
 
@@ -126,8 +140,20 @@ impl App {
             .unwrap_or_else(|| self.hostname.clone())
     }
 
-    async fn watch_tailnet(self: Arc<Self>) {
-        let mut bound = HashSet::new();
+    fn serve_on(self: &Arc<Self>, listener: tokio::net::TcpListener) {
+        let in_flight = self.lifecycle.in_flight();
+        let stop = self.lifecycle.drain_started();
+        let routes = self.routes().into_make_service_with_connect_info::<SocketAddr>();
+        tokio::spawn(async move {
+            let addr = listener.local_addr().ok();
+            if let Err(e) = axum::serve(listener, routes).with_graceful_shutdown(stop).await {
+                tracing::error!(?addr, "listener stopped: {e}");
+            }
+            drop(in_flight);
+        });
+    }
+
+    async fn watch_tailnet(self: Arc<Self>, mut bound: HashSet<IpAddr>) {
         let mut warned = false;
         loop {
             let found = tokio::task::spawn_blocking(TailnetSelf::detect)
@@ -145,16 +171,11 @@ impl App {
                     continue;
                 }
                 let addr = SocketAddr::new(ip, self.cfg.port);
-                match tokio::net::TcpListener::bind(addr).await {
+                match self.lifecycle.listen(addr) {
                     Ok(listener) => {
                         bound.insert(ip);
                         tracing::info!(%addr, "conflux hub listening on the tailnet");
-                        let routes = self.routes().into_make_service_with_connect_info::<SocketAddr>();
-                        tokio::spawn(async move {
-                            if let Err(e) = axum::serve(listener, routes).await {
-                                tracing::error!(%addr, "tailnet listener stopped: {e}");
-                            }
-                        });
+                        self.serve_on(listener);
                     }
                     Err(e) => tracing::warn!(%addr, "could not bind the tailnet address yet: {e}"),
                 }
@@ -172,6 +193,43 @@ impl App {
             HubState::Retired { hub, .. } => Some(hub),
             _ => None,
         }
+    }
+
+    pub fn fleet(&self) -> Vec<Machine> {
+        let latest = self.updater.latest();
+        let hub = Machine {
+            hostname: self.hostname.clone(),
+            version: update::CURRENT.to_string(),
+            role: "hub".into(),
+            last_seen: chrono::Utc::now(),
+            online: true,
+            transcript_sync: Config::load(&self.paths).map(|c| c.transcript_sync).unwrap_or(false),
+            update: self.updater.status(),
+            remote_update: true,
+            outdated: false,
+        };
+        std::iter::once(hub)
+            .chain(self.machines.list())
+            .map(|mut m| {
+                m.outdated = latest.as_deref().is_some_and(|l| update::is_newer(l, &m.version));
+                m
+            })
+            .collect()
+    }
+
+    fn export_state(&self) -> Value {
+        json!({
+            "router": self.router.export(),
+            "usage": self.usage.export(),
+            "requests": self.requests.export(),
+            "tailnet": *self.tailnet.read().unwrap(),
+        })
+    }
+
+    fn import_state(&self, state: &Value) {
+        self.router.import(&state["router"]);
+        self.usage.import(&state["usage"]);
+        self.requests.import(&state["requests"]);
     }
 
     pub fn routes(self: &Arc<Self>) -> axum::Router {
@@ -200,6 +258,8 @@ impl App {
             .route("/conflux/move/abort", post(hubmove::abort))
             .route("/conflux/api/dashboard", get(dashboard::data))
             .route("/conflux/heartbeat", post(machines::heartbeat))
+            .route("/conflux/control", get(machines::control))
+            .route("/conflux/api/update", post(api::update))
             .route("/conflux/api/status", get(api::status))
             .route("/conflux/api/login/claude/start", post(api::claude_start))
             .route("/conflux/api/login/claude/finish", post(api::claude_finish))
@@ -224,30 +284,80 @@ impl App {
     }
 }
 
+impl update::Handoff for App {
+    async fn pause(&self) -> Value {
+        self.refresher.close_gate().await;
+        self.usage.set_paused(true);
+        self.export_state()
+    }
+
+    async fn resume(&self) {
+        self.refresher.open_gate().await;
+        self.usage.set_paused(false);
+    }
+}
+
 pub struct HubLock {
     _file: std::fs::File,
 }
 
-pub fn lock_hub(paths: &Paths) -> Result<HubLock> {
+fn open_lock_file(paths: &Paths) -> Result<std::fs::File> {
     fsutil::ensure_private_dir(&paths.data_dir)?;
-    let file = std::fs::OpenOptions::new()
+    std::fs::OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
         .open(paths.lock_file())
-        .context("open hub lock")?;
+        .context("open hub lock")
+}
+
+pub fn lock_hub(paths: &Paths) -> Result<HubLock> {
+    let file = open_lock_file(paths)?;
     if file.try_lock_exclusive().is_err() {
         bail!("another conflux hub is already running with this data directory");
     }
     Ok(HubLock { _file: file })
 }
 
+fn lock_hub_after_predecessor(paths: &Paths) -> Result<()> {
+    let file = open_lock_file(paths)?;
+    std::thread::spawn(move || {
+        if file.lock_exclusive().is_ok() {
+            std::mem::forget(file);
+        }
+    });
+    Ok(())
+}
+
 pub async fn serve(cfg: Config, paths: Paths, ep: Endpoints) -> Result<()> {
-    let _lock = lock_hub(&paths)?;
+    let lifecycle = Arc::new(Lifecycle::default());
+    let takeover = lifecycle.take_over().await?;
+    let _lock = match &takeover {
+        None => Some(lock_hub(&paths)?),
+        Some(_) => {
+            lock_hub_after_predecessor(&paths)?;
+            None
+        }
+    };
+    let tailnet = takeover
+        .as_ref()
+        .and_then(|t| serde_json::from_value(t.state["tailnet"].clone()).ok())
+        .unwrap_or_default();
     let addr = SocketAddr::from(([127, 0, 0, 1], cfg.port));
-    let app = App::new(cfg, &paths, ep)?;
+    let app = App::with_lifecycle(cfg, &paths, ep, tailnet, lifecycle.clone())?;
+    if let Some(takeover) = &takeover {
+        app.import_state(&takeover.state);
+    }
+    let exe = std::env::current_exe().context("find the conflux binary")?;
+    app.updater.replaces(exe.clone());
     app.start_background();
-    tokio::spawn(app.clone().watch_tailnet());
+    let listener = lifecycle.listen(addr).with_context(|| format!("bind {addr}"))?;
+    app.serve_on(listener);
+    let mut bound = HashSet::new();
+    for listener in lifecycle.listen_inherited() {
+        bound.extend(listener.local_addr().map(|a| a.ip()));
+        app.serve_on(listener);
+    }
     let local = format!("http://127.0.0.1:{}", addr.port());
     let sync = TranscriptSync::new(
         app.hostname.clone(),
@@ -255,15 +365,21 @@ pub async fn serve(cfg: Config, paths: Paths, ep: Endpoints) -> Result<()> {
         &crate::setup::ClientPaths::from_env()?,
         Arc::new(move || local.clone()),
     );
-    tokio::spawn(sync.run());
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .with_context(|| format!("bind {addr}"))?;
+    let background = [
+        tokio::spawn(app.clone().watch_tailnet(bound)),
+        tokio::spawn(sync.run()),
+        tokio::spawn(app.updater.clone().run_checks()),
+    ];
     tracing::info!(%addr, accounts = app.store.all().len(), "conflux hub listening");
-    axum::serve(
-        listener,
-        app.routes().into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .await?;
+    if let Some(takeover) = takeover {
+        takeover.ready().await?;
+    }
+    update::remove_old_binaries(&exe);
+    lifecycle.drain_started().await;
+    tracing::info!("a newer conflux took over; finishing the requests already running");
+    for task in background {
+        task.abort();
+    }
+    lifecycle.drained().await;
     Ok(())
 }
