@@ -21,12 +21,12 @@ use crate::oauth;
 use crate::refresh::Refresher;
 use crate::requests::RequestLog;
 use crate::router::Router;
-use crate::tailnet::{self, TailnetSelf};
+use crate::tailnet::{self, TailnetSelf, Tailscale};
 use crate::transcript_sync::TranscriptSync;
 use crate::transcripts::{self, Transcripts};
 use crate::update::{self, Updater};
 use crate::usage::Usage;
-use crate::{access, dashboard, fsutil, management, proxy};
+use crate::{access, dashboard, fsutil, link, management, proxy};
 
 const TRANSCRIPT_BODY_LIMIT: usize = 64 * 1024 * 1024;
 
@@ -54,6 +54,7 @@ pub struct App {
     pub transcripts: Arc<Transcripts>,
     pub lifecycle: Arc<Lifecycle>,
     pub updater: Arc<Updater>,
+    pub tailscale: Tailscale,
 }
 
 pub fn proxy_client() -> reqwest::Client {
@@ -71,7 +72,11 @@ pub fn proxy_client() -> reqwest::Client {
 
 impl App {
     pub fn new(cfg: Config, paths: &Paths, ep: Endpoints) -> Result<Arc<Self>> {
-        Self::with_lifecycle(cfg, paths, ep, TailnetSelf::default(), Arc::default())
+        Self::on_tailnet(cfg, paths, ep, tailnet::system_tailscale())
+    }
+
+    pub fn on_tailnet(cfg: Config, paths: &Paths, ep: Endpoints, tailscale: Tailscale) -> Result<Arc<Self>> {
+        Self::with_lifecycle(cfg, paths, ep, TailnetSelf::default(), Arc::default(), tailscale)
     }
 
     fn with_lifecycle(
@@ -80,6 +85,7 @@ impl App {
         ep: Endpoints,
         tailnet: TailnetSelf,
         lifecycle: Arc<Lifecycle>,
+        tailscale: Tailscale,
     ) -> Result<Arc<Self>> {
         let hub_state = HubStateStore::load(&hubmove::hub_state_file(paths))?;
         match hub_state.get() {
@@ -123,6 +129,7 @@ impl App {
             transcripts: Transcripts::open(&paths.transcripts_dir()?)?,
             lifecycle,
             updater,
+            tailscale,
         }))
     }
 
@@ -270,6 +277,8 @@ impl App {
             .route("/conflux/api/dashboard", get(dashboard::data))
             .route("/conflux/control", get(machines::control))
             .route("/conflux/api/update", post(api::update))
+            .route("/conflux/api/discover", get(link::discover))
+            .route("/conflux/api/link", post(link::link))
             .route("/conflux/api/status", get(api::status))
             .route("/conflux/api/login/claude/start", post(api::claude_start))
             .route("/conflux/api/login/claude/finish", post(api::claude_finish))
@@ -358,7 +367,7 @@ pub async fn serve(cfg: Config, paths: Paths, ep: Endpoints) -> Result<()> {
         .and_then(|t| serde_json::from_value(t.state["tailnet"].clone()).ok())
         .unwrap_or_default();
     let addr = SocketAddr::from(([127, 0, 0, 1], cfg.port));
-    let app = App::with_lifecycle(cfg, &paths, ep, tailnet, lifecycle.clone())?;
+    let app = App::with_lifecycle(cfg, &paths, ep, tailnet, lifecycle.clone(), tailnet::system_tailscale())?;
     if let Some(takeover) = &takeover {
         app.import_state(&takeover.state);
     }

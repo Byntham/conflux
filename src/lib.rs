@@ -9,6 +9,7 @@ pub mod fsutil;
 pub mod hubmove;
 pub mod hubstate;
 pub mod lifecycle;
+pub mod link;
 pub mod machines;
 pub mod management;
 pub mod node;

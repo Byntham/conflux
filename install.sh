@@ -46,6 +46,8 @@ main() {
 
   if [ "$#" -gt 0 ]; then
     "$bin_dir/conflux" join "$1" </dev/null
+  else
+    "$bin_dir/conflux" wait </dev/null
   fi
 }
 
