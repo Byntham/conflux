@@ -16,7 +16,7 @@ use crate::update::UpdateStatus;
 
 const SILENCE_LIMIT: Duration = Duration::from_secs(75);
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Report {
     pub hostname: String,
     pub version: String,
@@ -105,6 +105,36 @@ impl Machines {
             if let Some(link) = &entry.link {
                 let _ = link.commands.send(command.clone());
             }
+        }
+    }
+
+    pub fn export(&self) -> Value {
+        let now = Utc::now();
+        let map = self.map.lock().unwrap();
+        let known: Vec<_> = map
+            .values()
+            .map(|e| (&e.report, if e.link.is_some() { now } else { e.last_seen }))
+            .collect();
+        json!(known)
+    }
+
+    pub fn import(&self, state: &Value) {
+        let Ok(known) = serde_json::from_value::<Vec<(Report, DateTime<Utc>)>>(state.clone()) else {
+            return;
+        };
+        let mut map = self.map.lock().unwrap();
+        for (report, last_seen) in known {
+            map.insert(
+                report.hostname.clone(),
+                Entry {
+                    report: Report {
+                        update: Value::Null,
+                        ..report
+                    },
+                    last_seen,
+                    link: None,
+                },
+            );
         }
     }
 

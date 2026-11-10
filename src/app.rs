@@ -221,6 +221,7 @@ impl App {
             "router": self.router.export(),
             "usage": self.usage.export(),
             "requests": self.requests.export(),
+            "machines": self.machines.export(),
             "tailnet": *self.tailnet.read().unwrap(),
         })
     }
@@ -229,6 +230,7 @@ impl App {
         self.router.import(&state["router"]);
         self.usage.import(&state["usage"]);
         self.requests.import(&state["requests"]);
+        self.machines.import(&state["machines"]);
     }
 
     pub fn routes(self: &Arc<Self>) -> axum::Router {

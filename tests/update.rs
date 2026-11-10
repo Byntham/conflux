@@ -7,7 +7,7 @@ use std::time::Duration;
 use common::{Harness, Reply};
 use conflux::accounts::Provider;
 use conflux::config::{Config, Paths, Role};
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 
 const BUILT: &str = env!("CARGO_BIN_EXE_conflux");
@@ -140,6 +140,33 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
     assert_eq!(failed_over["token"], other);
     let hits_on_cooling_account = message_hits(&h, &preferred);
 
+    let dashboard = format!("{base}/conflux/api/dashboard");
+    let away = async || {
+        let d: Value = reqwest::get(&dashboard).await.ok()?.json().await.ok()?;
+        d["machines"]
+            .as_array()?
+            .iter()
+            .find(|m| m["hostname"] == "away")
+            .cloned()
+    };
+    let (mut control, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/conflux/control"))
+        .await
+        .unwrap();
+    let report = json!({"hostname": "away", "version": "0.0.1"}).to_string();
+    control
+        .send(tokio_tungstenite::tungstenite::Message::Text(report.into()))
+        .await
+        .unwrap();
+    eventually("the node to appear", async || {
+        away().await.filter(|m| m["online"] == true)
+    })
+    .await;
+    drop(control);
+    eventually("the node to go offline", async || {
+        away().await.filter(|m| m["online"] == false)
+    })
+    .await;
+
     h.reply(other, Reply::Endless);
     let mut stream = claude(&http, &base).send().await.unwrap().bytes_stream();
     assert!(stream.next().await.unwrap().is_ok());
@@ -173,6 +200,9 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
         hits_on_cooling_account,
         "the new hub still knows which account is cooling down"
     );
+    let still_listed = away().await.expect("the new hub still lists the offline node");
+    assert_eq!(still_listed["online"], false);
+    assert_eq!(still_listed["outdated"], true);
     assert!(
         hub.child.try_wait().unwrap().is_none(),
         "the old hub stays up while its stream is open"
