@@ -251,12 +251,13 @@ impl Harness {
             port,
             ..Config::default()
         };
-        let app = App::new(
+        let mut app = App::new(
             cfg,
             &Paths::under(dir.path()),
             Endpoints::all_at(&format!("http://{fake_addr}")),
         )
         .unwrap();
+        Arc::get_mut(&mut app).unwrap().hostname = "hub-under-test".into();
         let routes = app
             .routes()
             .into_make_service_with_connect_info::<std::net::SocketAddr>();
