@@ -116,7 +116,7 @@ Points Claude Code and Codex at conflux again after `conflux off`. It saves the 
 
 Stops conflux on this machine and gives Claude Code and Codex their old settings back. It removes the background service.
 
-`leave` keeps the conflux binary, its config, and any account tokens on this machine. If this machine is the hub and you are done with it, run `conflux remove` for each account first. To start again later, run `conflux join` or `conflux wait`.
+`leave` keeps the conflux binary, its config, and any account tokens on this machine. If this machine is the hub and you are done with it, run `conflux remove` for each account first. To start again later, run `conflux join`.
 
 ### `conflux sync on|off|status`
 
@@ -130,7 +130,7 @@ The hub keeps the copies in `~/conflux/transcripts`. The dashboard's Threads tab
 
 ### `conflux serve`
 
-Runs conflux in the foreground until you stop it. The background service runs this command for you. Run it yourself after `conflux join <hub> --no-service`, or to watch logs while you debug. Set `CONFLUX_LOG` to change the log level. See [Configuration](configuration.md).
+Runs conflux in the foreground until you stop it. The background service runs this command for you. Run it yourself after `conflux join <hub> --no-service`, or to watch logs while you debug. To watch logs, stop the background service first. See [Troubleshooting](troubleshooting.md#logs-and-the-background-service). Set `CONFLUX_LOG` to change the log level. See [Configuration](configuration.md).
 
 ## Every machine
 

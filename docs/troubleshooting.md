@@ -12,7 +12,7 @@
 
 On Windows, conflux runs in a hidden console and keeps no log file.
 
-To watch logs in a terminal, stop the background service, then run `conflux serve`. Set `CONFLUX_LOG=debug` for more detail. The service restarts conflux if you only kill it, so stop it this way:
+To watch logs in a terminal, stop the background service, then run `conflux serve`. Set `CONFLUX_LOG=debug` for more detail. If you only kill conflux, the service or its supervisor starts it again, so stop it this way:
 
 - Linux: `systemctl --user stop conflux`. Start it again with `systemctl --user start conflux`.
 - macOS: `launchctl bootout gui/$(id -u)/dev.conflux`. Start it again with `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.conflux.plist`.
@@ -33,7 +33,7 @@ To keep working until the hub is back, run `conflux off` and restart your sessio
 ### Requests don't show up under "Recent requests"
 
 - Restart the session. Sessions that were open before `conflux join` keep their old settings.
-- Check that `~/.claude/settings.json` has `ANTHROPIC_BASE_URL` set to `http://127.0.0.1:8317`, or to the port in `config.toml`, and that `~/.codex/config.toml` has `model_provider = "conflux"`.
+- Check that `~/.claude/settings.json` has `ANTHROPIC_BASE_URL` set to `http://127.0.0.1:<port>`, and that `~/.codex/config.toml` has `model_provider = "conflux"`. `<port>` is `port` in `config.toml`, which is 8317 by default.
 - Check your shell for `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, or `OPENAI_BASE_URL`. These can make the tools skip conflux.
 
 ### The dashboard says "host not allowed"
