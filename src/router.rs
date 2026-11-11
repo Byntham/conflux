@@ -31,7 +31,7 @@ pub struct Cooldown {
     pub scope: String,
     pub until: DateTime<Utc>,
     pub reason: String,
-    #[serde(skip)]
+    #[serde(default = "Utc::now")]
     at: DateTime<Utc>,
 }
 
@@ -481,6 +481,19 @@ mod tests {
         assert!(router.pick(&sonnet, &HashSet::new()).is_ok());
         router.clear(&a);
         assert!(router.pick(&fable, &HashSet::new()).is_ok());
+    }
+
+    #[test]
+    fn a_cooldown_handed_to_the_next_process_keeps_blocking() {
+        let (_d, store, usage, router) = setup(&[("a", Provider::Codex)]);
+        let a = id(Provider::Codex, "a");
+        usage.set(&a, snap(100, 10.0, 10.0));
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        router.cool(&a, ACCOUNT, Utc::now() + chrono::Duration::days(2), "Codex usage limit");
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let next = Router::new(store, usage);
+        next.import(&router.export(tx));
+        assert!(next.pick(&route(Provider::Codex), &HashSet::new()).is_err());
     }
 
     #[test]
