@@ -43,6 +43,11 @@ enum Palette {
             ? NSColor.white.withAlphaComponent(0.62)
             : NSColor.black.withAlphaComponent(0.7)
     })
+    static let track = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor.white.withAlphaComponent(0.22)
+            : NSColor.black.withAlphaComponent(0.18)
+    })
     static let rim = Color(nsColor: NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             ? NSColor.white.withAlphaComponent(0.14)

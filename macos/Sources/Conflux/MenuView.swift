@@ -57,7 +57,7 @@ struct MenuView: View {
             Notice(
                 title: "conflux isn't running",
                 detail: model.routing == true
-                    ? "Claude Code and Codex can't connect until it starts. To use their own logins, turn off routing below."
+                    ? "Start conflux to reconnect Claude Code and Codex. To use their own logins, turn off routing below, then restart them."
                     : "Claude Code and Codex can't reach it until it starts."
             ) {
                 Button("Start conflux") { model.start() }.glassButton(prominent: true)
@@ -118,9 +118,11 @@ struct StatusDot: View {
 
     var body: some View {
         let (color, label) = summary
-        HStack(spacing: 5) {
-            Circle().fill(color).frame(width: 7, height: 7)
-            Text(label).font(.system(size: 11)).foregroundStyle(Palette.muted)
+        if !label.isEmpty {
+            HStack(spacing: 5) {
+                Circle().fill(color).frame(width: 7, height: 7)
+                Text(label).font(.system(size: 11)).foregroundStyle(Palette.muted)
+            }
         }
     }
 
@@ -186,13 +188,13 @@ struct Accounts: View {
                 Button("Add account…") { model.openDashboard() }.glassButton(prominent: true)
             }
         } else {
-            let rows = VStack(alignment: .leading, spacing: 12) {
+            let rows = VStack(alignment: .leading, spacing: 16) {
                 ForEach(model.accounts) { account in
                     AccountRow(account: account, now: model.now, openDashboard: model.openDashboard)
                 }
             }
             .padding(.horizontal, 14)
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 8) {
                     Text("Accounts")
                     Spacer()
@@ -308,7 +310,7 @@ struct Meter: View {
                 .frame(width: 42, alignment: .leading)
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color.primary.opacity(0.14))
+                    Capsule().fill(Palette.track)
                     Capsule()
                         .fill(color(pct))
                         .frame(width: max(pct > 0 ? 4 : 0, geometry.size.width * pct / 100))
