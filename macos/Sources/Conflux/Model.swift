@@ -124,7 +124,9 @@ final class Model: ObservableObject {
     func refresh() async {
         now = Date()
         relaunchIfReplaced()
-        if bundle.path.contains("/AppTranslocation/") {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let inApplications = ["/Applications/", "\(home)/Applications/"].contains { bundle.path.hasPrefix($0) }
+        if bundle.path.contains("/AppTranslocation/") || (!inApplications && !local.serviceInstalled) {
             phase = .translocated
             return
         }
@@ -244,17 +246,16 @@ final class Model: ObservableObject {
     }
 
     var latestVersion: String? {
-        guard let dashboard, let latest = dashboard.latestVersion else { return nil }
-        let behind = dashboard.machines.contains(where: \.outdated)
-        return behind ? latest : nil
+        guard let latest = dashboard?.latestVersion, !outdatedMachines.isEmpty else { return nil }
+        return latest
     }
 
     var outdatedMachines: [Machine] {
-        dashboard?.machines.filter(\.outdated) ?? []
+        dashboard?.machines.filter { $0.outdated && $0.online && !$0.isUpdating } ?? []
     }
 
     var updating: Bool {
-        dashboard?.machines.contains { ($0.update?.state).map { $0 != "failed" } ?? false } ?? false
+        dashboard?.machines.contains { $0.online && $0.isUpdating } ?? false
     }
 
     var updateFailure: String? {
@@ -349,11 +350,17 @@ final class Model: ObservableObject {
             request.timeoutInterval = 30
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = Data("{}".utf8)
-            let (body, response) = try await self.session.data(for: request)
+            let (body, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let answer = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
             guard status == 200 else {
-                let message = (try? JSONSerialization.jsonObject(with: body) as? [String: Any])?["error"] as? String
-                throw Command.Failure(message: message ?? "The hub answered HTTP \(status).")
+                throw Command.Failure(message: answer["error"] as? String ?? "The hub answered HTTP \(status).")
+            }
+            let started = answer["started"] as? [String] ?? []
+            let skipped = answer["skipped"] as? [[String: Any]] ?? []
+            if started.isEmpty, let first = skipped.first {
+                let machine = first["machine"] as? String ?? "A machine"
+                throw Command.Failure(message: "\(machine) was skipped: \(first["reason"] as? String ?? "no reason given")")
             }
         }
     }

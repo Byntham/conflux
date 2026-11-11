@@ -178,8 +178,10 @@ pub fn install() -> Result<String> {
         match crate::update::app_bundle(&exe) {
             Some(app) => {
                 let plist = menu_bar_plist(app);
-                if !launchd_loaded_with(MENU_BAR_LABEL, &plist)? {
-                    launchd_load(MENU_BAR_LABEL, &plist)?;
+                if !launchd_loaded_with(MENU_BAR_LABEL, &plist)?
+                    && let Err(e) = launchd_load(MENU_BAR_LABEL, &plist)
+                {
+                    eprintln!("Warning: the menu bar app will not open at login: {e:#}");
                 }
             }
             None => launchd_unload(MENU_BAR_LABEL)?,

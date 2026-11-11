@@ -36,6 +36,7 @@ install_app() {
     "https://github.com/$repo/releases/latest/download/conflux-darwin-aarch64-app.zip" || return 1
   ditto -x -k "$work/app.zip" "$work" || return 1
   [ -d "$work/Conflux.app" ] || return 1
+  ln -sf "$apps/Conflux.app/Contents/Helpers/conflux" "$1/conflux" || return 1
   if [ -e "$apps/Conflux.app" ]; then
     mv "$apps/Conflux.app" "$work/previous.app" || return 1
   fi
@@ -43,7 +44,6 @@ install_app() {
     [ -e "$work/previous.app" ] && mv "$work/previous.app" "$apps/Conflux.app"
     return 1
   fi
-  ln -sf "$apps/Conflux.app/Contents/Helpers/conflux" "$1/conflux" || return 1
   echo "Installed Conflux.app to $apps and linked $1/conflux to it."
 }
 

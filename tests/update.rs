@@ -39,11 +39,16 @@ fn exe_name() -> String {
     format!("conflux{}", std::env::consts::EXE_SUFFIX)
 }
 
+#[cfg(unix)]
 fn linked_like_the_path_entry(exe: &Path, bin: &Path) -> PathBuf {
     let link = bin.join(exe_name());
-    #[cfg(unix)]
     std::os::unix::fs::symlink(exe, &link).unwrap();
     link
+}
+
+#[cfg(not(unix))]
+fn linked_like_the_path_entry(exe: &Path, _bin: &Path) -> PathBuf {
+    exe.to_path_buf()
 }
 
 fn start(command: &str, home: &Path, fake: &str, exe_dir: &str) -> Started {

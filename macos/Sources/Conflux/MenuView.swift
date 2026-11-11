@@ -41,7 +41,7 @@ struct MenuView: View {
         case .translocated:
             Notice(
                 title: "Move Conflux to Applications",
-                detail: "macOS is running Conflux from a temporary copy. Drag it into your Applications folder, then open it again."
+                detail: "Conflux updates itself in place, so it has to run from an Applications folder. Drag it into the Applications folder in your home folder, then open it again."
             ) {
                 Button("Show in Finder") { model.revealInFinder() }.glassButton(prominent: true)
             }

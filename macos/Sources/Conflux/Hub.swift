@@ -60,6 +60,10 @@ struct Machine: Decodable {
     let online: Bool
     let outdated: Bool
     let update: Update?
+
+    var isUpdating: Bool {
+        update.map { $0.state != "failed" } ?? false
+    }
 }
 
 struct NodeInfo: Decodable {
