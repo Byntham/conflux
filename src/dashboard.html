@@ -893,8 +893,15 @@ function renderRequests(d) {
   setHtml("request-log", requestTable(shown, true));
 }
 
+const UPDATE_REPORT_STALE_MS = 60000;
+
+function updateFailed(m) {
+  return Boolean(m.update) && m.update.state === "failed";
+}
+
 function updating(m) {
-  return Boolean(m.update) && m.update.state !== "failed";
+  const reported = m.online || Date.now() - new Date(m.last_seen) < UPDATE_REPORT_STALE_MS;
+  return Boolean(m.update) && !updateFailed(m) && reported;
 }
 
 function updatable(d) {
@@ -914,7 +921,7 @@ function updateCell(m, version) {
     const step = m.update.state === "downloading" ? "Downloading" : "Starting";
     return `<span class="muted">${sized(`${step} v${esc(m.update.version)}`, step)}</span>`;
   }
-  const failed = m.update ? `<span class="pill bad" data-tip="${esc(m.update.error)}">${sized("Update failed", "Failed")}</span>` : "";
+  const failed = updateFailed(m) ? `<span class="pill bad" data-tip="${esc(m.update.error)}">${sized("Update failed", "Failed")}</span>` : "";
   if (!m.outdated) return failed;
   if (!m.online) return `<span class="pill warn">${sized("Update available", "Update")}</span>`;
   return `${failed}<button class="btn small" data-update="${esc(m.hostname)}">${failed ? "Retry" : sized(`Update to v${esc(version)}`, "Update")}</button>`;
@@ -1318,7 +1325,8 @@ document.addEventListener("mouseover", (ev) => {
   const rect = col.getBoundingClientRect();
   const left = Math.max(8, Math.min(rect.left + rect.width / 2 - tip.offsetWidth / 2, window.innerWidth - tip.offsetWidth - 8));
   tip.style.left = `${left}px`;
-  tip.style.top = `${rect.top - tip.offsetHeight + (col.classList.contains("col") ? 8 : -6)}px`;
+  const above = rect.top - tip.offsetHeight + (col.classList.contains("col") ? 8 : -6);
+  tip.style.top = `${above < 0 ? rect.bottom + 6 : above}px`;
 });
 
 document.addEventListener("click", (ev) => {
