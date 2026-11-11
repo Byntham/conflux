@@ -82,13 +82,13 @@ struct Header: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            let iconShape = RoundedRectangle(cornerRadius: 6.7, style: .continuous)
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable()
+                .frame(width: 36, height: 36)
                 .frame(width: 30, height: 30)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(0.15), lineWidth: 0.5)
-                )
+                .clipShape(iconShape)
+                .overlay(iconShape.strokeBorder(Color.primary.opacity(0.15), lineWidth: 0.5))
             VStack(alignment: .leading, spacing: 1) {
                 Text("conflux").font(.system(size: 13, weight: .semibold))
                 Text(model.roleLine)
@@ -125,7 +125,11 @@ struct StatusDot: View {
         case .ready:
             if model.accounts.isEmpty { return (Palette.meter, "No accounts") }
             let ready = "\(model.readyCount) of \(model.accounts.count) ready"
-            return (model.needsAttention ? Palette.warnFill : Palette.ok, ready)
+            switch model.attention {
+            case .systemRed?: return (Palette.badFill, ready)
+            case .some: return (Palette.warnFill, ready)
+            case nil: return (Palette.ok, ready)
+            }
         case .notRunning:
             return (Palette.badFill, "Stopped")
         case .hubUnreachable:
@@ -372,7 +376,7 @@ struct UpdateBanner: View {
                     : "\(behind.count) machines are behind"
             ) {
                 Button(behind.count == 1 ? "Update" : "Update all") { model.updateAll() }
-                    .glassButton(prominent: true)
+                    .glassButton()
             }
         }
     }
@@ -384,7 +388,7 @@ struct UpdateBanner: View {
                 .foregroundStyle(.primary)
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.system(size: 13, weight: .semibold))
+                Text(title).font(.system(size: 13, weight: .medium))
                 Text(detail)
                     .font(.system(size: 11))
                     .foregroundStyle(Palette.muted)
@@ -395,7 +399,7 @@ struct UpdateBanner: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Color.accentColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .padding(.horizontal, 10)
         .padding(.top, 10)
         .padding(.bottom, 4)
@@ -413,7 +417,7 @@ struct Actions: View {
                     Spacer()
                     Toggle("", isOn: Binding(get: { routing }, set: { model.setRouting($0) }))
                         .toggleStyle(.switch)
-                        .controlSize(.mini)
+                        .controlSize(.small)
                         .labelsHidden()
                 }
                 .padding(.horizontal, 9)

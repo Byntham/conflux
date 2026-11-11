@@ -19,6 +19,7 @@ extension View {
         if #available(macOS 26, *) {
             background(shape.fill(Palette.dim))
                 .glassEffect(.regular, in: shape)
+                .overlay(shape.strokeBorder(Palette.rim, lineWidth: 0.5))
         } else {
             background(MenuMaterial().clipShape(shape))
                 .overlay(shape.strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
@@ -36,12 +37,21 @@ enum Palette {
     static let warnFill = dynamic(light: 0xD97F06, dark: 0xF59E0B)
     static let bad = dynamic(light: 0xC81E1E, dark: 0xF87171)
     static let badFill = dynamic(light: 0xC81E1E, dark: 0xE5484D)
-    static let meter = dynamic(light: 0x71717A, dark: 0xD4D4D8)
-    static let muted = Color.primary.opacity(0.62)
+    static let meter = dynamic(light: 0x71717A, dark: 0xA1A1AA)
+    static let muted = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor.white.withAlphaComponent(0.62)
+            : NSColor.black.withAlphaComponent(0.7)
+    })
+    static let rim = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor.white.withAlphaComponent(0.14)
+            : NSColor.clear
+    })
     static let dim = Color(nsColor: NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             ? NSColor.black.withAlphaComponent(0.6)
-            : NSColor.white.withAlphaComponent(0.3)
+            : NSColor.white.withAlphaComponent(0.18)
     })
 
     private static func dynamic(light: Int, dark: Int) -> Color {

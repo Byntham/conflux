@@ -183,11 +183,11 @@ final class Model: ObservableObject {
         case .notRunning, .hubUnreachable:
             return .systemRed
         case .ready:
+            if accounts.contains(where: { $0.state(now: now).isProblem }) || updateFailure != nil {
+                return .systemRed
+            }
             let enabled = accounts.filter(\.enabled)
-            let troubled = accounts.contains { $0.state(now: now).isProblem }
-                || (!enabled.isEmpty && readyCount == 0)
-                || updateFailure != nil
-            return troubled ? .systemOrange : nil
+            return !enabled.isEmpty && readyCount == 0 ? .systemOrange : nil
         default:
             return nil
         }
@@ -227,9 +227,9 @@ final class Model: ObservableObject {
     var roleLine: String {
         switch phase {
         case .ready:
-            let version = dashboard.map { "v\($0.hub.version)" } ?? ""
-            if let node { return "Linked to \(node.hub) · \(version)" }
-            return "This Mac is the hub · \(version)"
+            let version = latestVersion == nil ? dashboard.map { " · v\($0.hub.version)" } ?? "" : ""
+            if let node { return "Linked to \(node.hub)\(version)" }
+            return "This Mac is the hub\(version)"
         case .hubUnreachable:
             return node.map { "Linked to \($0.hub)" } ?? "Linked to a hub"
         case .waiting:
