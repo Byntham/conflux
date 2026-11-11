@@ -131,7 +131,13 @@ impl Router {
                 st.billing_blocked.remove(&e.id);
             }
             if let Some(cds) = st.cooldowns.get_mut(&e.id) {
-                cds.retain(|_, c| !c.lifted_by(&snap, now));
+                cds.retain(|_, c| {
+                    let lifted = c.lifted_by(&snap, now);
+                    if lifted {
+                        tracing::info!(account = %e.id, scope = %c.scope, "usage shows room again; cooldown lifted");
+                    }
+                    !lifted
+                });
             }
             if let Some(until) = Self::cooling(&st, &e.id, model, now) {
                 soonest = Some(soonest.map_or(until, |s| s.min(until)));
@@ -548,6 +554,8 @@ mod tests {
         usage.set(&a, snap(100, 10.0, 10.0));
         usage.set(&b, snap(100, 10.0, 10.0));
         assert!(router.billing_blocked(&a).is_none());
+        let without_b: HashSet<_> = [b.clone()].into();
+        assert_eq!(router.pick(&req, &without_b).unwrap().id, a);
         let left: Vec<_> = router.cooldowns(&b).into_iter().map(|c| c.scope).collect();
         assert_eq!(left, vec![fable]);
         let without_a: HashSet<_> = [a.clone()].into();
