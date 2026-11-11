@@ -116,6 +116,8 @@ A system without a prebuilt binary cannot update this way. Run `cargo install` o
 
 If the hub is ever down, run `conflux off` on the machine you're using and restart your tool. If you've never logged in to Claude Code or Codex on that machine, log in directly first.
 
+[docs/commands.md](docs/commands.md) covers every command and option. `conflux help <command>` prints the same in the terminal.
+
 ## Move the hub to another machine
 
 The new machine needs conflux installed. Any machine you've already added is ready. Your logins move with the hub, and your other machines follow on their own.
@@ -139,6 +141,13 @@ The first command prints the second one for you. Wait a minute before the third,
 ## Security
 
 Anyone who can reach the hub can use and manage your accounts and read synced transcripts. Account tokens are stored unencrypted in files on the hub, so protect that machine like you would a password manager. `conflux leave` keeps them, so run `conflux remove <account>` first if you're done with a hub. After a hub move, the old hub keeps a copy in a `retired-*` folder under `~/.local/share/conflux`. Delete it once the move has worked.
+
+## More docs
+
+- [Commands](docs/commands.md) explains every command and option.
+- [Configuration](docs/configuration.md) lists the files conflux keeps, `config.toml`, and environment variables.
+- [Troubleshooting](docs/troubleshooting.md) covers logs, the background service, and common problems.
+- [Architecture](docs/architecture.md) gives contributors a map of the code.
 
 ## License
 

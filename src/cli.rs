@@ -14,7 +14,6 @@ use crate::{app, hubmove, link, node, service, supervisor};
 #[command(
     name = "conflux",
     version,
-    about = "Pool Claude Code and Codex subscriptions on one hub",
     after_help = "Account commands work from any machine. A node passes them to the hub.\n\
                   Run `conflux help <command>` for details.\n\
                   Docs: https://github.com/Byntham/conflux/blob/main/docs/commands.md"
