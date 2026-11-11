@@ -116,8 +116,6 @@ A system without a prebuilt binary cannot update this way. Run `cargo install` o
 
 If the hub is ever down, run `conflux off` on the machine you're using and restart your tool. If you've never logged in to Claude Code or Codex on that machine, log in directly first.
 
-[docs/commands.md](docs/commands.md) covers every command and option. `conflux help <command>` prints the same in the terminal.
-
 ## Move the hub to another machine
 
 The new machine needs conflux installed. Any machine you've already added is ready. Your logins move with the hub, and your other machines follow on their own.

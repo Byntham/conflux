@@ -75,7 +75,7 @@ Codex WebSocket sessions arrive on the same paths with an `Upgrade` header and g
 
 `src/router.rs` picks an account for each request. It skips accounts that are disabled, need a new login, are cooling down, or are billing-blocked.
 
-- Stickiness. A session id stays pinned to its account for an hour. A Codex `previous_response_id` goes to the account that created that response.
+- Stickiness. A session id stays pinned to its account for an hour after its last request. A Codex `previous_response_id` goes to the account that created that response.
 - Ranking. Without a pin, the router prefers accounts with fresh usage data, then the account whose longest usage window resets soonest.
 - Overage. The router picks an account that has used up its usage only if overage is on for it and no other account is free.
 

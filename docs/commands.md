@@ -1,6 +1,6 @@
 # Commands
 
-Every `conflux` command, what it does, and where to run it. `conflux help <command>` prints the same information in the terminal.
+Every `conflux` command, what it does, and where to run it. `conflux help <command>` prints a short version in the terminal.
 
 Some commands change only the machine you run them on. The account commands send their request to the conflux service on this machine. On a node, that service passes the request on to the hub. So you can manage accounts from any machine, as long as conflux runs there and the hub is up.
 
@@ -100,7 +100,7 @@ Installs and starts the background service, then waits for a hub to link this ma
 
 To link a waiting machine, open Machines on the hub's dashboard, click "Find machines", and click "Link" next to it. The machine accepts a link only from a machine owned by the same Tailscale user. When linked, it edits Claude Code's and Codex's settings the same way `join` does.
 
-If this machine is already a hub or a node, `wait` changes nothing and only restarts the service.
+If this machine has already joined a hub or holds accounts, `wait` changes nothing. It only restarts the service if one is installed.
 
 ### `conflux off`
 
@@ -130,7 +130,7 @@ The hub keeps the copies in `~/conflux/transcripts`. The dashboard's Threads tab
 
 ### `conflux serve`
 
-Runs conflux in the foreground until you stop it. The background service runs this command for you. Run it yourself only after `conflux join --no-service`, or to watch logs while you debug. Set `CONFLUX_LOG` to change the log level. See [Configuration](configuration.md).
+Runs conflux in the foreground until you stop it. The background service runs this command for you. Run it yourself after `conflux join <hub> --no-service`, or to watch logs while you debug. Set `CONFLUX_LOG` to change the log level. See [Configuration](configuration.md).
 
 ## Every machine
 

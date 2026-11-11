@@ -103,8 +103,8 @@ pub enum Command {
         about = "Start conflux and wait to be linked from a hub's dashboard",
         long_about = "Install conflux as a background service and wait to be linked to a hub.\n\n\
                       On the hub's dashboard, open Machines and click Find machines, then Link. \
-                      If this machine is already a hub or a node, wait restarts the service and \
-                      changes nothing else."
+                      If this machine has already joined a hub or holds accounts, wait changes \
+                      nothing. It only restarts the service if one is installed."
     )]
     Wait,
     #[command(
@@ -125,7 +125,7 @@ pub enum Command {
     )]
     Leave,
     #[command(
-        about = "Update every online machine, or the ones you name, to the latest release",
+        about = "Update machines to the latest release",
         long_about = "Update every online machine, or the ones you name, to the latest release.\n\n\
                       Each machine starts the new version next to the old one. The new version \
                       takes new requests, and the old one exits once its requests finish. The \
@@ -152,8 +152,9 @@ pub enum Command {
     #[command(
         about = "Run conflux in the foreground",
         long_about = "Run conflux in the foreground.\n\n\
-                      The background service runs this command. Use it yourself only after \
-                      `conflux join --no-service`. Set CONFLUX_LOG to change the log level."
+                      The background service runs this command. Run it yourself after \
+                      `conflux join <hub> --no-service`, or to watch logs while you debug. Set \
+                      CONFLUX_LOG to change the log level."
     )]
     Serve,
     #[command(hide = true)]
