@@ -575,17 +575,18 @@ mod tests {
         };
         assert!(router.pick(&fable_req, &without_a).is_err());
         let with_models = |fable_pct: f64| {
-            let mut s = snap(100, 10.0, 10.0);
-            for (name, pct) in [("Opus", 0.0), ("Fable", fable_pct)] {
-                s.windows.push(Window {
-                    key: format!("weekly:{name}"),
-                    used_pct: pct,
-                    resets_at: Some(Utc::now() + chrono::Duration::hours(100)),
-                    duration_secs: Some(7 * 86400),
-                    model_scope: Some(name.into()),
-                });
-            }
-            s
+            let scoped = |name: &str, percent: f64| {
+                serde_json::json!({"kind": "weekly_scoped", "percent": percent,
+                    "scope": {"model": {"display_name": name}}})
+            };
+            crate::usage::parse_claude_usage(
+                &serde_json::json!({
+                    "five_hour": {"utilization": 10.0},
+                    "seven_day": {"utilization": 10.0},
+                    "limits": [scoped("Opus", 0.0), scoped("Fable", fable_pct)],
+                }),
+                Utc::now(),
+            )
         };
         let mut polled_before_the_cap = with_models(0.0);
         polled_before_the_cap.polled_at = Some(Utc::now() - chrono::Duration::hours(1));
