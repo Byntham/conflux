@@ -552,6 +552,11 @@ mod tests {
         assert_eq!(left, vec![fable]);
         let without_a: HashSet<_> = [a.clone()].into();
         assert_eq!(router.pick(&req, &without_a).unwrap().id, b);
+        let fable_req = RouteRequest {
+            model: Some("claude-fable-5-1".into()),
+            ..route(Provider::Claude)
+        };
+        assert!(router.pick(&fable_req, &without_a).is_err());
     }
 
     #[test]
