@@ -62,10 +62,18 @@ jobs:
           bin=target/${{ matrix.target }}/release/conflux
           [ -f "$bin.exe" ] && bin="$bin.exe"
           cp "$bin" "${{ matrix.asset }}"
+      - if: matrix.target == 'aarch64-apple-darwin'
+        run: macos/build-app.sh "${{ matrix.asset }}" target/app
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
           path: ${{ matrix.asset }}
+          if-no-files-found: error
+      - if: matrix.target == 'aarch64-apple-darwin'
+        uses: actions/upload-artifact@v4
+        with:
+          name: conflux-darwin-aarch64-app.zip
+          path: target/app/conflux-darwin-aarch64-app.zip
           if-no-files-found: error
 
   publish:

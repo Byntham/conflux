@@ -29,3 +29,5 @@ jobs:
         run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
+      - if: matrix.os == 'macos-latest'
+        run: macos/build-app.sh target/debug/conflux target/app
