@@ -247,7 +247,7 @@ impl Updater {
         let handed_over = async {
             let successor = lifecycle.spawn_successor(exe).await?;
             let (state, later) = host.pause().await;
-            let result = successor.hand_over(&state, later).await;
+            let result = successor.hand_over(&state, later, lifecycle.in_flight()).await;
             if result.is_err() {
                 host.resume().await;
             }

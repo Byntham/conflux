@@ -189,7 +189,10 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
     let usual = usual["token"].as_str().unwrap().to_string();
     let owner = if usual == "at-c" { "at-d" } else { "at-c" };
     h.reply(&usual, Reply::Json(429, vec![("retry-after", "1".into())], "{}".into()));
-    let event = |kind: &str| format!("data: {}\n\n", json!({"type": kind, "response": {"id": "resp_late"}}));
+    let event = |kind: &str| {
+        let response = json!({"id": "resp_late", "usage": {"input_tokens": 0, "output_tokens": 77}});
+        format!("data: {}\n\n", json!({"type": kind, "response": response}))
+    };
     h.reply(
         owner,
         Reply::Delayed(
@@ -251,6 +254,15 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
         continued["token"], owner,
         "the new hub knows which account owns a response that began on the old hub"
     );
+    eventually(
+        "the new hub to list the tokens of a request that ended on the old hub",
+        async || {
+            let d: Value = reqwest::get(&dashboard).await.ok()?.json().await.ok()?;
+            let requests = d["requests"].as_array()?;
+            requests.iter().any(|r| r["usage"]["output"] == 77).then_some(())
+        },
+    )
+    .await;
     let still_listed = away().await.expect("the new hub still lists the offline node");
     assert_eq!(still_listed["online"], false);
     assert_eq!(still_listed["outdated"], true);

@@ -218,16 +218,21 @@ impl App {
     }
 
     fn export_state(&self) -> (Value, mpsc::UnboundedReceiver<Value>) {
-        let (router, later_owners) = self.router.export();
+        let (successor, later) = mpsc::unbounded_channel();
         let state = json!({
-            "router": router,
+            "router": self.router.export(successor.clone()),
             "usage": self.usage.export(),
-            "requests": self.requests.export(),
+            "requests": self.requests.export(successor),
             "machines": self.machines.export(),
             "latest": self.updater.latest(),
             "tailnet": *self.tailnet.read().unwrap(),
         });
-        (state, later_owners)
+        (state, later)
+    }
+
+    fn import_later(&self, change: &Value) {
+        self.router.import_later_owner(&change["owner"]);
+        self.requests.import_later(&change["request"]);
     }
 
     fn import_state(&self, state: &Value) {
@@ -381,8 +386,8 @@ pub async fn serve(cfg: Config, paths: Paths, ep: Endpoints) -> Result<()> {
     ]);
     tracing::info!(%addr, accounts = app.store.all().len(), "conflux hub listening");
     if let Some(takeover) = takeover {
-        let router = app.router.clone();
-        takeover.ready(move |owner| router.import_later_owner(&owner)).await?;
+        let app = app.clone();
+        takeover.ready(move |change| app.import_later(&change)).await?;
     }
     update::remove_old_binaries(&exe);
     lifecycle.drain_started().await;

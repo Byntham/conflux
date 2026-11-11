@@ -52,7 +52,7 @@ struct State {
     billing_blocked: HashMap<String, BillingBlock>,
     response_owner: HashMap<String, (String, DateTime<Utc>)>,
     #[serde(skip)]
-    later_owners: Option<mpsc::UnboundedSender<Value>>,
+    successor: Option<mpsc::UnboundedSender<Value>>,
 }
 
 pub struct Router {
@@ -189,11 +189,10 @@ impl Router {
         Ok(chosen)
     }
 
-    pub fn export(&self) -> (Value, mpsc::UnboundedReceiver<Value>) {
-        let (later_owners, later) = mpsc::unbounded_channel();
+    pub fn export(&self, successor: mpsc::UnboundedSender<Value>) -> Value {
         let mut st = self.state.lock().unwrap();
-        st.later_owners = Some(later_owners);
-        (serde_json::to_value(&*st).unwrap_or_default(), later)
+        st.successor = Some(successor);
+        serde_json::to_value(&*st).unwrap_or_default()
     }
 
     pub fn import_later_owner(&self, owner: &Value) {
@@ -238,8 +237,8 @@ impl Router {
         let mut st = self.state.lock().unwrap();
         st.response_owner
             .insert(response_id.to_string(), (account.to_string(), Utc::now()));
-        if let Some(successor) = &st.later_owners {
-            let _ = successor.send(json!([response_id, account]));
+        if let Some(successor) = &st.successor {
+            let _ = successor.send(json!({ "owner": [response_id, account] }));
         }
     }
 

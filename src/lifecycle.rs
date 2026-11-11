@@ -16,6 +16,7 @@ const HANDOFF_ENV: &str = "CONFLUX_HANDOFF";
 const HELLO_TIMEOUT: Duration = Duration::from_secs(30);
 const READY_TIMEOUT: Duration = Duration::from_secs(60);
 const DRAIN_LIMIT: Duration = Duration::from_secs(60 * 60);
+const DRAIN_POLL: Duration = Duration::from_millis(100);
 
 #[derive(Serialize, Deserialize)]
 struct Invitation {
@@ -76,7 +77,7 @@ impl Lifecycle {
                 tracing::warn!("requests were still running an hour after the handoff; stopping anyway");
                 return;
             }
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio::time::sleep(DRAIN_POLL).await;
         }
     }
 
@@ -194,7 +195,12 @@ pub struct Successor {
 }
 
 impl Successor {
-    pub async fn hand_over(mut self, state: &Value, mut later: mpsc::UnboundedReceiver<Value>) -> Result<()> {
+    pub async fn hand_over(
+        mut self,
+        state: &Value,
+        mut later: mpsc::UnboundedReceiver<Value>,
+        in_flight: InFlight,
+    ) -> Result<()> {
         send(&mut self.link, state).await?;
         let reply = receive(&mut self.link, READY_TIMEOUT).await?;
         if reply["ready"] != true {
@@ -214,9 +220,11 @@ impl Successor {
         }
         let mut link = self.link;
         tokio::spawn(async move {
-            while let Some(message) = later.recv().await {
-                if send(&mut link, &message).await.is_err() {
-                    break;
+            loop {
+                match tokio::time::timeout(DRAIN_POLL, later.recv()).await {
+                    Ok(Some(message)) if send(&mut link, &message).await.is_ok() => {}
+                    Err(_) if Arc::strong_count(&in_flight) > 2 => {}
+                    _ => break,
                 }
             }
         });
