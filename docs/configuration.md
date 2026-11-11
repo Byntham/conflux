@@ -40,7 +40,7 @@ transcript_sync = false
 | --- | --- | --- |
 | `role` | `"hub"` | `"hub"`, `"node"`, or `"waiting"`. Use `conflux join` or `conflux wait` to change it. |
 | `hub` | none | The hub's tailnet name, on a node. A node updates it on its own after a hub move. |
-| `port` | `8317` | The port conflux listens on. A node expects the hub on the same port, so every machine must use the same value. |
+| `port` | `8317` | The port conflux listens on. A node expects the hub on the same port, so every machine must use the same value. After you change it, run `conflux on` on that machine so Claude Code and Codex use the new port, then restart their sessions. |
 | `claude_code_only` | `true` | When true, the hub refuses requests for Claude accounts that don't come from Claude Code. |
 | `transcript_sync` | `false` | Whether this machine copies its transcripts to the hub. Use `conflux sync` to change it. |
 

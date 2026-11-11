@@ -21,7 +21,7 @@ Lists every account in the pool:
 ```
 ACCOUNT              TYPE    EMAIL                            SHORT  LONG   STATUS
 claude-1a2b3c4d5e6f  claude  you@example.com                  12%    40%    ok
-codex-6f5e4d3c2b1a   codex   you@example.com                  -      -      cooling all until 2026-01-01T12:00:00Z
+codex-6f5e4d3c2b1a   codex   you@example.com                  -      -      cooling account until 2026-01-01T12:00:00Z
 ```
 
 SHORT and LONG are the percentage used in the shortest and longest usage windows, for example 5 hours and 7 days. A `-` means conflux has no usage data for that account yet.
@@ -31,7 +31,7 @@ STATUS is `ok`, or one or more of these:
 - `disabled`. You turned the account off with `conflux disable`.
 - `needs login (...)`. The token stopped working. Run `conflux login` for that provider again.
 - `billing blocked (...)`. The provider refused the account for a billing reason.
-- `cooling <scope> until <time>`. The account hit a limit, and conflux skips it until that time. The scope is `all` or one model.
+- `cooling <scope> until <time>`. The account hit a limit, and conflux skips it until that time. The scope is `account` for the whole account, or `model:<name>` for one model.
 - `overage allowed`. You turned on paid extra usage with `conflux overage`.
 
 On a machine that is waiting to be linked, `status` says so and tells you how to link it.
@@ -52,7 +52,7 @@ Asks the provider for the account's current usage, then prints it in the same ta
 
 ### `conflux disable <account>`, `conflux enable <account>`
 
-`disable` stops conflux from sending any request to the account, including requests from sessions that were using it. Its login and settings stay. `enable` lets conflux use it again.
+`disable` stops conflux from choosing the account for new requests, including requests from sessions that were using it. A Codex WebSocket that is already open on the account keeps going until it closes. Its login and settings stay. `enable` lets conflux use it again.
 
 ### `conflux overage <account> on|off`
 
@@ -142,7 +142,7 @@ Each machine downloads the release and starts it next to the running version. Th
 
 The command waits up to 5 minutes and prints each machine's result. A machine that is offline or already updating is skipped. If a machine fails, or is still updating after 5 minutes, the command exits with an error. Check the dashboard for details.
 
-A machine that installed conflux with `cargo install` can't update this way. Run `cargo install` on it again.
+A system without a prebuilt binary can't update this way. Run `cargo install` on it again.
 
 ## Moving the hub
 
@@ -164,11 +164,11 @@ Run it on the new machine. It asks the old hub to stop taking requests and send 
 
 When it finishes, your nodes switch to the new hub on their own. Wait about a minute, with the old hub still running, then run `conflux join <new-hub>` on the old machine. A node that was off during the move can run `conflux join <new-hub>` itself.
 
-If the move stops partway, run `conflux hub take-over <old-hub>` again without `--code` to finish it.
+If the move stops after the accounts reached the new machine, run `conflux hub take-over <old-hub>` again without `--code` to finish it. If it stops before that, `take-over` asks for a code. Run `conflux hub resume` on the old hub, then start again with a new code.
 
 Options:
 
-- `--code <code>` is the code from `conflux hub move-code`. You need it to start a move, but not to finish one.
+- `--code <code>` is the code from `conflux hub move-code`. You need it to start a move, but not to finish one that already has the accounts.
 - `--force` lets a machine with a battery become the hub. Without it, `take-over` refuses on a laptop, because a laptop may leave home and change IP address.
 
 `take-over` refuses if this machine already holds accounts.

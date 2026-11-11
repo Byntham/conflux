@@ -54,4 +54,4 @@ Joining another hub would strand this machine's accounts. To move them, run [`co
 
 ### A hub move got stuck
 
-On the old hub, run `conflux hub resume` to put it back in service. Or run `conflux hub take-over <old-hub>` again on the new machine to finish the move.
+If the new machine already has the accounts, run `conflux hub take-over <old-hub>` there again to finish the move. Otherwise, run `conflux hub resume` on the old hub to put it back in service, then start over with a new code.

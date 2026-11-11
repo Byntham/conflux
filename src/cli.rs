@@ -56,8 +56,8 @@ pub enum Command {
         account: String,
     },
     #[command(
-        about = "Stop sending requests to an account. Its login stays",
-        long_about = "Stop sending requests to an account. Its login stays, and `conflux enable` brings it back."
+        about = "Stop using an account for new requests. Its login stays",
+        long_about = "Stop using an account for new requests. Its login stays, and `conflux enable` brings it back."
     )]
     Disable {
         #[arg(help = "Account ID, as shown by `conflux status`")]
@@ -172,8 +172,8 @@ pub enum HubAction {
     #[command(
         about = "Make this machine the hub, taking the accounts from the old hub",
         long_about = "Make this machine the hub, taking the accounts from the old hub.\n\n\
-                      Run it on the new machine. If a move stopped partway, run it again without \
-                      --code to finish it."
+                      Run it on the new machine. If a move stopped after the accounts reached \
+                      this machine, run it again without --code to finish it."
     )]
     TakeOver {
         #[arg(help = "The current hub's tailnet name")]

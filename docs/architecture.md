@@ -67,7 +67,7 @@ On the hub, `src/proxy.rs` handles `/v1/*` and `/backend-api/*`.
 - `/v1/messages` is Claude. `/backend-api/codex/*` is Codex. Other `/v1/*` paths are Claude when the user agent is Claude Code, and Codex otherwise.
 - By default, the hub only serves Claude requests that come from Claude Code. The `claude_code_only` setting controls this.
 - The hub reads the model and a session id from the request. It asks the router for an account, removes the client's credentials, and adds the account's OAuth token.
-- It streams the response back and scans it for token usage. The in-memory request log (`src/requests.rs`) records each request and each rejected attempt.
+- It streams the response back and scans it for token usage. The in-memory request log (`src/requests.rs`) keeps recent requests for the dashboard. It does not record every failure.
 
 Codex WebSocket sessions arrive on the same paths with an `Upgrade` header and go to `src/ws.rs`. The hub reads the first client frame to get the model, session, and `previous_response_id`. It then opens the upstream socket with the chosen account and relays frames both ways. Claude does not use WebSockets.
 
