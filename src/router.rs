@@ -12,9 +12,10 @@ use crate::usage::{Snapshot, Usage};
 const PIN_TTL: chrono::Duration = chrono::Duration::hours(1);
 const MAX_WINDOW: chrono::Duration = chrono::Duration::hours(7 * 24 + 1);
 const ACCOUNT_SCOPE: &str = "account";
+const MODEL_SCOPE: &str = "model:";
 
 pub fn model_scope(model: &str) -> String {
-    format!("model:{model}")
+    format!("{MODEL_SCOPE}{model}")
 }
 
 #[derive(Clone, Debug)]
@@ -36,7 +37,11 @@ pub struct Cooldown {
 
 impl Cooldown {
     fn lifted_by(&self, snap: &Snapshot, now: DateTime<Utc>) -> bool {
-        self.scope == ACCOUNT_SCOPE && has_room_since(snap, self.at, now)
+        let scope_has_room = match self.scope.strip_prefix(MODEL_SCOPE) {
+            Some(model) => snap.model_window(model).is_some_and(|w| w.used_pct < 100.0),
+            None => self.scope == ACCOUNT_SCOPE,
+        };
+        scope_has_room && has_room_since(snap, self.at, now)
     }
 }
 
@@ -565,6 +570,27 @@ mod tests {
             ..route(Provider::Claude)
         };
         assert!(router.pick(&fable_req, &without_a).is_err());
+        let with_models = |fable_pct: f64| {
+            let mut s = snap(100, 10.0, 10.0);
+            for (name, pct) in [("Opus", 0.0), ("Fable", fable_pct)] {
+                s.windows.push(Window {
+                    key: format!("weekly:{name}"),
+                    used_pct: pct,
+                    resets_at: Some(Utc::now() + chrono::Duration::hours(100)),
+                    duration_secs: Some(7 * 86400),
+                    model_scope: Some(name.into()),
+                });
+            }
+            s
+        };
+        usage.set(&b, with_models(100.0));
+        assert!(
+            router.pick(&fable_req, &without_a).is_err(),
+            "another model's window refilling says nothing about Fable"
+        );
+        usage.set(&b, with_models(0.0));
+        assert_eq!(router.pick(&fable_req, &without_a).unwrap().id, b);
+        assert!(router.cooldowns(&b).is_empty());
     }
 
     #[test]

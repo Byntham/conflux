@@ -45,6 +45,26 @@ impl Snapshot {
         self.windows.iter().filter(|w| w.model_scope.is_none())
     }
 
+    pub fn model_window(&self, model: &str) -> Option<&Window> {
+        let words = |s: &str| -> Vec<String> {
+            s.to_lowercase()
+                .split(|c: char| !c.is_alphanumeric())
+                .filter(|w| !w.is_empty())
+                .map(String::from)
+                .collect()
+        };
+        let model = words(model);
+        self.windows
+            .iter()
+            .filter(|w| {
+                w.model_scope
+                    .as_deref()
+                    .map(words)
+                    .is_some_and(|name| !name.is_empty() && name.iter().all(|n| model.contains(n)))
+            })
+            .max_by(|a, b| a.used_pct.total_cmp(&b.used_pct))
+    }
+
     pub fn longest(&self) -> Option<&Window> {
         self.shared_windows().max_by_key(|w| w.duration_secs.unwrap_or(0))
     }
