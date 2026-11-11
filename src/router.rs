@@ -132,9 +132,9 @@ impl Router {
             }
             if let Some(cds) = st.cooldowns.get_mut(&e.id) {
                 cds.retain(|_, c| {
-                    let lifted = c.lifted_by(&snap, now);
+                    let lifted = c.until > now && c.lifted_by(&snap, now);
                     if lifted {
-                        tracing::info!(account = %e.id, scope = %c.scope, "usage shows room again; cooldown lifted");
+                        tracing::info!(account = %e.id, scope = %c.scope, reason = %c.reason, until = %c.until, "usage shows room again; cooldown lifted");
                     }
                     !lifted
                 });
