@@ -1,10 +1,12 @@
-use std::collections::VecDeque;
+use std::borrow::Cow;
+use std::collections::{HashMap, VecDeque};
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+use tokio::sync::mpsc;
 
 use crate::accounts::Provider;
 use crate::router::Router;
@@ -13,7 +15,7 @@ pub const LOG_CAPACITY: usize = 500;
 const MAX_LINE: usize = 16 * 1024 * 1024;
 const MAX_WHOLE_BODY: usize = 8 * 1024 * 1024;
 
-#[derive(Clone, Copy, Debug, Default, Serialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct TokenUsage {
     pub input: u64,
     pub cache_read: u64,
@@ -21,7 +23,7 @@ pub struct TokenUsage {
     pub output: u64,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RequestRecord {
     pub id: u64,
     pub at: DateTime<Utc>,
@@ -31,16 +33,50 @@ pub struct RequestRecord {
     pub email: Option<String>,
     pub model: Option<String>,
     pub session: Option<String>,
-    pub transport: &'static str,
+    pub transport: Cow<'static, str>,
     pub status: u16,
     pub latency_ms: u64,
     pub usage: TokenUsage,
 }
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 struct LogState {
     next_id: u64,
     records: VecDeque<RequestRecord>,
+    #[serde(skip)]
+    carried_over: u64,
+    #[serde(skip)]
+    ids_from_predecessor: HashMap<u64, u64>,
+    #[serde(skip)]
+    successor: Option<mpsc::UnboundedSender<Value>>,
+}
+
+impl LogState {
+    fn push(&mut self, mut r: RequestRecord) -> u64 {
+        self.next_id += 1;
+        r.id = self.next_id;
+        self.records.push_back(r);
+        while self.records.len() > LOG_CAPACITY {
+            self.records.pop_front();
+        }
+        self.tell_successor(self.next_id);
+        self.next_id
+    }
+
+    fn change(&mut self, id: u64, change: impl FnOnce(&mut RequestRecord)) {
+        if let Some(r) = self.records.iter_mut().rev().find(|r| r.id == id) {
+            change(r);
+            self.tell_successor(id);
+        }
+    }
+
+    fn tell_successor(&self, id: u64) {
+        if let Some(successor) = &self.successor
+            && let Some(r) = self.records.iter().rev().find(|r| r.id == id)
+        {
+            let _ = successor.send(json!({ "request": r }));
+        }
+    }
 }
 
 #[derive(Default)]
@@ -49,29 +85,51 @@ pub struct RequestLog {
 }
 
 impl RequestLog {
-    pub fn add(&self, mut r: RequestRecord) -> u64 {
-        let mut st = self.state.lock().unwrap();
-        st.next_id += 1;
-        r.id = st.next_id;
-        let id = r.id;
-        st.records.push_back(r);
-        while st.records.len() > LOG_CAPACITY {
-            st.records.pop_front();
-        }
-        id
+    pub fn add(&self, r: RequestRecord) -> u64 {
+        self.state.lock().unwrap().push(r)
     }
 
     pub fn set_usage(&self, id: u64, usage: TokenUsage) {
-        let mut st = self.state.lock().unwrap();
-        if let Some(r) = st.records.iter_mut().rev().find(|r| r.id == id) {
-            r.usage = usage;
-        }
+        self.state.lock().unwrap().change(id, |r| r.usage = usage);
     }
 
     pub fn set_transport(&self, id: u64, transport: &'static str) {
+        self.state
+            .lock()
+            .unwrap()
+            .change(id, |r| r.transport = transport.into());
+    }
+
+    pub fn export(&self, successor: mpsc::UnboundedSender<Value>) -> Value {
         let mut st = self.state.lock().unwrap();
-        if let Some(r) = st.records.iter_mut().rev().find(|r| r.id == id) {
-            r.transport = transport;
+        st.successor = Some(successor);
+        serde_json::to_value(&*st).unwrap_or_default()
+    }
+
+    pub fn import(&self, state: &Value) {
+        if let Ok(mut state) = serde_json::from_value::<LogState>(state.clone()) {
+            state.carried_over = state.next_id;
+            *self.state.lock().unwrap() = state;
+        }
+    }
+
+    pub fn import_later(&self, record: &Value) {
+        let Ok(later) = serde_json::from_value::<RequestRecord>(record.clone()) else {
+            return;
+        };
+        let mut st = self.state.lock().unwrap();
+        let known = if later.id <= st.carried_over {
+            Some(later.id)
+        } else {
+            st.ids_from_predecessor.get(&later.id).copied()
+        };
+        match known {
+            Some(id) => st.change(id, |r| *r = RequestRecord { id, ..later }),
+            None => {
+                let theirs = later.id;
+                let ours = st.push(later);
+                st.ids_from_predecessor.insert(theirs, ours);
+            }
         }
     }
 
@@ -403,7 +461,7 @@ mod tests {
             email: None,
             model: None,
             session: None,
-            transport: "http",
+            transport: "http".into(),
             status: 200,
             latency_ms: 1,
             usage: TokenUsage::default(),

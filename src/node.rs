@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use axum::Json;
 use axum::body::Body;
 use axum::extract::ws::{Message as ClientMsg, WebSocket, WebSocketUpgrade};
@@ -10,24 +10,31 @@ use axum::extract::{FromRequestParts, Request, State};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
-use chrono::{DateTime, Utc};
 use futures_util::{SinkExt, StreamExt};
 use http::{HeaderMap, HeaderValue, StatusCode};
 use serde::Serialize;
 use serde_json::{Value, json};
-use tokio_tungstenite::tungstenite::{self, client::IntoClientRequest};
+use tokio::sync::mpsc;
+use tokio_tungstenite::tungstenite::{self, Message, client::IntoClientRequest};
 
 use crate::access::{self, Verdict};
-use crate::config::{Config, Paths};
+use crate::config::{Config, Endpoints, Paths};
+use crate::lifecycle::{InFlight, Lifecycle};
 use crate::transcript_sync::TranscriptSync;
+use crate::update::{self, Updater};
+use crate::ws::TurnTracker;
 use crate::{proxy, tailnet, ws};
 
 pub const NODE_HEADER: &str = "x-conflux-node";
-const HEARTBEAT_EVERY: Duration = Duration::from_secs(30);
+const REPORT_EVERY: Duration = Duration::from_secs(20);
+const HUB_SILENCE_LIMIT: Duration = Duration::from_secs(60);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const RECONNECT_MIN: Duration = Duration::from_millis(500);
+const RECONNECT_MAX: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Debug, Default, Serialize)]
-pub struct HeartbeatStatus {
-    pub last_ok: Option<DateTime<Utc>>,
+pub struct HubLink {
+    pub connected: bool,
     pub last_error: Option<String>,
 }
 
@@ -39,7 +46,9 @@ pub struct Node {
     http: reqwest::Client,
     hostname: String,
     allowed_hosts: Vec<String>,
-    heartbeat: Mutex<HeartbeatStatus>,
+    hub_link: Mutex<HubLink>,
+    pub lifecycle: Arc<Lifecycle>,
+    pub updater: Arc<Updater>,
 }
 
 const HOP_BY_HOP: &[&str] = &[
@@ -74,19 +83,21 @@ fn copy_headers(src: &HeaderMap, skip: &[&[&str]]) -> HeaderMap {
 
 impl Node {
     pub fn new(hub: String, port: u16, paths: Paths) -> Arc<Self> {
-        Self::with_hub_port(hub, port, port, paths)
+        Self::named(tailnet::hostname(), hub, port, port, paths)
     }
 
-    pub fn with_hub_port(hub: String, hub_port: u16, port: u16, paths: Paths) -> Arc<Self> {
+    pub fn named(hostname: String, hub: String, hub_port: u16, port: u16, paths: Paths) -> Arc<Self> {
         Arc::new(Self {
             port,
             hub_port,
             hub: RwLock::new(hub),
             paths,
             http: crate::app::proxy_client(),
-            hostname: tailnet::hostname(),
+            hostname,
             allowed_hosts: access::local_hosts(port),
-            heartbeat: Mutex::default(),
+            hub_link: Mutex::default(),
+            lifecycle: Arc::default(),
+            updater: Updater::new(&Endpoints::from_env().releases),
         })
     }
 
@@ -123,25 +134,14 @@ impl Node {
             .with_state(self.clone())
     }
 
-    pub async fn heartbeat_once(&self) -> Result<Option<String>> {
-        let resp = self
-            .http
-            .post(format!("{}/conflux/heartbeat", self.hub_base("http")))
-            .header("content-type", "application/json")
-            .body(
-                json!({
-                    "hostname": self.hostname,
-                    "version": env!("CARGO_PKG_VERSION"),
-                    "role": "node",
-                    "transcript_sync": Config::load(&self.paths).map(|c| c.transcript_sync).unwrap_or(false),
-                })
-                .to_string(),
-            )
-            .timeout(Duration::from_secs(10))
-            .send()
-            .await?;
-        let v: Value = resp.error_for_status()?.json().await?;
-        Ok(v["hub"].as_str().map(str::to_string))
+    fn report(&self) -> Message {
+        let report = json!({
+            "hostname": self.hostname,
+            "version": update::CURRENT,
+            "transcript_sync": Config::load(&self.paths).map(|c| c.transcript_sync).unwrap_or(false),
+            "update": self.updater.status(),
+        });
+        Message::Text(report.to_string().into())
     }
 
     pub async fn follow_redirect(&self, new_hub: &str) -> Result<bool> {
@@ -160,27 +160,99 @@ impl Node {
         Ok(true)
     }
 
-    pub async fn run_heartbeat(self: Arc<Self>) {
-        loop {
-            let result = self.heartbeat_once().await;
-            let mut status = HeartbeatStatus::default();
-            match result {
-                Ok(redirect) => {
-                    status.last_ok = Some(Utc::now());
-                    if let Some(h) = redirect
-                        && let Err(e) = self.follow_redirect(&h).await
-                    {
-                        tracing::warn!("could not follow hub redirect: {e:#}");
-                    }
+    async fn obey(self: &Arc<Self>, command: &str) -> bool {
+        let command: Value = serde_json::from_str(command).unwrap_or(Value::Null);
+        match (
+            command["type"].as_str(),
+            command["hub"].as_str(),
+            command["version"].as_str(),
+        ) {
+            (Some("hub"), Some(hub), _) => match self.follow_redirect(hub).await {
+                Ok(moved) => moved,
+                Err(e) => {
+                    tracing::warn!("could not follow the hub to {hub}: {e:#}");
+                    false
                 }
-                Err(e) => status.last_error = Some(format!("{e:#}")),
+            },
+            (Some("update"), _, Some(version)) => {
+                let update = self
+                    .updater
+                    .clone()
+                    .run(version.to_string(), self.lifecycle.clone(), self.clone());
+                tokio::spawn(update);
+                false
             }
-            let prev_ok = self.heartbeat.lock().unwrap().last_ok;
-            status.last_ok = status.last_ok.or(prev_ok);
-            *self.heartbeat.lock().unwrap() = status;
-            tokio::time::sleep(HEARTBEAT_EVERY).await;
+            _ => false,
         }
     }
+
+    async fn control_session(self: &Arc<Self>) -> Result<()> {
+        let url = format!("{}/conflux/control", self.hub_base("ws"));
+        let (mut hub, _) = tokio::time::timeout(CONNECT_TIMEOUT, tokio_tungstenite::connect_async(url))
+            .await
+            .context("the hub did not answer")??;
+        hub.send(self.report()).await?;
+        *self.hub_link.lock().unwrap() = HubLink {
+            connected: true,
+            last_error: None,
+        };
+        let mut status = self.updater.watch_status();
+        let mut report_due = tokio::time::interval(REPORT_EVERY);
+        report_due.reset();
+        let quiet = tokio::time::sleep(HUB_SILENCE_LIMIT);
+        tokio::pin!(quiet);
+        loop {
+            tokio::select! {
+                () = &mut quiet => bail!("the hub went quiet"),
+                _ = report_due.tick() => {
+                    hub.send(self.report()).await?;
+                    hub.send(Message::Ping(Vec::new().into())).await?;
+                }
+                changed = status.changed() => {
+                    changed?;
+                    hub.send(self.report()).await?;
+                }
+                frame = hub.next() => match frame {
+                    Some(Ok(Message::Text(command))) => {
+                        quiet.as_mut().reset(tokio::time::Instant::now() + HUB_SILENCE_LIMIT);
+                        if self.obey(command.as_str()).await {
+                            return Ok(());
+                        }
+                    }
+                    Some(Ok(Message::Close(_))) | None => bail!("the hub closed the connection"),
+                    Some(Err(e)) => return Err(e.into()),
+                    Some(Ok(_)) => quiet.as_mut().reset(tokio::time::Instant::now() + HUB_SILENCE_LIMIT),
+                },
+            }
+        }
+    }
+
+    pub async fn run_control(self: Arc<Self>) {
+        let mut wait = RECONNECT_MIN;
+        loop {
+            let ended = self.control_session().await;
+            let was_connected = {
+                let mut link = self.hub_link.lock().unwrap();
+                if let Err(e) = ended {
+                    link.last_error = Some(format!("{e:#}"));
+                }
+                std::mem::take(&mut link.connected)
+            };
+            if was_connected {
+                wait = RECONNECT_MIN;
+            }
+            tokio::time::sleep(wait).await;
+            wait = (wait * 2).min(RECONNECT_MAX);
+        }
+    }
+}
+
+impl update::Handoff for Node {
+    async fn pause(&self) -> (Value, mpsc::UnboundedReceiver<Value>) {
+        (Value::Null, mpsc::unbounded_channel().1)
+    }
+
+    async fn resume(&self) {}
 }
 
 async fn guard(State(node): State<Arc<Node>>, req: Request, next: Next) -> Response {
@@ -200,8 +272,10 @@ async fn node_status(State(node): State<Arc<Node>>) -> Json<Value> {
         "hostname": node.hostname,
         "hub": node.hub(),
         "port": node.port,
-        "version": env!("CARGO_PKG_VERSION"),
-        "heartbeat": node.heartbeat.lock().unwrap().clone(),
+        "version": update::CURRENT,
+        "pid": std::process::id(),
+        "hub_link": node.hub_link.lock().unwrap().clone(),
+        "update": node.updater.status(),
     }))
 }
 
@@ -262,8 +336,10 @@ async fn forward_ws(node: Arc<Node>, mut parts: http::request::Parts, path_and_q
         }
     }
     req.headers_mut().insert(NODE_HEADER, node.node_header());
+    let in_flight = node.lifecycle.in_flight();
+    let drain = node.lifecycle.watch_drain();
     match tokio_tungstenite::connect_async(req).await {
-        Ok((upstream, _)) => upgrade.on_upgrade(move |client| pipe(client, upstream)),
+        Ok((upstream, _)) => upgrade.on_upgrade(move |client| pipe(client, upstream, drain, in_flight)),
         Err(tungstenite::Error::Http(resp)) => {
             let status = StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
             (status, resp.body().clone().unwrap_or_default()).into_response()
@@ -278,15 +354,20 @@ async fn forward_ws(node: Arc<Node>, mut parts: http::request::Parts, path_and_q
 async fn pipe(
     mut client: WebSocket,
     upstream: tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+    mut drain: tokio::sync::watch::Receiver<bool>,
+    _in_flight: InFlight,
 ) {
     let (mut up_tx, mut up_rx) = upstream.split();
+    let mut turns = TurnTracker::default();
     loop {
         tokio::select! {
+            biased;
             msg = client.recv() => {
                 let Some(Ok(msg)) = msg else {
                     let _ = up_tx.send(tungstenite::Message::Close(None)).await;
                     break;
                 };
+                turns.client_sent(&msg);
                 let closing = matches!(msg, ClientMsg::Close(_));
                 if up_tx.send(ws::to_upstream(msg)).await.is_err() || closing {
                     break;
@@ -297,11 +378,19 @@ async fn pipe(
                     let _ = client.send(ClientMsg::Close(None)).await;
                     break;
                 };
+                if let Message::Text(text) = &msg {
+                    turns.upstream_sent(text.as_str());
+                }
                 let closing = matches!(msg, tungstenite::Message::Close(_));
                 let Some(out) = ws::to_client(msg) else { continue };
                 if client.send(out).await.is_err() || closing {
                     break;
                 }
+            }
+            () = ws::stop_requested(&mut drain), if turns.idle() => {
+                let _ = client.send(ClientMsg::Close(None)).await;
+                let _ = up_tx.send(Message::Close(None)).await;
+                break;
             }
         }
     }
@@ -313,7 +402,9 @@ pub async fn serve(cfg: Config, paths: Paths) -> Result<()> {
         .clone()
         .context("this machine is a node but has no hub set; run `conflux join <hub>`")?;
     let node = Node::new(hub.clone(), cfg.port, paths);
-    tokio::spawn(node.clone().run_heartbeat());
+    let takeover = node.lifecycle.take_over().await?;
+    let exe = std::env::current_exe().context("find the conflux binary")?;
+    node.updater.replaces(exe.clone());
     let for_sync = node.clone();
     let sync = TranscriptSync::new(
         node.hostname.clone(),
@@ -321,12 +412,28 @@ pub async fn serve(cfg: Config, paths: Paths) -> Result<()> {
         &crate::setup::ClientPaths::from_env()?,
         Arc::new(move || for_sync.hub_base("http")),
     );
-    tokio::spawn(sync.run());
     let addr = SocketAddr::from(([127, 0, 0, 1], cfg.port));
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .with_context(|| format!("bind {addr}"))?;
+    let listener = node.lifecycle.listen(addr).with_context(|| format!("bind {addr}"))?;
     tracing::info!(%addr, hub, "conflux node listening");
-    axum::serve(listener, node.routes()).await?;
+    let in_flight = node.lifecycle.in_flight();
+    let stop = node.lifecycle.drain_started();
+    let routes = node.routes();
+    tokio::spawn(async move {
+        if let Err(e) = axum::serve(listener, routes).with_graceful_shutdown(stop).await {
+            tracing::error!("listener stopped: {e}");
+        }
+        drop(in_flight);
+    });
+    let background = [tokio::spawn(node.clone().run_control()), tokio::spawn(sync.run())];
+    if let Some(takeover) = takeover {
+        takeover.ready(|_| {}).await?;
+    }
+    update::remove_old_binaries(&exe);
+    node.lifecycle.drain_started().await;
+    tracing::info!("a newer conflux took over; finishing the requests already running");
+    for task in background {
+        task.abort();
+    }
+    node.lifecycle.drained().await;
     Ok(())
 }

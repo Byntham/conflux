@@ -2,7 +2,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+use tokio::sync::mpsc;
 
 use crate::accounts::{AccountEntry, Provider, Store};
 use crate::usage::{Snapshot, Usage};
@@ -23,13 +25,14 @@ pub struct RouteRequest {
     pub previous_response_id: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Cooldown {
     pub scope: String,
     pub until: DateTime<Utc>,
     pub reason: String,
 }
 
+#[derive(Serialize, Deserialize)]
 struct BillingBlock {
     reason: String,
     at: DateTime<Utc>,
@@ -41,12 +44,15 @@ impl BillingBlock {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
 struct State {
     cooldowns: HashMap<String, HashMap<String, Cooldown>>,
     pins: HashMap<String, (String, DateTime<Utc>)>,
     billing_blocked: HashMap<String, BillingBlock>,
     response_owner: HashMap<String, (String, DateTime<Utc>)>,
+    #[serde(skip)]
+    successor: Option<mpsc::UnboundedSender<Value>>,
 }
 
 pub struct Router {
@@ -183,6 +189,25 @@ impl Router {
         Ok(chosen)
     }
 
+    pub fn export(&self, successor: mpsc::UnboundedSender<Value>) -> Value {
+        let mut st = self.state.lock().unwrap();
+        st.successor = Some(successor);
+        serde_json::to_value(&*st).unwrap_or_default()
+    }
+
+    pub fn import_later_owner(&self, owner: &Value) {
+        if let Ok((response_id, account)) = serde_json::from_value::<(String, String)>(owner.clone()) {
+            self.record_response_owner(&response_id, &account);
+        }
+    }
+
+    pub fn import(&self, state: &Value) {
+        match serde_json::from_value(state.clone()) {
+            Ok(state) => *self.state.lock().unwrap() = state,
+            Err(e) => tracing::warn!("could not carry over routing state: {e}"),
+        }
+    }
+
     pub fn cool(&self, account: &str, scope: &str, until: DateTime<Utc>, reason: &str) {
         let now = Utc::now();
         let mut st = self.state.lock().unwrap();
@@ -209,11 +234,12 @@ impl Router {
     }
 
     pub fn record_response_owner(&self, response_id: &str, account: &str) {
-        self.state
-            .lock()
-            .unwrap()
-            .response_owner
+        let mut st = self.state.lock().unwrap();
+        st.response_owner
             .insert(response_id.to_string(), (account.to_string(), Utc::now()));
+        if let Some(successor) = &st.successor {
+            let _ = successor.send(json!({ "owner": [response_id, account] }));
+        }
     }
 
     pub fn clear(&self, account: &str) {

@@ -11,7 +11,9 @@ use serde_json::{Value, json};
 
 use crate::accounts::{AccountEntry, RefreshState};
 use crate::app::App;
+use crate::hubstate::HubState;
 use crate::oauth::{self, DevicePoll, Pkce};
+use crate::update;
 
 const LOGIN_TTL: Duration = Duration::from_secs(15 * 60);
 
@@ -58,7 +60,7 @@ impl Logins {
     }
 }
 
-pub struct ApiError(StatusCode, String);
+pub struct ApiError(pub StatusCode, pub String);
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
@@ -126,7 +128,74 @@ pub async fn status(State(app): State<Arc<App>>) -> Json<Value> {
         .filter(|e| e.credentials().generation > 0)
         .map(|e| account_view(&app, e))
         .collect();
-    Json(json!({ "role": app.cfg.role, "version": env!("CARGO_PKG_VERSION"), "accounts": accounts }))
+    Json(json!({
+        "role": app.cfg.role,
+        "version": update::CURRENT,
+        "pid": std::process::id(),
+        "accounts": accounts,
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateRequest {
+    #[serde(default)]
+    machines: Option<Vec<String>>,
+}
+
+pub async fn update(State(app): State<Arc<App>>, Json(req): Json<UpdateRequest>) -> ApiResult<Json<Value>> {
+    let version = app.updater.check_latest().await.map_err(|e| {
+        ApiError(
+            StatusCode::BAD_GATEWAY,
+            format!("could not check for a new release: {e:#}"),
+        )
+    })?;
+    let mut started = Vec::new();
+    let mut skipped = Vec::new();
+    let mut hub_starts = false;
+    for m in app.fleet() {
+        if req.machines.as_ref().is_some_and(|only| !only.contains(&m.hostname)) {
+            continue;
+        }
+        let is_hub = m.role == "hub";
+        let obstacle = if !m.outdated {
+            Some("already up to date")
+        } else if !m.online {
+            Some("offline")
+        } else if m.update.as_ref().is_some_and(update::UpdateStatus::in_progress) {
+            Some("already updating")
+        } else if is_hub && app.hub_state.get() != HubState::Active {
+            Some("the hub is moving")
+        } else if !is_hub
+            && !app
+                .machines
+                .send(&m.hostname, json!({ "type": "update", "version": version }))
+        {
+            Some("offline")
+        } else {
+            None
+        };
+        match obstacle {
+            Some(reason) => skipped.push(json!({ "machine": m.hostname, "reason": reason })),
+            None => {
+                hub_starts |= is_hub;
+                started.push(m.hostname);
+            }
+        }
+    }
+    let known: Vec<String> = app.fleet().into_iter().map(|m| m.hostname).collect();
+    for name in req.machines.iter().flatten().filter(|name| !known.contains(name)) {
+        skipped.push(json!({ "machine": name, "reason": "unknown machine" }));
+    }
+    if hub_starts {
+        tokio::spawn(
+            app.updater
+                .clone()
+                .run(version.clone(), app.lifecycle.clone(), app.clone()),
+        );
+    }
+    Ok(Json(
+        json!({ "version": version, "started": started, "skipped": skipped }),
+    ))
 }
 
 pub async fn claude_start(State(app): State<Arc<App>>) -> Json<Value> {

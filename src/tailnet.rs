@@ -1,6 +1,8 @@
 use std::net::IpAddr;
 use std::process::Command;
+use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 const TAILSCALE_COMMANDS: &[&str] = &[
@@ -9,7 +11,67 @@ const TAILSCALE_COMMANDS: &[&str] = &[
     r"C:\Program Files\Tailscale\tailscale.exe",
 ];
 
-#[derive(Clone, Debug, Default, PartialEq)]
+const INSTALLABLE_OS: &[&str] = &["linux", "macOS", "windows"];
+
+pub type Tailscale = Arc<dyn Fn(&[&str]) -> Option<Value> + Send + Sync>;
+
+pub fn system_tailscale() -> Tailscale {
+    Arc::new(run_tailscale)
+}
+
+fn run_tailscale(args: &[&str]) -> Option<Value> {
+    let out = TAILSCALE_COMMANDS
+        .iter()
+        .find_map(|cmd| Command::new(cmd).args(args).output().ok())?;
+    if !out.status.success() {
+        return None;
+    }
+    serde_json::from_slice(&out.stdout).ok()
+}
+
+pub fn status(tailscale: &Tailscale) -> Option<Value> {
+    tailscale(&["status", "--json"])
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Peer {
+    pub machine: TailnetSelf,
+    pub os: String,
+}
+
+pub fn same_user_peers(status: &Value) -> Vec<Peer> {
+    let me = &status["Self"]["UserID"];
+    if me.is_null() {
+        return Vec::new();
+    }
+    status["Peer"]
+        .as_object()
+        .into_iter()
+        .flat_map(|peers| peers.values())
+        .filter(|p| p["UserID"] == *me && p["Online"] == true)
+        .filter_map(|p| {
+            let os = p["OS"].as_str().filter(|os| INSTALLABLE_OS.contains(os))?;
+            Some(Peer {
+                machine: TailnetSelf::from_peer(p),
+                os: os.to_string(),
+            })
+        })
+        .collect()
+}
+
+pub fn is_same_user(tailscale: &Tailscale, caller: IpAddr) -> bool {
+    let Some(status) = status(tailscale) else {
+        return false;
+    };
+    let Some(whois) = tailscale(&["whois", "--json", &caller.to_string()]) else {
+        return false;
+    };
+    let me = &status["Self"]["UserID"];
+    let tagged = whois["Node"]["Tags"].as_array().is_some_and(|t| !t.is_empty());
+    !me.is_null() && whois["UserProfile"]["ID"] == *me && !tagged
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TailnetSelf {
     pub ips: Vec<IpAddr>,
     pub host_name: Option<String>,
@@ -18,23 +80,16 @@ pub struct TailnetSelf {
 
 impl TailnetSelf {
     pub fn detect() -> Self {
-        let Some(out) = TAILSCALE_COMMANDS
-            .iter()
-            .find_map(|cmd| Command::new(cmd).args(["status", "--json"]).output().ok())
-        else {
-            return Self::default();
-        };
-        if !out.status.success() {
-            return Self::default();
-        }
-        let Ok(v) = serde_json::from_slice::<Value>(&out.stdout) else {
-            return Self::default();
-        };
-        Self::from_status(&v)
+        run_tailscale(&["status", "--json"])
+            .map(|v| Self::from_status(&v))
+            .unwrap_or_default()
     }
 
     pub fn from_status(v: &Value) -> Self {
-        let me = &v["Self"];
+        Self::from_peer(&v["Self"])
+    }
+
+    pub fn from_peer(me: &Value) -> Self {
         let ips = me["TailscaleIPs"]
             .as_array()
             .into_iter()

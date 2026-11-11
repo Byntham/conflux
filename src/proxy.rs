@@ -448,7 +448,7 @@ pub fn log_attempt(
         email: account.credentials().email,
         model: route.model.clone(),
         session: route.session.clone(),
-        transport: "http",
+        transport: "http".into(),
         status,
         latency_ms: started.elapsed().as_millis() as u64,
         usage: TokenUsage::default(),

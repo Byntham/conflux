@@ -5,15 +5,15 @@ use std::time::Duration;
 
 use chrono::{DateTime, TimeZone, Utc};
 use http::HeaderMap;
-use serde::Serialize;
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 
 use crate::accounts::{AccountEntry, Provider, Store};
 use crate::config::Endpoints;
 
 pub const STALE_AFTER: chrono::Duration = chrono::Duration::minutes(30);
 
-#[derive(Clone, Debug, Serialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Window {
     pub key: String,
     pub used_pct: f64,
@@ -22,7 +22,7 @@ pub struct Window {
     pub model_scope: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Snapshot {
     pub windows: Vec<Window>,
     pub overage_in_use: bool,
@@ -204,6 +204,19 @@ impl Usage {
             paused: AtomicBool::new(false),
             http,
             ep,
+        }
+    }
+
+    pub fn export(&self) -> Value {
+        json!({ "snaps": *self.snaps.read().unwrap(), "last_used": *self.last_used.read().unwrap() })
+    }
+
+    pub fn import(&self, state: &Value) {
+        if let Ok(snaps) = serde_json::from_value(state["snaps"].clone()) {
+            *self.snaps.write().unwrap() = snaps;
+        }
+        if let Ok(last_used) = serde_json::from_value(state["last_used"].clone()) {
+            *self.last_used.write().unwrap() = last_used;
         }
     }
 

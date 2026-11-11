@@ -28,6 +28,10 @@ pub fn is_proxy_path(path: &str) -> bool {
     path.starts_with("/v1/") || path.starts_with("/backend-api/")
 }
 
+fn is_machine_path(path: &str) -> bool {
+    is_proxy_path(path) || path == "/conflux/control" || path == "/conflux/link"
+}
+
 fn changes_state(method: &Method) -> bool {
     !matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS)
 }
@@ -47,12 +51,9 @@ pub fn check(allowed_hosts: &[String], method: &Method, path: &str, headers: &ht
         return Verdict::Deny(StatusCode::MISDIRECTED_REQUEST, "host not allowed");
     }
     let origin = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok());
-    if is_proxy_path(path) {
+    if is_machine_path(path) {
         if origin.is_some() {
-            return Verdict::Deny(
-                StatusCode::FORBIDDEN,
-                "browser requests are not allowed on proxy routes",
-            );
+            return Verdict::Deny(StatusCode::FORBIDDEN, "browser requests are not allowed on this route");
         }
         return Verdict::Allow;
     }
@@ -131,6 +132,29 @@ mod tests {
         let cli = headers(&[("host", "127.0.0.1:8317"), ("content-type", "application/json")]);
         assert!(matches!(
             check(&allowed(), &Method::DELETE, "/conflux/api/x", &cli),
+            Verdict::Allow
+        ));
+    }
+
+    #[test]
+    fn a_web_page_cannot_open_the_control_connection() {
+        let page = headers(&[("host", "localhost:8317"), ("origin", "http://localhost:8317")]);
+        assert!(matches!(
+            check(&allowed(), &Method::GET, "/conflux/control", &page),
+            Verdict::Deny(..)
+        ));
+        let link = headers(&[
+            ("host", "localhost:8317"),
+            ("origin", "http://localhost:8317"),
+            ("content-type", "application/json"),
+        ]);
+        assert!(matches!(
+            check(&allowed(), &Method::POST, "/conflux/link", &link),
+            Verdict::Deny(..)
+        ));
+        let node = headers(&[("host", "localhost:8317")]);
+        assert!(matches!(
+            check(&allowed(), &Method::GET, "/conflux/control", &node),
             Verdict::Allow
         ));
     }

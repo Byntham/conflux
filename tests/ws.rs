@@ -168,6 +168,23 @@ async fn quota_error_mid_socket_is_forwarded_then_closed() {
 }
 
 #[tokio::test]
+async fn a_draining_hub_closes_the_socket_only_after_the_turn_ends() {
+    let h = Harness::new().await;
+    h.add(Provider::Codex, "c").await;
+    h.ws_script("at-c", WsScript::SlowTurn);
+    let mut ws = open(&h, &[]).await.unwrap();
+    ws.send(create("m")).await.unwrap();
+    assert_eq!(next_json(&mut ws).await.unwrap()["type"], "response.created");
+    h.app.lifecycle.begin_drain();
+    assert_eq!(
+        next_json(&mut ws).await.unwrap()["type"],
+        "response.completed",
+        "the running turn finishes"
+    );
+    assert!(next_json(&mut ws).await.is_none(), "the idle socket closes");
+}
+
+#[tokio::test]
 async fn no_accounts_sends_an_error_frame() {
     let h = Harness::new().await;
     let mut ws = open(&h, &[]).await.unwrap();

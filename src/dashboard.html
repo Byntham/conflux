@@ -54,7 +54,11 @@
   .nav a[aria-current="page"] { font-weight: 500; background: var(--selected); color: var(--fg); box-shadow: 0 0 0 1px var(--line); }
   .nav .count { margin-left: auto; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 400; }
   .nav .alert { margin-left: auto; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--bad-soft); color: var(--bad); font-size: 11.5px; font-weight: 600; text-align: center; }
-  .hub-card { margin-top: auto; padding: 8px 10px; }
+  .hub-card { display: flex; align-items: center; gap: 8px; margin-top: auto; padding: 8px 10px; }
+  .hub-card > div:first-child { flex: 1; min-width: 0; }
+  .update-all { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 28px; height: 28px; padding: 0; border-radius: 50%; border: 1.5px solid var(--fg); background: transparent; color: var(--fg); cursor: pointer; }
+  .update-all:hover { background: var(--hover); }
+  .update-all:disabled { opacity: .45; cursor: default; }
   .hub-state { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 500; }
   .dot.on + #hub-status { color: var(--fg-2); font-weight: 400; }
   .hub-meta { margin-top: 2px; font-size: 12px; color: var(--muted); }
@@ -92,6 +96,7 @@
   .btn.primary:hover { background: color-mix(in srgb, var(--primary) 86%, var(--bg)); }
   .btn:disabled { opacity: .45; cursor: default; }
   .btn.danger { background: var(--bad-fill); border-color: var(--bad-fill); color: #ffffff; }
+  .btn.small { height: 25px; padding: 0 9px; font-size: 12.5px; }
   .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 29px; height: 29px; border-radius: 7px; border: 0; background: transparent; color: var(--fg-2); }
   .icon-btn:hover { background: var(--hover); color: var(--fg); }
   .spin svg { animation: spin .8s linear infinite; }
@@ -218,6 +223,7 @@
   .offline .mono { color: var(--muted); }
   .status-cell { display: inline-flex; align-items: center; gap: 8px; }
   .status-cell .dot { box-shadow: none; }
+  .update-cell { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; }
   .badge { padding: 0 6px; border-radius: 5px; font-size: 11.5px; font-weight: 500; background: var(--hover); color: var(--fg-2); }
 
   .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -244,6 +250,11 @@
   .panel { padding: 15px 16px; min-width: 0; }
   .panel p { margin: 3px 0 0; font-size: 12.5px; color: var(--muted); }
   .panel .seg { margin-top: 12px; }
+  .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .found { display: grid; gap: 8px; margin: 12px 0 14px; }
+  .found-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; }
+  .found-row .found-text { flex: 1; min-width: 0; }
+  .found-row .code-block { flex-basis: 100%; margin-top: 4px; }
   .code-block { display: flex; align-items: flex-start; gap: 6px; margin-top: 9px; padding: 5px 5px 5px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--raised); font-family: var(--mono); font-size: 12.5px; line-height: 1.6; }
   .code-text { flex: 1; min-width: 0; padding: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
   .nb { white-space: nowrap; }
@@ -358,6 +369,7 @@
     .topbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 16px; background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 10; }
     .sidebar { position: fixed; top: auto; bottom: 0; left: 0; right: 0; z-index: 20; height: auto; flex-direction: row; padding: 5px 8px calc(5px + env(safe-area-inset-bottom)); border-right: 0; border-top: 1px solid var(--line); }
     .sidebar .brand, .sidebar .hub-card { display: none; }
+    .update-all { width: 34px; height: 34px; margin-left: 4px; }
     .nav { flex: 1; flex-direction: row; justify-content: space-around; }
     .nav a { position: relative; flex: 1; flex-direction: column; gap: 1px; padding: 5px 2px; font-size: 11.5px; }
     .nav a svg { width: 19px; height: 19px; }
@@ -452,6 +464,7 @@
   <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
   <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.500"/><path d="M12 11v5M12 8h.01"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
 </svg>
 <div class="app">
   <aside class="sidebar">
@@ -463,14 +476,17 @@
       <a href="#threads" data-view="threads"><svg class="i" aria-hidden="true"><use href="#i-threads"/></svg>Threads</a>
     </nav>
     <div class="hub-card">
-      <div class="hub-state"><span class="dot" id="hub-dot"></span><span id="hub-status">Connecting</span></div>
-      <div class="hub-meta truncate" id="hub-line">&nbsp;</div>
+      <div>
+        <div class="hub-state"><span class="dot" id="hub-dot"></span><span id="hub-status">Connecting</span></div>
+        <div class="hub-meta truncate" id="hub-line">&nbsp;</div>
+      </div>
+      <span id="update-all"></span>
     </div>
   </aside>
   <div>
     <div class="topbar">
       <div class="brand" style="padding:0"><svg aria-hidden="true"><use href="#logo"/></svg>conflux</div>
-      <div class="hub-state"><span class="dot" id="top-dot"></span><span class="muted" id="top-line"></span></div>
+      <div class="hub-state"><span class="dot" id="top-dot"></span><span class="muted" id="top-line"></span><span id="top-update-all"></span></div>
     </div>
     <main>
       <div id="connection" class="alerts" hidden></div>
@@ -523,8 +539,9 @@
         <div class="card table-wrap"><table id="machine-list"></table></div>
         <div class="panels">
           <div class="card panel">
-            <h2>Add a machine</h2>
-            <p>Run this on the new machine. It must be on your tailnet.</p>
+            <div class="panel-head"><h2>Add a machine</h2><button class="btn" id="find-machines">Find machines</button></div>
+            <div class="found" id="found-machines" hidden></div>
+            <p>Or run this on the new machine. It must be on your tailnet.</p>
             <div class="seg" role="group" aria-label="Install method">
               <button data-install="command" aria-pressed="true">macOS and Linux</button>
               <button data-install="windows_command" aria-pressed="false">Windows</button>
@@ -573,6 +590,7 @@ const HOUR_MS = 3600000;
 const REQUEST_ROWS = 100;
 const RECENT_ROWS = 8;
 const STALE_USAGE_MS = 30 * 60000;
+const SETTLE_AFTER_LOAD_MS = 15000;
 const REQUEST_LOG_SIZE = 500;
 const rendered = new Map();
 let latest = null;
@@ -583,6 +601,7 @@ let threadToken = 0;
 let listToken = 0;
 let loginTimer = null;
 let toastTimer = null;
+let updateTimer = null;
 let menuAnchor = null;
 
 function setHtml(id, html) {
@@ -880,12 +899,46 @@ function renderRequests(d) {
   setHtml("request-log", requestTable(shown, true));
 }
 
+const UPDATE_REPORT_STALE_MS = 60000;
+
+function updateFailed(m) {
+  return Boolean(m.update) && m.update.state === "failed";
+}
+
+function updating(m) {
+  const reported = m.online || Date.now() - new Date(m.last_seen) < UPDATE_REPORT_STALE_MS;
+  return Boolean(m.update) && !updateFailed(m) && reported;
+}
+
+function updatable(d) {
+  return d.machines.filter((m) => m.outdated && m.online && !updating(m));
+}
+
+function renderUpdateAll(d) {
+  const label = `Update all machines to v${esc(d.latest_version)}`;
+  const button = updatable(d).length ? `<button class="update-all" data-update-all data-tip="${label}" aria-label="${label}">${icon("up")}</button>` : "";
+  setHtml("update-all", button);
+  setHtml("top-update-all", button);
+}
+
+function updateCell(m, version) {
+  const sized = (wide, narrow) => `<span class="hide-sm">${wide}</span><span class="show-sm-inline">${narrow}</span>`;
+  if (updating(m)) {
+    const step = m.update.state === "downloading" ? "Downloading" : "Starting";
+    return `<span class="muted">${sized(`${step} v${esc(m.update.version)}`, step)}</span>`;
+  }
+  const failed = updateFailed(m) ? `<span class="pill bad" data-tip="${esc(m.update.error)}">${sized("Update failed", "Failed")}</span>` : "";
+  if (!m.outdated) return failed;
+  if (!m.online) return `<span class="pill warn">${sized("Update available", "Update")}</span>`;
+  return `${failed}<button class="btn small" data-update="${esc(m.hostname)}">${failed ? "Retry" : sized(`Update to v${esc(version)}`, "Update")}</button>`;
+}
+
 function renderMachines(d) {
   const online = d.machines.filter((m) => m.online).length;
   $("nav-machines").textContent = `${online}/${d.machines.length}`;
   $("machines-sub").textContent = `${online} of ${d.machines.length} online`;
-  setHtml("machine-list", `<thead><tr><th>Machine</th><th>Status</th><th class="hide-sm">Version</th><th class="hide-sm">Transcript sync</th><th class="num">Last seen</th></tr></thead><tbody>${d.machines.map((m) =>
-    `<tr class="${m.online ? "" : "offline"}"><td><span class="machine-name">${esc(m.hostname)}${m.role === "hub" ? '<span class="badge">Hub</span>' : ""}</span><div class="cell-sub show-sm">v${esc(m.version)} · sync ${m.transcript_sync ? "on" : "off"}</div></td><td class="${m.online ? "" : "muted"}"><span class="status-cell"><span class="dot ${m.online ? "on" : ""}"></span>${m.online ? "Online" : "Offline"}</span></td><td class="mono hide-sm">${esc(m.version)}</td><td class="hide-sm ${m.transcript_sync ? "" : "muted"}">${m.transcript_sync ? "On" : "Off"}</td><td class="num when">${esc(ago(m.last_seen))}</td></tr>`
+  setHtml("machine-list", `<thead><tr><th>Machine</th><th>Status</th><th class="hide-sm">Version</th><th class="hide-sm">Transcript sync</th><th class="num hide-sm">Last seen</th><th class="num">Update</th></tr></thead><tbody>${d.machines.map((m) =>
+    `<tr class="${m.online ? "" : "offline"}"><td><span class="machine-name">${esc(m.hostname)}${m.role === "hub" ? '<span class="badge">Hub</span>' : ""}</span><div class="cell-sub show-sm">v${esc(m.version)} · sync ${m.transcript_sync ? "on" : "off"}</div></td><td class="${m.online ? "" : "muted"}"><span class="status-cell"><span class="dot ${m.online ? "on" : ""}"></span>${m.online ? "Online" : "Offline"}</span></td><td class="mono hide-sm">${esc(m.version)}</td><td class="hide-sm ${m.transcript_sync ? "" : "muted"}">${m.transcript_sync ? "On" : "Off"}</td><td class="num when hide-sm">${esc(ago(m.last_seen))}</td><td class="num"><span class="update-cell">${updateCell(m, d.latest_version)}</span></td></tr>`
   ).join("")}</tbody>`);
   setHtml("takeover-command", commandHtml(`conflux hub take-over ${d.hub.name} --code <code>`));
   renderInstall();
@@ -933,8 +986,11 @@ function currentView() {
 }
 
 function render(d) {
+  if (latest && latest.hub.version !== d.hub.version) return location.reload();
   const firstLoad = !latest;
   latest = d;
+  clearTimeout(updateTimer);
+  if (d.machines.some(updating) || performance.now() < SETTLE_AFTER_LOAD_MS) updateTimer = setTimeout(refresh, 1000);
   document.body.classList.add("loaded");
   $("hub-line").textContent = `${d.hub.name} · v${d.hub.version}`;
   $("top-line").textContent = d.hub.name;
@@ -945,6 +1001,7 @@ function render(d) {
   renderChart(d);
   renderRequests(d);
   renderMachines(d);
+  renderUpdateAll(d);
   if (firstLoad && currentView() === "threads") loadThreads();
 }
 
@@ -1200,6 +1257,56 @@ function confirmRemove(id, name, kind) {
   };
 }
 
+const OS_NAMES = { linux: "Linux", macOS: "macOS", windows: "Windows" };
+
+function foundRow(m, i) {
+  const what = { waiting: "Waiting to be linked", busy: "Not waiting to be linked", missing: "conflux is not running. Run this there:" }[m.state];
+  const link = m.state === "waiting" ? `<button class="btn small primary" data-link="${esc(m.address)}">Link</button>` : "";
+  const install = m.install ? `<div class="code-block"><span class="code-text" id="found-${i}">${commandHtml(m.install)}</span><button class="icon-btn" data-copy="found-${i}" title="Copy" aria-label="Copy">${icon("copy")}</button></div>` : "";
+  return `<div class="found-row"><div class="found-text"><span class="machine-name">${esc(m.name)}</span><div class="cell-sub">${esc(OS_NAMES[m.os] || m.os)} · ${esc(what)}</div></div>${link}${install}</div>`;
+}
+
+async function findMachines(button) {
+  const box = $("found-machines");
+  button.disabled = true;
+  box.hidden = false;
+  box.innerHTML = '<p>Looking for your machines on the tailnet...</p>';
+  try {
+    const d = await api("GET", "/conflux/api/discover");
+    box.innerHTML = d.machines.length ? d.machines.map(foundRow).join("") : "<p>No other machines of yours are online on the tailnet.</p>";
+  } catch (e) {
+    box.hidden = true;
+    showError(e);
+  } finally { button.disabled = false; }
+}
+
+async function linkMachine(button) {
+  button.disabled = true;
+  try {
+    const r = await api("POST", "/conflux/api/link", { address: button.dataset.link });
+    toast(`Linked ${r.linked}`);
+    button.closest(".found-row").remove();
+    if (!$("found-machines").children.length) $("found-machines").hidden = true;
+    await refresh();
+  } catch (e) {
+    showError(e);
+    button.disabled = false;
+  }
+}
+
+async function startUpdate(button) {
+  const machine = button.dataset.update;
+  button.disabled = true;
+  try {
+    const r = await api("POST", "/conflux/api/update", machine ? { machines: [machine] } : {});
+    const blocked = r.skipped.filter((s) => s.reason !== "already up to date");
+    if (r.started.length) toast(`Updating ${r.started.length === 1 ? r.started[0] : `${r.started.length} machines`} to v${r.version}`);
+    else if (blocked.length) toast(`${blocked[0].machine}: ${blocked[0].reason}`, true);
+    else toast(`Every machine is on v${r.version}`);
+    await refresh();
+  } catch (e) { showError(e); } finally { button.disabled = false; }
+}
+
 async function accountAction(button) {
   const { act, id, on, name, kind } = button.dataset;
   const path = `/conflux/api/accounts/${encodeURIComponent(id)}`;
@@ -1225,6 +1332,7 @@ function copyText(text) {
   return Promise.resolve();
 }
 
+$("find-machines").onclick = (ev) => findMachines(ev.currentTarget);
 $("install-copy").onclick = () => copyText(latest.add_machine[installKey]).then(() => toast("Copied"), showError);
 $("thread-machine").onchange = loadThreads;
 $("thread-errors").onchange = loadThreads;
@@ -1261,7 +1369,8 @@ document.addEventListener("mouseover", (ev) => {
   const rect = col.getBoundingClientRect();
   const left = Math.max(8, Math.min(rect.left + rect.width / 2 - tip.offsetWidth / 2, window.innerWidth - tip.offsetWidth - 8));
   tip.style.left = `${left}px`;
-  tip.style.top = `${rect.top - tip.offsetHeight + 8}px`;
+  const above = rect.top - tip.offsetHeight + (col.classList.contains("col") ? 8 : -6);
+  tip.style.top = `${above < 0 ? rect.bottom + 6 : above}px`;
 });
 
 document.addEventListener("click", (ev) => {
@@ -1292,6 +1401,10 @@ document.addEventListener("click", (ev) => {
   if (thread) return openThread(thread.dataset.thread);
   const action = ev.target.closest("[data-act]");
   if (action) return accountAction(action);
+  const linkButton = ev.target.closest("[data-link]");
+  if (linkButton) return linkMachine(linkButton);
+  const update = ev.target.closest("[data-update], [data-update-all]");
+  if (update) return startUpdate(update);
 });
 
 showView();

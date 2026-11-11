@@ -74,9 +74,11 @@ conflux join <hub>
 
 conflux now runs in the background, and it has edited Claude Code's and Codex's settings to send their requests through the hub. Sessions that are already open need a restart to pick this up.
 
-To check that it worked, start a new session on that machine and send a message. It appears under "Recent requests" on the dashboard.
+You can also install conflux without naming a hub. Run the same command without `<hub>`, or on Windows without the `conflux join` line. conflux then starts and waits to be linked. On the dashboard, open Machines and click "Find machines". It lists your machines that are online on the tailnet. Click "Link" next to a waiting machine to make it a node of this hub. Machines that don't run conflux yet show the install command to copy.
 
-To update a machine later, run its install commands again, using the current hub's name if the hub has moved.
+A waiting machine accepts a link only from a machine owned by the same Tailscale user. It refuses if it has logged-in accounts or already belongs to a hub. `conflux status` on it says it is waiting.
+
+To check that it worked, start a new session on that machine and send a message. It appears under "Recent requests" on the dashboard.
 
 On a system without a prebuilt binary, build it with Rust instead:
 
@@ -85,11 +87,27 @@ cargo install --git https://github.com/Byntham/conflux
 conflux join <hub>    # use self on the hub
 ```
 
+## Update conflux
+
+When a new release is out, the dashboard marks each machine that is behind and shows a round arrow button in its bottom left corner. Click that button to update every machine, or run this on any machine:
+
+```sh
+conflux update              # every machine that is online
+conflux update <machine>    # one machine
+```
+
+Each machine downloads the release and starts it next to the running version. The new version takes every new request. The old one finishes the requests it already has, then exits. A Codex WebSocket closes when its current turn ends, and Codex opens a new one for the next turn.
+
+A machine that is off during an update stays on its old version. The dashboard keeps it marked until you update it.
+
+A system without a prebuilt binary cannot update this way. Run `cargo install` on it again.
+
 ## Everyday commands
 
 | Command | What it does |
 | --- | --- |
 | `conflux status` | Show accounts, usage, and cooldowns |
+| `conflux update` | Update every online machine to the latest release |
 | `conflux login claude` or `codex` | Add an account, or log one in again |
 | `conflux disable <account>` | Stop using an account. `enable` brings it back |
 | `conflux remove <account>` | Delete an account from the hub |

@@ -138,17 +138,6 @@ async fn commit_retires_the_store_and_is_idempotent() {
     assert!(hubmove::retired_dir(&p, ID).exists());
     assert_eq!(commit(&h, ID).await["status"], "ok", "a lost reply can be retried");
 
-    let hb: Value = post(
-        &h,
-        "/conflux/heartbeat",
-        json!({"hostname": "node-two", "version": "1"}),
-    )
-    .await
-    .json()
-    .await
-    .unwrap();
-    assert_eq!(hb["hub"], "node-one");
-
     let r = h.claude(json!({})).send().await.unwrap();
     assert_eq!(r.status(), StatusCode::SERVICE_UNAVAILABLE);
     let v: Value = r.json().await.unwrap();

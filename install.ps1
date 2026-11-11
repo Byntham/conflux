@@ -17,3 +17,4 @@ if (-not (($env:Path -split ";") -contains $Dir)) {
 }
 
 Write-Host "Installed conflux to $Exe."
+& $Exe wait
