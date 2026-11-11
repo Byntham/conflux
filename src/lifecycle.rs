@@ -223,7 +223,7 @@ impl Successor {
             loop {
                 match tokio::time::timeout(DRAIN_POLL, later.recv()).await {
                     Ok(Some(message)) if send(&mut link, &message).await.is_ok() => {}
-                    Err(_) if Arc::strong_count(&in_flight) > 2 => {}
+                    Err(_) if Arc::strong_count(&in_flight) > 2 || !later.is_empty() => {}
                     _ => break,
                 }
             }
