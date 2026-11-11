@@ -17,7 +17,7 @@ extension View {
     @ViewBuilder func panelBackground(cornerRadius: CGFloat) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         if #available(macOS 26, *) {
-            background(shape.fill(Color(nsColor: .windowBackgroundColor).opacity(0.3)))
+            background(shape.fill(Palette.dim))
                 .glassEffect(.regular, in: shape)
         } else {
             background(MenuMaterial().clipShape(shape))
@@ -25,8 +25,8 @@ extension View {
         }
     }
 
-    func glassButton(prominent: Bool = false) -> some View {
-        buttonStyle(CapsuleButton(prominent: prominent))
+    func glassButton(prominent: Bool = false, compact: Bool = false) -> some View {
+        buttonStyle(CapsuleButton(prominent: prominent, compact: compact))
     }
 }
 
@@ -36,7 +36,13 @@ enum Palette {
     static let warnFill = dynamic(light: 0xD97F06, dark: 0xF59E0B)
     static let bad = dynamic(light: 0xC81E1E, dark: 0xF87171)
     static let badFill = dynamic(light: 0xC81E1E, dark: 0xE5484D)
-    static let meter = dynamic(light: 0x71717A, dark: 0xA1A1AA)
+    static let meter = dynamic(light: 0x71717A, dark: 0xD4D4D8)
+    static let muted = Color.primary.opacity(0.62)
+    static let dim = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor.black.withAlphaComponent(0.45)
+            : NSColor.white.withAlphaComponent(0.3)
+    })
 
     private static func dynamic(light: Int, dark: Int) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
@@ -53,16 +59,17 @@ enum Palette {
 
 struct CapsuleButton: ButtonStyle {
     let prominent: Bool
+    var compact = false
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
         let label = configuration.label
-            .font(.system(size: 13, weight: .medium))
+            .font(.system(size: compact ? 12 : 13, weight: .medium))
             .lineLimit(1)
             .fixedSize()
             .foregroundStyle(prominent ? Color.white : Color.primary)
-            .padding(.horizontal, 14)
-            .frame(height: 28)
+            .padding(.horizontal, compact ? 12 : 14)
+            .frame(height: compact ? 24 : 28)
             .contentShape(Capsule())
             .opacity(configuration.isPressed ? 0.75 : 1)
         Group {

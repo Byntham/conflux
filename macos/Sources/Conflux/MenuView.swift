@@ -20,7 +20,8 @@ struct MenuView: View {
             Separator()
             Actions()
         }
-        .padding(.vertical, 8)
+        .padding(.top, 10)
+        .padding(.bottom, 5)
         .frame(width: 340)
         .fixedSize(horizontal: false, vertical: true)
         .panelBackground(cornerRadius: 16)
@@ -40,13 +41,18 @@ struct MenuView: View {
         case .notSetUp:
             Notice(
                 title: "conflux isn't set up on this Mac",
-                detail: "Make this Mac the hub that holds your accounts. Or use another hub, which then links this Mac from its dashboard."
+                detail: "Link this Mac to the hub on another machine, or make this Mac the hub that holds your accounts."
             ) {
-                Button("Make this the hub") { model.setUp(asHub: true) }.glassButton(prominent: true)
-                Button("Use another hub") { model.setUp(asHub: false) }.glassButton()
+                Button("Use another hub") { model.setUp(asHub: false) }.glassButton(prominent: true)
+                Button("Make this the hub") { model.setUp(asHub: true) }.glassButton()
             }
         case .notRunning:
-            Notice(title: "conflux isn't running", detail: "Claude Code and Codex can't reach it until it starts.") {
+            Notice(
+                title: "conflux isn't running",
+                detail: model.routing == true
+                    ? "Claude Code and Codex on this Mac can't connect until it starts. To use their own logins instead, turn off routing below."
+                    : "Claude Code and Codex can't reach it until it starts."
+            ) {
                 Button("Start conflux") { model.start() }.glassButton(prominent: true)
             }
         case .waiting:
@@ -80,14 +86,14 @@ struct Header: View {
                 Text("conflux").font(.system(size: 13, weight: .semibold))
                 Text(model.roleLine)
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Palette.muted)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
             Spacer(minLength: 8)
             if let busy = model.busy {
                 ProgressView().controlSize(.small)
-                Text(busy).font(.system(size: 11)).foregroundStyle(.secondary)
+                Text(busy).font(.system(size: 11)).foregroundStyle(Palette.muted)
             } else {
                 StatusDot()
             }
@@ -103,7 +109,7 @@ struct StatusDot: View {
         let (color, label) = summary
         HStack(spacing: 5) {
             Circle().fill(color).frame(width: 7, height: 7)
-            Text(label).font(.system(size: 11)).foregroundStyle(.secondary)
+            Text(label).font(.system(size: 11)).foregroundStyle(Palette.muted)
         }
     }
 
@@ -134,7 +140,7 @@ struct Notice<Buttons: View>: View {
             if let detail {
                 Text(detail)
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Palette.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 8) { buttons }
@@ -164,8 +170,16 @@ struct Accounts: View {
             }
         } else {
             let rows = VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Accounts")
+                    Spacer()
+                    Text("Resets in").frame(width: 52, alignment: .trailing)
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Palette.muted)
+                .padding(.bottom, -6)
                 ForEach(model.accounts) { account in
-                    AccountRow(account: account, now: model.now)
+                    AccountRow(account: account, now: model.now, openDashboard: model.openDashboard)
                 }
             }
             .padding(.horizontal, 14)
@@ -182,6 +196,7 @@ struct Accounts: View {
 struct AccountRow: View {
     let account: Account
     let now: Date
+    let openDashboard: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -192,20 +207,20 @@ struct AccountRow: View {
                     .truncationMode(.middle)
                 Text(kind)
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Palette.muted)
                     .lineLimit(1)
                 Spacer(minLength: 6)
                 StatePill(state: account.state(now: now), now: now)
             }
             let windows = account.sharedWindows
             if account.needsLogin != nil {
-                Text("Log in again from the dashboard.")
+                Button("Log in again in the dashboard", action: openDashboard)
+                    .buttonStyle(.link)
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
             } else if windows.isEmpty {
                 Text("No usage data yet")
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Palette.muted)
             } else {
                 ForEach(windows) { window in
                     Meter(window: window, now: now)
@@ -231,10 +246,10 @@ struct StatePill: View {
         case .ready:
             HStack(spacing: 5) {
                 Circle().fill(Palette.ok).frame(width: 6, height: 6)
-                Text("Ready").font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("Ready").font(.system(size: 11)).foregroundStyle(Palette.muted)
             }
         case .disabled:
-            Text("Disabled").font(.system(size: 11)).foregroundStyle(.secondary)
+            Text("Disabled").font(.system(size: 11)).foregroundStyle(Palette.muted)
         default:
             let (text, color, tint) = problem
             Text(text)
@@ -242,7 +257,7 @@ struct StatePill: View {
                 .foregroundStyle(color)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 2)
-                .background(tint.opacity(0.16), in: Capsule())
+                .background(tint.opacity(0.2), in: Capsule())
                 .lineLimit(1)
                 .fixedSize()
         }
@@ -269,11 +284,11 @@ struct Meter: View {
         HStack(spacing: 8) {
             Text(name)
                 .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Palette.muted)
                 .frame(width: 42, alignment: .leading)
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color.primary.opacity(0.1))
+                    Capsule().fill(Color.primary.opacity(0.14))
                     Capsule()
                         .fill(color(pct))
                         .frame(width: max(pct > 0 ? 4 : 0, geometry.size.width * pct / 100))
@@ -286,7 +301,7 @@ struct Meter: View {
                 .frame(width: 34, alignment: .trailing)
             Text(window.resetsAt.map { Countdown.text($0, now: now) } ?? "")
                 .font(.system(size: 11).monospacedDigit())
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Palette.muted)
                 .frame(width: 52, alignment: .trailing)
                 .lineLimit(1)
         }
@@ -334,7 +349,7 @@ struct UpdateBanner: View {
             }
         } else if let failure = model.updateFailure {
             banner(title: "An update failed", detail: failure) {
-                Button("Try again") { model.updateAll() }.glassButton()
+                Button("Try again") { model.updateAll() }.glassButton(compact: true)
             }
         } else if let latest = model.latestVersion {
             let behind = model.outdatedMachines
@@ -344,7 +359,8 @@ struct UpdateBanner: View {
                     ? "\(behind[0].hostname) is on v\(behind[0].version)."
                     : "\(behind.count) machines are behind."
             ) {
-                Button(behind.count == 1 ? "Update" : "Update all") { model.updateAll() }.glassButton(prominent: true)
+                Button(behind.count == 1 ? "Update" : "Update all") { model.updateAll() }
+                    .glassButton(prominent: true, compact: true)
             }
         }
     }
@@ -352,12 +368,13 @@ struct UpdateBanner: View {
     private func banner<Trailing: View>(title: String, detail: String, @ViewBuilder trailing: () -> Trailing) -> some View {
         HStack(spacing: 10) {
             Image(systemName: "arrow.triangle.2.circlepath")
-                .foregroundStyle(Color.accentColor)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.primary)
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).font(.system(size: 13, weight: .semibold))
                 Text(detail)
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Palette.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
@@ -399,7 +416,7 @@ struct Actions: View {
                 MenuRow(title: "Restart conflux", action: model.restart)
             }
             MenuRow(title: "Quit menu bar app", action: { NSApp.terminate(nil) }) {
-                Text("⌘Q").font(.system(size: 13)).foregroundStyle(.secondary)
+                Text("⌘Q").font(.system(size: 13)).foregroundStyle(HierarchicalShapeStyle.secondary)
             }
             .keyboardShortcut("q")
             .help("conflux keeps running in the background.")

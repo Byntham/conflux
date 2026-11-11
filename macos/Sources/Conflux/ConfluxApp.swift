@@ -87,6 +87,7 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         place()
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
+        DispatchQueue.main.async { self.panel.invalidateShadow() }
         item.button?.highlight(true)
         outsideClicks = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             Task { @MainActor in self?.close() }
@@ -136,7 +137,7 @@ enum MenuBarIcon {
         if let image = cache[badged] { return image }
         let image = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { rect in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
-            context.setFillColor(badged ? NSColor.labelColor.cgColor : NSColor.black.cgColor)
+            context.setFillColor(badged ? NSColor.labelColor.withAlphaComponent(1).cgColor : NSColor.black.cgColor)
             if let logo {
                 Logo.draw(logo, in: rect.insetBy(dx: 1.5, dy: 1), context: context)
             } else {
