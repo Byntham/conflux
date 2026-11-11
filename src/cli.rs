@@ -14,7 +14,10 @@ use crate::{app, hubmove, link, node, service, supervisor};
 #[command(
     name = "conflux",
     version,
-    about = "Pool Claude Code and Codex subscriptions on one hub"
+    about = "Pool Claude Code and Codex subscriptions on one hub",
+    after_help = "Account commands work from any machine. A node passes them to the hub.\n\
+                  Run `conflux help <command>` for details.\n\
+                  Docs: https://github.com/Byntham/conflux/blob/main/docs/commands.md"
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -23,76 +26,186 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
-    Serve,
-    #[command(hide = true)]
-    Worker,
-    Update {
-        machines: Vec<String>,
+    #[command(
+        about = "Show each account's usage, cooldowns, and state",
+        long_about = "Show each account's usage, cooldowns, and state.\n\n\
+                      SHORT and LONG are the percentage used in the shortest and longest usage \
+                      windows, for example 5 hours and 7 days."
+    )]
+    Status,
+    #[command(
+        about = "Add an account to the pool, or log one in again",
+        long_about = "Add an account to the pool, or log one in again.\n\n\
+                      claude prints a link. Approve access in a browser signed in to the account, \
+                      then paste the URL from the address bar. The browser shows a connection \
+                      error at that point, which is expected.\n\n\
+                      codex prints a link and a code. Enter the code in a browser signed in to \
+                      the ChatGPT account, and conflux finishes on its own."
+    )]
+    Login {
+        #[arg(help = "Which kind of account to add")]
+        provider: LoginProvider,
     },
-    Wait,
+    #[command(about = "Check an account's usage now and show it")]
+    Usage {
+        #[arg(help = "Account ID, as shown by `conflux status`")]
+        account: String,
+    },
+    #[command(about = "Let conflux send requests to an account again")]
+    Enable {
+        #[arg(help = "Account ID, as shown by `conflux status`")]
+        account: String,
+    },
+    #[command(
+        about = "Stop sending requests to an account. Its login stays",
+        long_about = "Stop sending requests to an account. Its login stays, and `conflux enable` brings it back."
+    )]
+    Disable {
+        #[arg(help = "Account ID, as shown by `conflux status`")]
+        account: String,
+    },
+    #[command(
+        about = "Allow or forbid a Claude account's paid extra usage",
+        long_about = "Allow or forbid a Claude account's paid extra usage.\n\n\
+                      It is off by default. When on, conflux uses extra usage only when no other \
+                      account has room."
+    )]
+    Overage {
+        #[arg(help = "Account ID, as shown by `conflux status`")]
+        account: String,
+        setting: OnOff,
+    },
+    #[command(
+        about = "Delete an account and its tokens from the hub",
+        long_about = "Delete an account and its tokens from the hub. To use it again, run `conflux login`."
+    )]
+    Remove {
+        #[arg(help = "Account ID, as shown by `conflux status`")]
+        account: String,
+    },
+    #[command(
+        about = "Make this machine the hub, or connect it to one",
+        long_about = "Make this machine the hub, or connect it to one.\n\n\
+                      Pass `self` to make this machine the hub. Pass another machine's tailnet \
+                      name to make this machine a node of that hub.\n\n\
+                      join installs conflux as a background service and points Claude Code \
+                      (~/.claude/settings.json) and Codex (~/.codex/config.toml) at it. It saves \
+                      the values it replaces, so `conflux off` and `conflux leave` can put them back."
+    )]
     Join {
+        #[arg(help = "`self` to make this machine the hub, or the hub's tailnet name")]
         hub: String,
-        #[arg(long)]
+        #[arg(long, help = "Do not install the background service. Run `conflux serve` yourself")]
         no_service: bool,
-        #[arg(long)]
+        #[arg(long, help = "Join another hub even though this machine holds accounts")]
         force: bool,
     },
+    #[command(
+        about = "Start conflux and wait to be linked from a hub's dashboard",
+        long_about = "Install conflux as a background service and wait to be linked to a hub.\n\n\
+                      On the hub's dashboard, open Machines and click Find machines, then Link. \
+                      If this machine is already a hub or a node, wait restarts the service and \
+                      changes nothing else."
+    )]
+    Wait,
+    #[command(
+        about = "Point Claude Code and Codex back at this machine's own logins",
+        long_about = "Point Claude Code and Codex back at this machine's own logins.\n\n\
+                      Use it when the hub is down. The service keeps running. Restart open \
+                      sessions to pick up the change. `conflux on` undoes it."
+    )]
     Off,
+    #[command(about = "Point Claude Code and Codex at conflux again after `conflux off`")]
     On,
+    #[command(
+        about = "Stop conflux and give Claude Code and Codex their old settings back",
+        long_about = "Stop conflux and give Claude Code and Codex their old settings back.\n\n\
+                      leave removes the background service. It keeps the binary, the config, and \
+                      any account tokens on this machine. Run `conflux remove` first if you want \
+                      the tokens gone."
+    )]
     Leave,
-    T3Key,
-    Sync {
-        setting: SyncSetting,
+    #[command(
+        about = "Update every online machine, or the ones you name, to the latest release",
+        long_about = "Update every online machine, or the ones you name, to the latest release.\n\n\
+                      Each machine starts the new version next to the old one. The new version \
+                      takes new requests, and the old one exits once its requests finish. The \
+                      command waits up to 5 minutes and reports each machine."
+    )]
+    Update {
+        #[arg(help = "Machine names as the dashboard shows them. Leave empty for every machine")]
+        machines: Vec<String>,
     },
+    #[command(
+        about = "Turn transcript sync to the hub on or off for this machine",
+        long_about = "Turn transcript sync to the hub on or off for this machine.\n\n\
+                      When on, conflux copies this machine's Claude Code and Codex transcripts to \
+                      the hub. Transcripts hold everything your agents have read."
+    )]
+    Sync { setting: SyncSetting },
+    #[command(about = "Print the URL and key that T3 Code needs to show your pooled usage")]
+    T3Key,
+    #[command(about = "Move the hub to another machine")]
     Hub {
         #[command(subcommand)]
         action: HubAction,
     },
-    Login {
-        provider: LoginProvider,
-    },
-    Status,
-    Enable {
-        account: String,
-    },
-    Disable {
-        account: String,
-    },
-    Overage {
-        account: String,
-        setting: OnOff,
-    },
-    Remove {
-        account: String,
-    },
-    Usage {
-        account: String,
-    },
+    #[command(
+        about = "Run conflux in the foreground",
+        long_about = "Run conflux in the foreground.\n\n\
+                      The background service runs this command. Use it yourself only after \
+                      `conflux join --no-service`. Set CONFLUX_LOG to change the log level."
+    )]
+    Serve,
+    #[command(hide = true)]
+    Worker,
 }
 
 #[derive(Subcommand)]
 pub enum HubAction {
+    #[command(
+        about = "Print a one-time code for moving this hub. Run it on the current hub",
+        long_about = "Print a one-time code for moving this hub. Run it on the current hub.\n\n\
+                      It also prints the take-over command to run on the new machine. The code \
+                      works for 10 minutes."
+    )]
     MoveCode,
-    Resume,
+    #[command(
+        about = "Make this machine the hub, taking the accounts from the old hub",
+        long_about = "Make this machine the hub, taking the accounts from the old hub.\n\n\
+                      Run it on the new machine. If a move stopped partway, run it again without \
+                      --code to finish it."
+    )]
     TakeOver {
+        #[arg(help = "The current hub's tailnet name")]
         old_hub: String,
-        #[arg(long)]
+        #[arg(long, help = "The code from `conflux hub move-code`")]
         code: Option<String>,
-        #[arg(long)]
+        #[arg(long, help = "Allow a machine with a battery, such as a laptop, to become the hub")]
         force: bool,
     },
+    #[command(
+        about = "Put the old hub back in service after a move that did not finish",
+        long_about = "Put the old hub back in service after a move that did not finish. Run it on the old hub."
+    )]
+    Resume,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
 pub enum LoginProvider {
+    #[value(help = "A Claude subscription, used by Claude Code")]
     Claude,
+    #[value(help = "A ChatGPT subscription, used by Codex")]
     Codex,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
 pub enum SyncSetting {
+    #[value(help = "Copy this machine's transcripts to the hub")]
     On,
+    #[value(help = "Stop copying. Copies already on the hub stay")]
     Off,
+    #[value(help = "Show whether sync is on")]
     Status,
 }
 
