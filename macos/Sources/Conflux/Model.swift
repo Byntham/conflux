@@ -21,6 +21,13 @@ enum AccountState {
     case quotaFull
     case modelsCooling(Int)
 
+    var canServe: Bool {
+        switch self {
+        case .ready, .modelsCooling: return true
+        default: return false
+        }
+    }
+
     var isProblem: Bool {
         switch self {
         case .needsLogin, .billingBlocked: return true
@@ -186,7 +193,7 @@ final class Model: ObservableObject {
     }
 
     var readyCount: Int {
-        accounts.filter { if case .ready = $0.state(now: now) { return true } else { return false } }.count
+        accounts.filter { $0.state(now: now).canServe }.count
     }
 
     var attention: NSColor? {
@@ -339,6 +346,7 @@ final class Model: ObservableObject {
         perform("Starting update…") {
             var request = URLRequest(url: self.local.base(port: self.local.port).appendingPathComponent("conflux/api/update"))
             request.httpMethod = "POST"
+            request.timeoutInterval = 30
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = Data("{}".utf8)
             let (body, response) = try await self.session.data(for: request)

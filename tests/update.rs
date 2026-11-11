@@ -39,6 +39,13 @@ fn exe_name() -> String {
     format!("conflux{}", std::env::consts::EXE_SUFFIX)
 }
 
+fn linked_like_the_path_entry(exe: &Path, bin: &Path) -> PathBuf {
+    let link = bin.join(exe_name());
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(exe, &link).unwrap();
+    link
+}
+
 fn start(command: &str, home: &Path, fake: &str, exe_dir: &str) -> Started {
     let bin = tempfile::tempdir().unwrap();
     let exe = bin.path().join(exe_dir).join(exe_name());
@@ -46,7 +53,12 @@ fn start(command: &str, home: &Path, fake: &str, exe_dir: &str) -> Started {
     std::fs::copy(BUILT, &exe).unwrap();
     let nothing_on_path = bin.path().join("empty");
     std::fs::create_dir(&nothing_on_path).unwrap();
-    let mut conflux = Command::new(&exe);
+    let launch = if exe_dir.is_empty() {
+        exe
+    } else {
+        linked_like_the_path_entry(&exe, bin.path())
+    };
+    let mut conflux = Command::new(&launch);
     conflux
         .arg(command)
         .env("CONFLUX_HOME", home)

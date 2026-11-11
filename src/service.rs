@@ -41,6 +41,14 @@ pub fn systemd_unit(exe: &Path) -> String {
     )
 }
 
+fn xml(path: &Path) -> String {
+    path.display()
+        .to_string()
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
 pub fn launchd_plist(exe: &Path, log: &Path) -> String {
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -56,9 +64,9 @@ pub fn launchd_plist(exe: &Path, log: &Path) -> String {
 </dict>
 </plist>
 "#,
-        exe.display(),
-        log.display(),
-        log.display()
+        xml(exe),
+        xml(log),
+        xml(log)
     )
 }
 
@@ -71,10 +79,11 @@ fn menu_bar_plist(app: &Path) -> String {
   <key>Label</key><string>{MENU_BAR_LABEL}</string>
   <key>ProgramArguments</key><array><string>{}</string></array>
   <key>RunAtLoad</key><true/>
+  <key>AbandonProcessGroup</key><true/>
 </dict>
 </plist>
 "#,
-        app.join("Contents/MacOS/Conflux").display()
+        xml(&app.join("Contents/MacOS/Conflux"))
     )
 }
 
@@ -118,6 +127,15 @@ fn launchd_unload(label: &str) -> Result<()> {
     Ok(())
 }
 
+fn launchd_loaded_with(label: &str, plist: &str) -> Result<bool> {
+    let same = std::fs::read_to_string(plist_path_for(label)?).is_ok_and(|on_disk| on_disk == plist);
+    Ok(same
+        && Command::new("launchctl")
+            .args(["print", &format!("gui/{}/{label}", uid())])
+            .output()
+            .is_ok_and(|o| o.status.success()))
+}
+
 fn launchd_load(label: &str, plist: &str) -> Result<()> {
     launchd_unload(label)?;
     let path = plist_path_for(label)?;
@@ -158,7 +176,12 @@ pub fn install() -> Result<String> {
         let log = home()?.join("Library/Logs/conflux.log");
         launchd_load(LAUNCHD_LABEL, &launchd_plist(&exe, &log))?;
         match crate::update::app_bundle(&exe) {
-            Some(app) => launchd_load(MENU_BAR_LABEL, &menu_bar_plist(app))?,
+            Some(app) => {
+                let plist = menu_bar_plist(app);
+                if !launchd_loaded_with(MENU_BAR_LABEL, &plist)? {
+                    launchd_load(MENU_BAR_LABEL, &plist)?;
+                }
+            }
             None => launchd_unload(MENU_BAR_LABEL)?,
         }
         Ok(format!("launchd agent {LAUNCHD_LABEL} (logs in {})", log.display()))

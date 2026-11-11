@@ -43,7 +43,7 @@ install_app() {
     [ -e "$work/previous.app" ] && mv "$work/previous.app" "$apps/Conflux.app"
     return 1
   fi
-  ln -sf "$apps/Conflux.app/Contents/Helpers/conflux" "$1/conflux"
+  ln -sf "$apps/Conflux.app/Contents/Helpers/conflux" "$1/conflux" || return 1
   echo "Installed Conflux.app to $apps and linked $1/conflux to it."
 }
 
@@ -74,10 +74,14 @@ main() {
 
   bin_dir="${CONFLUX_BIN_DIR:-$HOME/.local/bin}"
   mkdir -p "$bin_dir"
-  if [ "$os" = darwin ] && [ "$app" = yes ] && install_app "$bin_dir"; then
-    :
-  else
-    [ "$os" = darwin ] && [ "$app" = yes ] && echo "Could not install Conflux.app. Installing the conflux command only."
+  if [ "$os" != darwin ] || [ "$app" = no ]; then
+    install_binary "$bin_dir" "$os-$arch"
+  elif ! install_app "$bin_dir"; then
+    if [ -e "$HOME/Applications/Conflux.app" ]; then
+      echo "Could not update Conflux.app. Try again later." >&2
+      exit 1
+    fi
+    echo "Could not install Conflux.app. Installing the conflux command only."
     install_binary "$bin_dir" "$os-$arch"
   fi
   add_to_path "$bin_dir"
