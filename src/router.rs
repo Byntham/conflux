@@ -539,6 +539,12 @@ mod tests {
             "a snapshot from before the block proves nothing"
         );
         std::thread::sleep(std::time::Duration::from_millis(2));
+        usage.set(&b, snap(100, 10.0, 100.0));
+        assert_eq!(
+            router.cooldowns(&b).len(),
+            2,
+            "a poll that is still full keeps the block"
+        );
         usage.set(&a, snap(100, 10.0, 10.0));
         usage.set(&b, snap(100, 10.0, 10.0));
         assert!(router.billing_blocked(&a).is_none());
