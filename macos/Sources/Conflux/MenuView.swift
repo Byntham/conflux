@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 struct MenuView: View {
+    static let shadowMargin: CGFloat = 24
     @EnvironmentObject var model: Model
 
     var body: some View {
@@ -25,6 +26,8 @@ struct MenuView: View {
         .frame(width: 340)
         .fixedSize(horizontal: false, vertical: true)
         .panelBackground(cornerRadius: 16)
+        .shadow(color: .black.opacity(0.22), radius: 14, y: 8)
+        .padding(Self.shadowMargin)
     }
 
     @ViewBuilder private var content: some View {

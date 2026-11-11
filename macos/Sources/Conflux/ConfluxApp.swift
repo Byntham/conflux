@@ -48,7 +48,7 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         panel.contentView = host
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        panel.hasShadow = false
         panel.level = .popUpMenu
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.delegate = self
@@ -87,7 +87,6 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         place()
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
-        DispatchQueue.main.async { self.panel.invalidateShadow() }
         item.button?.highlight(true)
         outsideClicks = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             Task { @MainActor in self?.close() }
@@ -111,10 +110,13 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         let size = host.fittingSize
         let below = anchor.convertToScreen(button.convert(button.bounds, to: nil))
         let screen = (anchor.screen ?? NSScreen.main)?.visibleFrame ?? .zero
+        let margin = MenuView.shadowMargin
         var x = below.midX - size.width / 2
-        x = min(max(x, screen.minX + 8), screen.maxX - size.width - 8)
-        panel.setFrame(CGRect(x: x, y: below.minY - size.height - 6, width: size.width, height: size.height), display: true)
-        panel.invalidateShadow()
+        x = min(max(x, screen.minX - margin + 8), screen.maxX - size.width + margin - 8)
+        panel.setFrame(
+            CGRect(x: x, y: below.minY - size.height + margin - 6, width: size.width, height: size.height),
+            display: true
+        )
     }
 
     func windowDidResignKey(_ notification: Notification) {
