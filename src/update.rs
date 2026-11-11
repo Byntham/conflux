@@ -45,6 +45,14 @@ pub fn app_bundle(exe: &Path) -> Option<&Path> {
     is_bundle.then_some(bundle)
 }
 
+pub fn running_exe() -> Result<PathBuf> {
+    let exe = std::env::current_exe().context("find the conflux binary")?;
+    if cfg!(target_os = "macos") {
+        return exe.canonicalize().context("resolve the conflux binary");
+    }
+    Ok(exe)
+}
+
 pub fn asset_name() -> Option<&'static str> {
     match (std::env::consts::OS, std::env::consts::ARCH) {
         ("linux", "x86_64") => Some("conflux-linux-x86_64"),
@@ -250,13 +258,12 @@ impl Updater {
         Ok(())
     }
 
-    async fn fetch(&self, version: &str, exe: &Path, incoming: &Path) -> Result<PathBuf> {
+    async fn fetch(&self, version: &str, exe: &Path, incoming: &Path) -> Result<()> {
         let Some(bundle) = app_bundle(exe) else {
             let asset = asset_name()
                 .context("conflux has no prebuilt binary for this system. Update it with `cargo install`.")?;
             self.download(version, asset, incoming).await?;
-            verify(incoming).await?;
-            return Ok(incoming.to_path_buf());
+            return verify(incoming).await;
         };
         let zip = aside(exe, "download.zip");
         let downloaded = self.download(version, APP_ASSET, &zip).await;
@@ -266,9 +273,7 @@ impl Updater {
         };
         remove_path(&zip);
         unpacked?;
-        let new_exe = incoming.join(exe.strip_prefix(bundle)?);
-        verify(&new_exe).await?;
-        Ok(new_exe)
+        verify(&incoming.join(exe.strip_prefix(bundle)?)).await
     }
 
     async fn install(&self, version: &str, exe: &Path) -> Result<PathBuf> {
@@ -281,7 +286,10 @@ impl Updater {
         }
         let backup = aside(exe, &format!("old-{CURRENT}"));
         remove_path(&backup);
-        std::fs::rename(installed, &backup).with_context(|| format!("move {} aside", installed.display()))?;
+        if let Err(e) = std::fs::rename(installed, &backup) {
+            remove_path(&incoming);
+            return Err(e).with_context(|| format!("move {} aside", installed.display()));
+        }
         if let Err(e) = std::fs::rename(&incoming, installed) {
             let _ = std::fs::rename(&backup, installed);
             remove_path(&incoming);

@@ -8,6 +8,7 @@ enum Phase: Equatable {
     case notRunning
     case waiting
     case hubUnreachable
+    case problem(String)
     case ready
 }
 
@@ -131,20 +132,30 @@ final class Model: ObservableObject {
         switch await fetch(base.appendingPathComponent("conflux/api/dashboard")) {
         case .unreachable:
             dashboard = nil
-            phase = local.serviceInstalled ? .notRunning : .notSetUp
+            if node != nil {
+                phase = .hubUnreachable
+            } else {
+                phase = local.serviceInstalled ? .notRunning : .notSetUp
+            }
         case let .answered(200, body):
             do {
                 dashboard = try JSON.decoder.decode(Dashboard.self, from: body)
                 phase = .ready
             } catch {
                 dashboard = nil
-                phase = .hubUnreachable
+                phase = .problem("This app can't read conflux's status. Update conflux on this Mac and on the hub.")
             }
         case .answered(409, _):
             dashboard = nil
             phase = .waiting
-        case .answered:
-            phase = node == nil ? .notRunning : .hubUnreachable
+        case let .answered(status, body):
+            dashboard = nil
+            if let node, !node.hubLink.connected {
+                phase = .hubUnreachable
+            } else {
+                let error = (try? JSONSerialization.jsonObject(with: body) as? [String: Any])?["error"] as? String
+                phase = .problem(error ?? "conflux answered HTTP \(status).")
+            }
         }
     }
 
@@ -180,7 +191,7 @@ final class Model: ObservableObject {
 
     var attention: NSColor? {
         switch phase {
-        case .notRunning, .hubUnreachable:
+        case .notRunning, .hubUnreachable, .problem:
             return .systemRed
         case .ready:
             if accounts.contains(where: { $0.state(now: now).isProblem }) || updateFailure != nil {
@@ -215,7 +226,10 @@ final class Model: ObservableObject {
     }
 
     var showsRouting: Bool {
-        [.ready, .hubUnreachable, .notRunning].contains(phase)
+        switch phase {
+        case .ready, .hubUnreachable, .notRunning, .problem: return true
+        default: return false
+        }
     }
 
     var showsUpdateCard: Bool {
@@ -260,6 +274,8 @@ final class Model: ObservableObject {
             }
         case .notSetUp, .translocated:
             return runningVersion.map { "v\($0)" } ?? ""
+        case .problem:
+            return runningVersion.map { "v\($0)" } ?? ""
         case .loading:
             return "Connecting…"
         }
@@ -298,10 +314,9 @@ final class Model: ObservableObject {
                 URL(fileURLWithPath: "/usr/bin/xattr"),
                 ["-dr", "com.apple.quarantine", self.bundle.path]
             )
-            if asHub {
-                try await self.conflux("join", "self")
-            } else {
-                try await self.conflux("wait")
+            let output = try await Command.run(self.local.cli, asHub ? ["join", "self"] : ["wait"])
+            if !self.local.serviceInstalled {
+                throw Command.Failure(message: output.split(separator: "\n").first.map(String.init) ?? output)
             }
         }
     }

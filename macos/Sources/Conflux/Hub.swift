@@ -144,7 +144,7 @@ enum Command {
     }
 
     static func run(_ executable: URL, _ arguments: [String]) async throws -> String {
-        try await withCheckedThrowingContinuation { continuation in
+        try await Task.detached {
             let process = Process()
             let output = Pipe()
             process.executableURL = executable
@@ -152,22 +152,16 @@ enum Command {
             process.standardInput = FileHandle.nullDevice
             process.standardOutput = output
             process.standardError = output
-            process.terminationHandler = { finished in
-                let text = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if finished.terminationStatus == 0 {
-                    continuation.resume(returning: text)
-                } else {
-                    let last = text.split(separator: "\n").last.map(String.init)
-                    continuation.resume(throwing: Failure(message: last ?? "\(executable.lastPathComponent) failed"))
-                }
+            try process.run()
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            let text = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard process.terminationStatus == 0 else {
+                let last = text.split(separator: "\n").last.map(String.init)
+                throw Failure(message: last ?? "\(executable.lastPathComponent) failed")
             }
-            do {
-                try process.run()
-            } catch {
-                continuation.resume(throwing: error)
-            }
-        }
+            return text
+        }.value
     }
 }
 

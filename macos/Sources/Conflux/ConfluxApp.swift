@@ -7,6 +7,9 @@ enum Main {
     @MainActor static var controller: StatusController?
 
     @MainActor static func main() {
+        let others = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
+            .filter { $0.processIdentifier != getpid() }
+        if !others.isEmpty { exit(0) }
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         controller = StatusController(model: Model())

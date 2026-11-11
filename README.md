@@ -101,7 +101,7 @@ curl -fsSL https://raw.githubusercontent.com/Byntham/conflux/main/install.sh | s
 
 You can also download `conflux-darwin-aarch64-app.zip` from the [latest release](https://github.com/Byntham/conflux/releases/latest) in a browser. The app isn't signed by Apple, so macOS blocks it the first time:
 
-1. Move Conflux.app to your Applications folder and open it.
+1. Move Conflux.app to the Applications folder in your home folder (`~/Applications`) and open it. conflux replaces the app there when it updates, so it needs a folder you can write to.
 2. When macOS refuses, open System Settings > Privacy & Security and click Open Anyway.
 3. In the menu bar, click the conflux icon. Choose to make this Mac the hub, or to wait to be linked.
 

@@ -69,6 +69,8 @@ struct MenuView: View {
             ) {
                 Button("Make this the hub") { model.setUp(asHub: true) }.glassButton()
             }
+        case let .problem(message):
+            Notice(title: "conflux reported a problem", detail: message)
         case .hubUnreachable:
             Notice(
                 title: "Can't reach the hub",
@@ -432,7 +434,7 @@ struct Actions: View {
                 .help("Off makes Claude Code and Codex on this Mac use their own logins.")
                 Separator(inset: 9)
             }
-            let showsDashboard = model.phase == .ready || model.phase == .hubUnreachable
+            let showsDashboard = [.ready, .hubUnreachable].contains(model.phase)
             let showsRestart = model.local.serviceInstalled && model.phase != .notRunning
             if showsDashboard {
                 MenuRow(title: "Open dashboard", action: model.openDashboard)

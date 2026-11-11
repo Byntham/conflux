@@ -31,14 +31,18 @@ install_app() {
   apps="$HOME/Applications"
   mkdir -p "$apps"
   work=$(mktemp -d "$apps/.conflux-install.XXXXXX")
+  trap 'rm -rf "$work"' EXIT
   curl -fsSL -o "$work/app.zip" \
-    "https://github.com/$repo/releases/latest/download/conflux-darwin-aarch64-app.zip"
-  ditto -x -k "$work/app.zip" "$work"
+    "https://github.com/$repo/releases/latest/download/conflux-darwin-aarch64-app.zip" || return 1
+  ditto -x -k "$work/app.zip" "$work" || return 1
+  [ -d "$work/Conflux.app" ] || return 1
   if [ -e "$apps/Conflux.app" ]; then
-    mv "$apps/Conflux.app" "$work/previous.app"
+    mv "$apps/Conflux.app" "$work/previous.app" || return 1
   fi
-  mv "$work/Conflux.app" "$apps/Conflux.app"
-  rm -rf "$work"
+  if ! mv "$work/Conflux.app" "$apps/Conflux.app"; then
+    [ -e "$work/previous.app" ] && mv "$work/previous.app" "$apps/Conflux.app"
+    return 1
+  fi
   ln -sf "$apps/Conflux.app/Contents/Helpers/conflux" "$1/conflux"
   echo "Installed Conflux.app to $apps and linked $1/conflux to it."
 }
@@ -70,9 +74,10 @@ main() {
 
   bin_dir="${CONFLUX_BIN_DIR:-$HOME/.local/bin}"
   mkdir -p "$bin_dir"
-  if [ "$os" = darwin ] && [ "$app" = yes ]; then
-    install_app "$bin_dir"
+  if [ "$os" = darwin ] && [ "$app" = yes ] && install_app "$bin_dir"; then
+    :
   else
+    [ "$os" = darwin ] && [ "$app" = yes ] && echo "Could not install Conflux.app. Installing the conflux command only."
     install_binary "$bin_dir" "$os-$arch"
   fi
   add_to_path "$bin_dir"

@@ -403,7 +403,7 @@ pub async fn serve(cfg: Config, paths: Paths) -> Result<()> {
         .context("this machine is a node but has no hub set; run `conflux join <hub>`")?;
     let node = Node::new(hub.clone(), cfg.port, paths);
     let takeover = node.lifecycle.take_over().await?;
-    let exe = std::env::current_exe().context("find the conflux binary")?;
+    let exe = update::running_exe()?;
     node.updater.replaces(exe.clone());
     let for_sync = node.clone();
     let sync = TranscriptSync::new(

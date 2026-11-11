@@ -69,12 +69,12 @@ fn menu_bar_plist(app: &Path) -> String {
 <plist version="1.0">
 <dict>
   <key>Label</key><string>{MENU_BAR_LABEL}</string>
-  <key>ProgramArguments</key><array><string>/usr/bin/open</string><string>{}</string></array>
+  <key>ProgramArguments</key><array><string>{}</string></array>
   <key>RunAtLoad</key><true/>
 </dict>
 </plist>
 "#,
-        app.display()
+        app.join("Contents/MacOS/Conflux").display()
     )
 }
 
@@ -110,7 +110,7 @@ fn plist_path() -> Result<PathBuf> {
 fn launchd_unload(label: &str) -> Result<()> {
     let _ = Command::new("launchctl")
         .args(["bootout", &format!("gui/{}/{label}", uid())])
-        .status();
+        .output();
     let path = plist_path_for(label)?;
     if path.exists() {
         std::fs::remove_file(path)?;
@@ -134,7 +134,7 @@ fn unit_path() -> Result<PathBuf> {
 }
 
 pub fn install() -> Result<String> {
-    let exe = std::env::current_exe().context("find the conflux binary")?;
+    let exe = crate::update::running_exe()?;
     if cfg!(windows) {
         let launch = windows_launch_command(&exe);
         run(
@@ -155,7 +155,6 @@ pub fn install() -> Result<String> {
         windows_start(&exe)?;
         Ok("a startup entry that runs conflux when you sign in".to_string())
     } else if cfg!(target_os = "macos") {
-        let exe = exe.canonicalize().unwrap_or(exe);
         let log = home()?.join("Library/Logs/conflux.log");
         launchd_load(LAUNCHD_LABEL, &launchd_plist(&exe, &log))?;
         match crate::update::app_bundle(&exe) {

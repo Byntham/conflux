@@ -308,7 +308,7 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
 }
 
 #[tokio::test]
-async fn a_node_in_the_mac_app_updates_the_whole_app_and_its_supervisor_keeps_watch() {
+async fn a_node_updates_on_the_hubs_command_and_its_supervisor_keeps_watch() {
     let Ok(hub_listener) = tokio::net::TcpListener::bind("[::1]:0").await else {
         eprintln!("skipped: this machine has no IPv6 loopback to put a hub and a node on one port");
         return;
@@ -317,7 +317,12 @@ async fn a_node_in_the_mac_app_updates_the_whole_app_and_its_supervisor_keeps_wa
     let hub = Harness::on(hub_listener).await;
     hub.add(Provider::Claude, "a").await;
     let home = tempfile::tempdir().unwrap();
-    offer_app_release(&hub, home.path());
+    let in_app = cfg!(unix);
+    if in_app {
+        offer_app_release(&hub, home.path());
+    } else {
+        offer_release(&hub);
+    }
     Config {
         role: Role::Node,
         hub: Some("[::1]".into()),
@@ -326,7 +331,12 @@ async fn a_node_in_the_mac_app_updates_the_whole_app_and_its_supervisor_keeps_wa
     }
     .save(&Paths::under(home.path()))
     .unwrap();
-    let mut node = start("serve", home.path(), &hub.app.ep.anthropic_api, APP_HELPERS);
+    let mut node = start(
+        "serve",
+        home.path(),
+        &hub.app.ep.anthropic_api,
+        if in_app { APP_HELPERS } else { "" },
+    );
     let installed = node._bin.path().join("Conflux.app");
     let base = format!("http://127.0.0.1:{port}");
     let status = format!("{base}/conflux/node");
@@ -383,17 +393,19 @@ async fn a_node_in_the_mac_app_updates_the_whole_app_and_its_supervisor_keeps_wa
         hub.app.machines.list().into_iter().find(|m| m.online).map(|_| ())
     })
     .await;
-    assert_eq!(
-        std::fs::read_to_string(installed.join("Contents/Info.plist")).unwrap(),
-        "from the release"
-    );
-    eventually("the old app to be removed", async || {
-        let leftover = std::fs::read_dir(node._bin.path())
-            .unwrap()
-            .any(|e| e.unwrap().file_name().to_string_lossy().starts_with("Conflux.app."));
-        (!leftover).then_some(())
-    })
-    .await;
+    if in_app {
+        assert_eq!(
+            std::fs::read_to_string(installed.join("Contents/Info.plist")).unwrap(),
+            "from the release"
+        );
+        eventually("the old app to be removed", async || {
+            let leftover = std::fs::read_dir(node._bin.path())
+                .unwrap()
+                .any(|e| e.unwrap().file_name().to_string_lossy().starts_with("Conflux.app."));
+            (!leftover).then_some(())
+        })
+        .await;
+    }
 
     kill(second_pid);
     let third_pid = eventually("the supervisor to start a new worker", async || {
