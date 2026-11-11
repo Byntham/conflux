@@ -23,8 +23,7 @@ struct MenuView: View {
         .padding(.vertical, 8)
         .frame(width: 340)
         .fixedSize(horizontal: false, vertical: true)
-        .onAppear { model.menuOpened() }
-        .onDisappear { model.menuClosed() }
+        .panelBackground(cornerRadius: 16)
     }
 
     @ViewBuilder private var content: some View {
@@ -351,7 +350,7 @@ struct UpdateBanner: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .glassCard(tint: .accentColor, cornerRadius: 14)
+        .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .padding(.horizontal, 10)
         .padding(.top, 10)
     }

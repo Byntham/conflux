@@ -1,12 +1,26 @@
+import AppKit
 import SwiftUI
 
+struct MenuMaterial: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .menu
+        view.blendingMode = .behindWindow
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
+}
+
 extension View {
-    @ViewBuilder func glassCard(tint: Color, cornerRadius: CGFloat) -> some View {
+    @ViewBuilder func panelBackground(cornerRadius: CGFloat) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         if #available(macOS 26, *) {
-            glassEffect(.regular.tint(tint.opacity(0.18)), in: shape)
+            glassEffect(.regular, in: shape)
         } else {
-            background(tint.opacity(0.08), in: shape)
+            background(MenuMaterial().clipShape(shape))
+                .overlay(shape.strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
         }
     }
 
