@@ -70,7 +70,7 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
     }
 
     private func updateIcon() {
-        item.button?.image = MenuBarIcon.image(badged: model.needsAttention)
+        item.button?.image = MenuBarIcon.image(badge: model.attention)
         item.button?.setAccessibilityLabel(model.needsAttention ? "conflux needs attention" : "conflux")
     }
 
@@ -114,7 +114,7 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         var x = below.midX - size.width / 2
         x = min(max(x, screen.minX - margin + 8), screen.maxX - size.width + margin - 8)
         panel.setFrame(
-            CGRect(x: x, y: below.minY - size.height + margin - 6, width: size.width, height: size.height),
+            CGRect(x: x, y: below.minY - size.height + margin - 10, width: size.width, height: size.height),
             display: true
         )
     }
@@ -133,10 +133,11 @@ enum MenuBarIcon {
     private static let logo: CGPath? = Bundle.main.url(forResource: "icon", withExtension: "svg")
         .flatMap { try? String(contentsOf: $0, encoding: .utf8) }
         .flatMap(Logo.path(svg:))
-    private static var cache: [Bool: NSImage] = [:]
+    private static var cache: [NSColor?: NSImage] = [:]
 
-    static func image(badged: Bool) -> NSImage {
-        if let image = cache[badged] { return image }
+    static func image(badge: NSColor?) -> NSImage {
+        if let image = cache[badge] { return image }
+        let badged = badge != nil
         let image = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { rect in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
             context.setFillColor(badged ? NSColor.labelColor.withAlphaComponent(1).cgColor : NSColor.black.cgColor)
@@ -145,19 +146,19 @@ enum MenuBarIcon {
             } else {
                 context.fillEllipse(in: rect.insetBy(dx: 4, dy: 4))
             }
-            if badged {
-                let dot = CGRect(x: rect.maxX - 7, y: rect.maxY - 7, width: 7, height: 7)
+            if let badge {
+                let dot = CGRect(x: rect.maxX - 6.5, y: rect.maxY - 7.5, width: 6.5, height: 6.5)
                 context.setBlendMode(.clear)
-                context.fillEllipse(in: dot.insetBy(dx: -2, dy: -2))
+                context.fillEllipse(in: dot.insetBy(dx: -2.5, dy: -2.5))
                 context.setBlendMode(.normal)
-                context.setFillColor(NSColor.systemOrange.cgColor)
+                context.setFillColor(badge.cgColor)
                 context.fillEllipse(in: dot)
             }
             return true
         }
         image.isTemplate = !badged
         image.cacheMode = .never
-        cache[badged] = image
+        cache[badge] = image
         return image
     }
 }

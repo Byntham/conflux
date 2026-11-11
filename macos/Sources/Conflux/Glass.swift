@@ -25,8 +25,8 @@ extension View {
         }
     }
 
-    func glassButton(prominent: Bool = false, compact: Bool = false) -> some View {
-        buttonStyle(CapsuleButton(prominent: prominent, compact: compact))
+    func glassButton(prominent: Bool = false) -> some View {
+        buttonStyle(CapsuleButton(prominent: prominent))
     }
 }
 
@@ -40,7 +40,7 @@ enum Palette {
     static let muted = Color.primary.opacity(0.62)
     static let dim = Color(nsColor: NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? NSColor.black.withAlphaComponent(0.45)
+            ? NSColor.black.withAlphaComponent(0.6)
             : NSColor.white.withAlphaComponent(0.3)
     })
 
@@ -59,17 +59,16 @@ enum Palette {
 
 struct CapsuleButton: ButtonStyle {
     let prominent: Bool
-    var compact = false
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
         let label = configuration.label
-            .font(.system(size: compact ? 12 : 13, weight: .medium))
+            .font(.system(size: 13, weight: .medium))
             .lineLimit(1)
             .fixedSize()
             .foregroundStyle(prominent ? Color.white : Color.primary)
-            .padding(.horizontal, compact ? 12 : 14)
-            .frame(height: compact ? 24 : 28)
+            .padding(.horizontal, 12)
+            .frame(height: 26)
             .contentShape(Capsule())
             .opacity(configuration.isPressed ? 0.75 : 1)
         Group {

@@ -46,14 +46,14 @@ struct MenuView: View {
                 title: "conflux isn't set up on this Mac",
                 detail: "Link this Mac to the hub on another machine, or make this Mac the hub that holds your accounts."
             ) {
-                Button("Use another hub") { model.setUp(asHub: false) }.glassButton(prominent: true)
+                Button("Link to a hub") { model.setUp(asHub: false) }.glassButton(prominent: true)
                 Button("Make this the hub") { model.setUp(asHub: true) }.glassButton()
             }
         case .notRunning:
             Notice(
                 title: "conflux isn't running",
                 detail: model.routing == true
-                    ? "Claude Code and Codex on this Mac can't connect until it starts. To use their own logins instead, turn off routing below."
+                    ? "Claude Code and Codex can't connect until it starts. To use their own logins, turn off routing below."
                     : "Claude Code and Codex can't reach it until it starts."
             ) {
                 Button("Start conflux") { model.start() }.glassButton(prominent: true)
@@ -85,6 +85,10 @@ struct Header: View {
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable()
                 .frame(width: 30, height: 30)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.15), lineWidth: 0.5)
+                )
             VStack(alignment: .leading, spacing: 1) {
                 Text("conflux").font(.system(size: 13, weight: .semibold))
                 Text(model.roleLine)
@@ -122,7 +126,9 @@ struct StatusDot: View {
             if model.accounts.isEmpty { return (Palette.meter, "No accounts") }
             let ready = "\(model.readyCount) of \(model.accounts.count) ready"
             return (model.needsAttention ? Palette.warnFill : Palette.ok, ready)
-        case .notRunning, .hubUnreachable:
+        case .notRunning:
+            return (Palette.badFill, "Stopped")
+        case .hubUnreachable:
             return (Palette.badFill, "Offline")
         case .waiting:
             return (Palette.warnFill, "Waiting")
@@ -173,25 +179,28 @@ struct Accounts: View {
             }
         } else {
             let rows = VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("Accounts")
-                    Spacer()
-                    Text("Resets in").frame(width: 52, alignment: .trailing)
-                }
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Palette.muted)
-                .padding(.bottom, -6)
                 ForEach(model.accounts) { account in
                     AccountRow(account: account, now: model.now, openDashboard: model.openDashboard)
                 }
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 4)
-            if model.accounts.count > 4 {
-                ScrollView { rows }.frame(height: 330)
-            } else {
-                rows
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Text("Accounts")
+                    Spacer()
+                    Text("Used").frame(width: 34, alignment: .trailing)
+                    Text("Resets in").frame(width: 52, alignment: .trailing)
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Palette.muted)
+                .padding(.horizontal, 14)
+                if model.accounts.count > 4 {
+                    ScrollView { rows }.frame(height: 330)
+                } else {
+                    rows
+                }
             }
+            .padding(.vertical, 4)
         }
     }
 }
@@ -352,18 +361,18 @@ struct UpdateBanner: View {
             }
         } else if let failure = model.updateFailure {
             banner(title: "An update failed", detail: failure) {
-                Button("Try again") { model.updateAll() }.glassButton(compact: true)
+                Button("Try again") { model.updateAll() }.glassButton()
             }
         } else if let latest = model.latestVersion {
             let behind = model.outdatedMachines
             banner(
-                title: "conflux \(latest) is available",
+                title: "conflux v\(latest) is available",
                 detail: behind.count == 1
-                    ? "\(behind[0].hostname) is on v\(behind[0].version)."
-                    : "\(behind.count) machines are behind."
+                    ? "\(model.isThisMac(behind[0]) ? "This Mac" : behind[0].hostname) is on v\(behind[0].version)"
+                    : "\(behind.count) machines are behind"
             ) {
                 Button(behind.count == 1 ? "Update" : "Update all") { model.updateAll() }
-                    .glassButton(prominent: true, compact: true)
+                    .glassButton(prominent: true)
             }
         }
     }
@@ -373,6 +382,7 @@ struct UpdateBanner: View {
             Image(systemName: "arrow.triangle.2.circlepath")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.primary)
+                .frame(width: 22)
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).font(.system(size: 13, weight: .semibold))
                 Text(detail)
@@ -388,6 +398,7 @@ struct UpdateBanner: View {
         .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .padding(.horizontal, 10)
         .padding(.top, 10)
+        .padding(.bottom, 4)
     }
 }
 
@@ -419,7 +430,7 @@ struct Actions: View {
                 MenuRow(title: "Restart conflux", action: model.restart)
             }
             MenuRow(title: "Quit menu bar app", action: { NSApp.terminate(nil) }) {
-                Text("⌘Q").font(.system(size: 13)).foregroundStyle(HierarchicalShapeStyle.secondary)
+                Text("⌘Q").font(.system(size: 13)).opacity(0.62)
             }
             .keyboardShortcut("q")
             .help("conflux keeps running in the background.")

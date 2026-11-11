@@ -178,18 +178,27 @@ final class Model: ObservableObject {
         accounts.filter { if case .ready = $0.state(now: now) { return true } else { return false } }.count
     }
 
-    var needsAttention: Bool {
+    var attention: NSColor? {
         switch phase {
         case .notRunning, .hubUnreachable:
-            return true
+            return .systemRed
         case .ready:
             let enabled = accounts.filter(\.enabled)
-            return accounts.contains { $0.state(now: now).isProblem }
+            let troubled = accounts.contains { $0.state(now: now).isProblem }
                 || (!enabled.isEmpty && readyCount == 0)
                 || updateFailure != nil
+            return troubled ? .systemOrange : nil
         default:
-            return false
+            return nil
         }
+    }
+
+    var needsAttention: Bool {
+        attention != nil
+    }
+
+    func isThisMac(_ machine: Machine) -> Bool {
+        node.map { machine.hostname == $0.hostname } ?? (machine.role == "hub")
     }
 
     var showsRouting: Bool {

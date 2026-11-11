@@ -56,6 +56,7 @@ struct Machine: Decodable {
 
     let hostname: String
     let version: String
+    let role: String
     let online: Bool
     let outdated: Bool
     let update: Update?
@@ -68,6 +69,7 @@ struct NodeInfo: Decodable {
     }
 
     let hub: String
+    let hostname: String
     let hubLink: Link
 }
 
