@@ -41,7 +41,8 @@ fn start(command: &str, home: &Path, fake: &str) -> Started {
     std::fs::copy(BUILT, &exe).unwrap();
     let nothing_on_path = bin.path().join("empty");
     std::fs::create_dir(&nothing_on_path).unwrap();
-    let child = Command::new(&exe)
+    let mut conflux = Command::new(&exe);
+    conflux
         .arg(command)
         .env("CONFLUX_HOME", home)
         .env("HOME", home)
@@ -54,9 +55,16 @@ fn start(command: &str, home: &Path, fake: &str) -> Started {
         .env("CONFLUX_CHATGPT_BACKEND", format!("{fake}/backend-api"))
         .env("CONFLUX_OPENAI_AUTH", fake)
         .env("CONFLUX_RELEASES", format!("{fake}/releases"))
-        .stdin(Stdio::null())
-        .spawn()
-        .unwrap();
+        .stdin(Stdio::null());
+    let child = (0..100)
+        .find_map(|_| match conflux.spawn() {
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy => {
+                std::thread::sleep(Duration::from_millis(50));
+                None
+            }
+            spawned => Some(spawned.unwrap()),
+        })
+        .expect("the copied binary stayed busy");
     Started {
         child,
         later_pids: Vec::new(),
