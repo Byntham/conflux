@@ -79,7 +79,7 @@ final class Model: ObservableObject {
 
     let bundle = Bundle.main.bundleURL
     let local: Local
-    private let runningVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+    let runningVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
     private let session: URLSession
     private var menuOpen = false
 
@@ -202,8 +202,8 @@ final class Model: ObservableObject {
         return behind ? latest : nil
     }
 
-    var outdatedCount: Int {
-        dashboard?.machines.filter(\.outdated).count ?? 0
+    var outdatedMachines: [Machine] {
+        dashboard?.machines.filter(\.outdated) ?? []
     }
 
     var updating: Bool {
@@ -225,10 +225,8 @@ final class Model: ObservableObject {
             return node.map { "Linked to \($0.hub)" } ?? "Linked to a hub"
         case .waiting:
             return "Waiting to be linked"
-        case .notRunning:
-            return "Not running"
-        case .notSetUp, .translocated:
-            return "Not set up"
+        case .notRunning, .notSetUp, .translocated:
+            return runningVersion.map { "v\($0)" } ?? ""
         case .loading:
             return "Connecting…"
         }

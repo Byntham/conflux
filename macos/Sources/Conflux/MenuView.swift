@@ -7,17 +7,17 @@ struct MenuView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Header()
-            Divider().padding(.vertical, 6)
+            Separator()
             content
             if let failure = model.failure {
                 Text(failure)
-                    .font(.caption)
-                    .foregroundStyle(.red)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Palette.bad)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 14)
                     .padding(.top, 6)
             }
-            Divider().padding(.vertical, 6)
+            Separator()
             Actions()
         }
         .padding(.vertical, 8)
@@ -40,10 +40,10 @@ struct MenuView: View {
         case .notSetUp:
             Notice(
                 title: "conflux isn't set up on this Mac",
-                detail: "Make this Mac the hub that holds your accounts, or wait for your hub to link it."
+                detail: "Make this Mac the hub that holds your accounts. Or use another hub, which then links this Mac from its dashboard."
             ) {
-                Button("Make this Mac the hub") { model.setUp(asHub: true) }.glassButton(prominent: true)
-                Button("Wait to be linked") { model.setUp(asHub: false) }.glassButton()
+                Button("Make this the hub") { model.setUp(asHub: true) }.glassButton(prominent: true)
+                Button("Use another hub") { model.setUp(asHub: false) }.glassButton()
             }
         case .notRunning:
             Notice(title: "conflux isn't running", detail: "Claude Code and Codex can't reach it until it starts.") {
@@ -54,12 +54,12 @@ struct MenuView: View {
                 title: "Waiting to be linked",
                 detail: "On your hub's dashboard, open Machines and click Find machines."
             ) {
-                Button("Make this Mac the hub") { model.setUp(asHub: true) }.glassButton()
+                Button("Make this the hub") { model.setUp(asHub: true) }.glassButton()
             }
         case .hubUnreachable:
             Notice(
                 title: "Can't reach the hub",
-                detail: "\(model.node?.hub ?? "The hub") isn't answering. To keep working, turn off routing below and restart Claude Code or Codex."
+                detail: "\(model.node?.hub ?? "The hub") isn't answering. To keep working, turn off routing below, then restart Claude Code or Codex."
             )
         case .ready:
             Accounts()
@@ -110,13 +110,13 @@ struct StatusDot: View {
     private var summary: (Color, String) {
         switch model.phase {
         case .ready:
-            if model.accounts.isEmpty { return (.secondary, "No accounts") }
-            if model.needsAttention { return (.orange, "\(model.readyCount) of \(model.accounts.count) ready") }
-            return (.green, "\(model.readyCount) of \(model.accounts.count) ready")
+            if model.accounts.isEmpty { return (Palette.meter, "No accounts") }
+            let ready = "\(model.readyCount) of \(model.accounts.count) ready"
+            return (model.needsAttention ? Palette.warnFill : Palette.ok, ready)
         case .notRunning, .hubUnreachable:
-            return (.red, "Offline")
+            return (Palette.badFill, "Offline")
         case .waiting:
-            return (.orange, "Waiting")
+            return (Palette.warnFill, "Waiting")
         default:
             return (.clear, "")
         }
@@ -133,12 +133,11 @@ struct Notice<Buttons: View>: View {
             Text(title).font(.system(size: 13, weight: .semibold))
             if let detail {
                 Text(detail)
-                    .font(.system(size: 12))
+                    .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 8) { buttons }
-                .controlSize(.regular)
                 .padding(.top, 4)
         }
         .padding(.horizontal, 14)
@@ -188,7 +187,7 @@ struct AccountRow: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
                 Text(account.email ?? account.id)
-                    .font(.system(size: 12.5, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Text(kind)
@@ -199,10 +198,14 @@ struct AccountRow: View {
                 StatePill(state: account.state(now: now), now: now)
             }
             let windows = account.sharedWindows
-            if windows.isEmpty {
+            if account.needsLogin != nil {
+                Text("Log in again from the dashboard.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            } else if windows.isEmpty {
                 Text("No usage data yet")
                     .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
             } else {
                 ForEach(windows) { window in
                     Meter(window: window, now: now)
@@ -224,26 +227,35 @@ struct StatePill: View {
     let now: Date
 
     var body: some View {
-        let (text, color) = look
-        Text(text)
-            .font(.system(size: 10.5, weight: .medium))
-            .foregroundStyle(color)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 1.5)
-            .background(color.opacity(0.13), in: Capsule())
-            .lineLimit(1)
-            .fixedSize()
+        switch state {
+        case .ready:
+            HStack(spacing: 5) {
+                Circle().fill(Palette.ok).frame(width: 6, height: 6)
+                Text("Ready").font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+        case .disabled:
+            Text("Disabled").font(.system(size: 11)).foregroundStyle(.secondary)
+        default:
+            let (text, color, tint) = problem
+            Text(text)
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(color)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .background(tint.opacity(0.16), in: Capsule())
+                .lineLimit(1)
+                .fixedSize()
+        }
     }
 
-    private var look: (String, Color) {
+    private var problem: (String, Color, Color) {
         switch state {
-        case .ready: return ("Ready", .green)
-        case .needsLogin: return ("Needs login", .red)
-        case .billingBlocked: return ("Billing blocked", .red)
-        case .disabled: return ("Disabled", .secondary)
-        case let .cooling(until): return ("Cooling \(Countdown.text(until, now: now))", .orange)
-        case .quotaFull: return ("Quota full", .orange)
-        case let .modelsCooling(n): return ("\(n) \(n == 1 ? "model" : "models") cooling", .orange)
+        case .needsLogin: return ("Needs login", Palette.bad, Palette.badFill)
+        case .billingBlocked: return ("Billing blocked", Palette.bad, Palette.badFill)
+        case let .cooling(until): return ("Cooling \(Countdown.text(until, now: now))", Palette.warn, Palette.warnFill)
+        case .quotaFull: return ("Quota full", Palette.warn, Palette.warnFill)
+        case let .modelsCooling(n): return ("\(n) \(n == 1 ? "model" : "models") cooling", Palette.warn, Palette.warnFill)
+        case .ready, .disabled: return ("", .clear, .clear)
         }
     }
 }
@@ -267,21 +279,22 @@ struct Meter: View {
                         .frame(width: max(pct > 0 ? 4 : 0, geometry.size.width * pct / 100))
                 }
             }
-            .frame(height: 5)
+            .frame(height: 6)
             Text("\(Int(pct))%")
                 .font(.system(size: 11).monospacedDigit())
-                .foregroundStyle(pct >= 80 ? color(pct) : .primary)
+                .foregroundStyle(pct >= 100 ? Palette.bad : pct >= 80 ? Palette.warn : .primary)
                 .frame(width: 34, alignment: .trailing)
-            Text(window.resetsAt.map { "resets \(Countdown.text($0, now: now))" } ?? "")
+            Text(window.resetsAt.map { Countdown.text($0, now: now) } ?? "")
                 .font(.system(size: 11).monospacedDigit())
                 .foregroundStyle(.secondary)
-                .frame(width: 88, alignment: .leading)
+                .frame(width: 52, alignment: .trailing)
                 .lineLimit(1)
         }
+        .help(window.resetsAt.map { "\(name) limit resets in \(Countdown.text($0, now: now))" } ?? name)
     }
 
     private func color(_ pct: Double) -> Color {
-        pct >= 100 ? .red : pct >= 80 ? .orange : .accentColor
+        pct >= 100 ? Palette.badFill : pct >= 80 ? Palette.warnFill : Palette.meter
     }
 
     private var name: String {
@@ -324,12 +337,14 @@ struct UpdateBanner: View {
                 Button("Try again") { model.updateAll() }.glassButton()
             }
         } else if let latest = model.latestVersion {
-            let count = model.outdatedCount
+            let behind = model.outdatedMachines
             banner(
                 title: "conflux \(latest) is available",
-                detail: count == 1 ? "1 machine is behind." : "\(count) machines are behind."
+                detail: behind.count == 1
+                    ? "\(behind[0].hostname) is on v\(behind[0].version)."
+                    : "\(behind.count) machines are behind."
             ) {
-                Button("Update") { model.updateAll() }.glassButton(prominent: true)
+                Button(behind.count == 1 ? "Update" : "Update all") { model.updateAll() }.glassButton(prominent: true)
             }
         }
     }
@@ -339,14 +354,14 @@ struct UpdateBanner: View {
             Image(systemName: "arrow.triangle.2.circlepath")
                 .foregroundStyle(Color.accentColor)
             VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.system(size: 12, weight: .semibold))
+                Text(title).font(.system(size: 13, weight: .semibold))
                 Text(detail)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
-            trailing().controlSize(.small)
+            trailing()
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -362,30 +377,45 @@ struct Actions: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let routing = model.routing, model.showsRouting {
-                MenuRow(title: "Route Claude Code and Codex here", action: { model.setRouting(!routing) }) {
+                HStack {
+                    Text("Route this Mac through conflux").font(.system(size: 13))
+                    Spacer()
                     Toggle("", isOn: Binding(get: { routing }, set: { model.setRouting($0) }))
                         .toggleStyle(.switch)
                         .controlSize(.mini)
                         .labelsHidden()
                 }
+                .padding(.horizontal, 9)
+                .frame(height: 26)
                 .help("Off makes Claude Code and Codex on this Mac use their own logins.")
+                Separator(inset: 9)
             }
             if model.phase == .ready || model.phase == .hubUnreachable {
                 MenuRow(title: "Open dashboard", action: model.openDashboard)
                 MenuRow(title: "Add account…", action: model.openDashboard)
+                Separator(inset: 9)
             }
             if model.local.serviceInstalled && model.phase != .notRunning {
                 MenuRow(title: "Restart conflux", action: model.restart)
             }
-            Divider().padding(.vertical, 6)
             MenuRow(title: "Quit menu bar app", action: { NSApp.terminate(nil) }) {
-                Text("⌘Q").font(.system(size: 12)).foregroundStyle(.secondary)
+                Text("⌘Q").font(.system(size: 13)).foregroundStyle(.secondary)
             }
             .keyboardShortcut("q")
             .help("conflux keeps running in the background.")
         }
         .disabled(model.busy != nil)
         .padding(.horizontal, 5)
+    }
+}
+
+struct Separator: View {
+    var inset: CGFloat = 14
+
+    var body: some View {
+        Divider()
+            .padding(.horizontal, inset)
+            .padding(.vertical, 6)
     }
 }
 

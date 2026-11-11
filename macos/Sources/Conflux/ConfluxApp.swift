@@ -10,6 +10,7 @@ enum Main {
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         controller = StatusController(model: Model())
+        app.delegate = controller
         app.run()
     }
 }
@@ -25,7 +26,7 @@ final class Panel: NSPanel {
 }
 
 @MainActor
-final class StatusController: NSObject, NSWindowDelegate {
+final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate {
     private let model: Model
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let panel: Panel
@@ -112,10 +113,16 @@ final class StatusController: NSObject, NSWindowDelegate {
         var x = below.midX - size.width / 2
         x = min(max(x, screen.minX + 8), screen.maxX - size.width - 8)
         panel.setFrame(CGRect(x: x, y: below.minY - size.height - 6, width: size.width, height: size.height), display: true)
+        panel.invalidateShadow()
     }
 
     func windowDidResignKey(_ notification: Notification) {
         close()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !panel.isVisible { open() }
+        return false
     }
 }
 
@@ -129,22 +136,24 @@ enum MenuBarIcon {
         if let image = cache[badged] { return image }
         let image = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { rect in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
-            context.setFillColor(NSColor.black.cgColor)
+            context.setFillColor(badged ? NSColor.labelColor.cgColor : NSColor.black.cgColor)
             if let logo {
                 Logo.draw(logo, in: rect.insetBy(dx: 1.5, dy: 1), context: context)
             } else {
                 context.fillEllipse(in: rect.insetBy(dx: 4, dy: 4))
             }
             if badged {
-                let center = CGPoint(x: rect.maxX - 4, y: rect.maxY - 4)
+                let dot = CGRect(x: rect.maxX - 7, y: rect.maxY - 7, width: 7, height: 7)
                 context.setBlendMode(.clear)
-                context.fillEllipse(in: CGRect(x: center.x - 5, y: center.y - 5, width: 10, height: 10))
+                context.fillEllipse(in: dot.insetBy(dx: -2, dy: -2))
                 context.setBlendMode(.normal)
-                context.fillEllipse(in: CGRect(x: center.x - 3.25, y: center.y - 3.25, width: 6.5, height: 6.5))
+                context.setFillColor(NSColor.systemOrange.cgColor)
+                context.fillEllipse(in: dot)
             }
             return true
         }
-        image.isTemplate = true
+        image.isTemplate = !badged
+        image.cacheMode = .never
         cache[badged] = image
         return image
     }
