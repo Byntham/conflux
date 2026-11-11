@@ -192,6 +192,10 @@ final class Model: ObservableObject {
         }
     }
 
+    var showsRouting: Bool {
+        [.ready, .hubUnreachable, .notRunning].contains(phase)
+    }
+
     var latestVersion: String? {
         guard let dashboard, let latest = dashboard.latestVersion else { return nil }
         let behind = dashboard.machines.contains(where: \.outdated)

@@ -22,6 +22,7 @@ struct MenuView: View {
         }
         .padding(.vertical, 8)
         .frame(width: 340)
+        .fixedSize(horizontal: false, vertical: true)
         .onAppear { model.menuOpened() }
         .onDisappear { model.menuClosed() }
     }
@@ -35,26 +36,26 @@ struct MenuView: View {
                 title: "Move Conflux to Applications",
                 detail: "macOS is running Conflux from a temporary copy. Drag it into your Applications folder, then open it again."
             ) {
-                Button("Show in Finder") { model.revealInFinder() }
+                Button("Show in Finder") { model.revealInFinder() }.glassButton(prominent: true)
             }
         case .notSetUp:
             Notice(
                 title: "conflux isn't set up on this Mac",
                 detail: "Make this Mac the hub that holds your accounts, or wait for your hub to link it."
             ) {
-                Button("Make this Mac the hub") { model.setUp(asHub: true) }
-                Button("Wait to be linked") { model.setUp(asHub: false) }
+                Button("Make this Mac the hub") { model.setUp(asHub: true) }.glassButton(prominent: true)
+                Button("Wait to be linked") { model.setUp(asHub: false) }.glassButton()
             }
         case .notRunning:
             Notice(title: "conflux isn't running", detail: "Claude Code and Codex can't reach it until it starts.") {
-                Button("Start conflux") { model.start() }
+                Button("Start conflux") { model.start() }.glassButton(prominent: true)
             }
         case .waiting:
             Notice(
                 title: "Waiting to be linked",
                 detail: "On your hub's dashboard, open Machines and click Find machines."
             ) {
-                Button("Make this Mac the hub") { model.setUp(asHub: true) }
+                Button("Make this Mac the hub") { model.setUp(asHub: true) }.glassButton()
             }
         case .hubUnreachable:
             Notice(
@@ -118,7 +119,7 @@ struct StatusDot: View {
         case .waiting:
             return (.orange, "Waiting")
         default:
-            return (.secondary, "")
+            return (.clear, "")
         }
     }
 }
@@ -161,7 +162,7 @@ struct Accounts: View {
                 title: "No accounts yet",
                 detail: "Add a Claude or ChatGPT account from the dashboard."
             ) {
-                Button("Add account…") { model.openDashboard() }
+                Button("Add account…") { model.openDashboard() }.glassButton(prominent: true)
             }
         } else {
             let rows = VStack(alignment: .leading, spacing: 12) {
@@ -321,7 +322,7 @@ struct UpdateBanner: View {
             }
         } else if let failure = model.updateFailure {
             banner(title: "An update failed", detail: failure) {
-                Button("Try again") { model.updateAll() }
+                Button("Try again") { model.updateAll() }.glassButton()
             }
         } else if let latest = model.latestVersion {
             let count = model.outdatedCount
@@ -329,8 +330,7 @@ struct UpdateBanner: View {
                 title: "conflux \(latest) is available",
                 detail: count == 1 ? "1 machine is behind." : "\(count) machines are behind."
             ) {
-                Button("Update") { model.updateAll() }
-                    .buttonStyle(.borderedProminent)
+                Button("Update") { model.updateAll() }.glassButton(prominent: true)
             }
         }
     }
@@ -349,8 +349,9 @@ struct UpdateBanner: View {
             Spacer(minLength: 8)
             trailing().controlSize(.small)
         }
-        .padding(10)
-        .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .glassCard(tint: .accentColor, cornerRadius: 14)
         .padding(.horizontal, 10)
         .padding(.top, 10)
     }
@@ -361,7 +362,7 @@ struct Actions: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let routing = model.routing {
+            if let routing = model.routing, model.showsRouting {
                 MenuRow(title: "Route Claude Code and Codex here", action: { model.setRouting(!routing) }) {
                     Toggle("", isOn: Binding(get: { routing }, set: { model.setRouting($0) }))
                         .toggleStyle(.switch)
@@ -394,6 +395,7 @@ struct MenuRow<Trailing: View>: View {
     let action: () -> Void
     @ViewBuilder var trailing: Trailing
     @State private var hovered = false
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
         Button(action: action) {
@@ -402,11 +404,13 @@ struct MenuRow<Trailing: View>: View {
                 Spacer()
                 trailing
             }
+            .foregroundStyle(hovered && isEnabled ? Color.white : Color.primary)
             .padding(.horizontal, 9)
             .frame(height: 24)
             .contentShape(Rectangle())
             .background(
-                RoundedRectangle(cornerRadius: 5).fill(hovered ? Color.primary.opacity(0.1) : .clear)
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(hovered && isEnabled ? Color.accentColor : .clear)
             )
         }
         .buttonStyle(.plain)
