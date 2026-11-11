@@ -193,6 +193,15 @@ final class Model: ObservableObject {
         }
     }
 
+    var problemSummary: String? {
+        let problems = accounts.filter { $0.state(now: now).isProblem }
+        if problems.isEmpty { return updateFailure == nil ? nil : "Update failed" }
+        if problems.allSatisfy({ $0.needsLogin != nil }) {
+            return problems.count == 1 ? "1 needs login" : "\(problems.count) need login"
+        }
+        return problems.count == 1 ? "1 needs attention" : "\(problems.count) need attention"
+    }
+
     var isDown: Bool {
         phase == .notRunning || phase == .hubUnreachable
     }

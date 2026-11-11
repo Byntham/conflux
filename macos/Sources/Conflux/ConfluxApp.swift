@@ -89,7 +89,9 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         place()
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
-        item.button?.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.12).cgColor
+        item.button?.effectiveAppearance.performAsCurrentDrawingAppearance {
+            self.item.button?.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.18).cgColor
+        }
         outsideClicks = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             Task { @MainActor in self?.close() }
         }
@@ -148,7 +150,7 @@ enum MenuBarIcon {
         let badged = badge != nil
         let image = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { rect in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
-            let glyph = badged ? NSColor.labelColor.withAlphaComponent(dimmed ? 0.45 : 1) : NSColor.black
+            let glyph = badged ? NSColor.labelColor.withAlphaComponent(dimmed ? 0.55 : 1) : NSColor.black
             context.setFillColor(glyph.cgColor)
             if let logo {
                 Logo.draw(logo, in: rect.insetBy(dx: 1.5, dy: 1), context: context)

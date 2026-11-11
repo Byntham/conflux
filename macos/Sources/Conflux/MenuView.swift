@@ -19,14 +19,14 @@ struct MenuView: View {
                     .padding(.top, 6)
             }
             if model.phase == .ready && model.showsUpdateCard {
-                Spacer().frame(height: 6)
+                Spacer().frame(height: 10)
             } else {
                 Separator()
             }
             Actions()
         }
         .padding(.top, 10)
-        .padding(.bottom, 5)
+        .padding(.bottom, 8)
         .frame(width: 340)
         .fixedSize(horizontal: false, vertical: true)
         .panelBackground(cornerRadius: 16)
@@ -130,12 +130,12 @@ struct StatusDot: View {
             if model.accounts.isEmpty { return (Palette.meter, "No accounts") }
             let ready = "\(model.readyCount) of \(model.accounts.count) ready"
             switch model.attention {
-            case .systemRed?: return (Color(nsColor: .systemRed), ready)
+            case .systemRed?: return (Color(nsColor: .systemRed), model.problemSummary ?? ready)
             case .some: return (Color(nsColor: .systemOrange), ready)
             case nil: return (Palette.ok, ready)
             }
         case .notRunning:
-            return (Color(nsColor: .systemRed), "Stopped")
+            return (Color(nsColor: .systemRed), "")
         case .hubUnreachable:
             return (Color(nsColor: .systemRed), "Offline")
         case .waiting:
@@ -236,7 +236,7 @@ struct AccountRow: View {
             if account.needsLogin != nil {
                 Button("Log in again in the dashboard", action: openDashboard)
                     .buttonStyle(.link)
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
             } else if windows.isEmpty {
                 Text("No usage data yet")
                     .font(.system(size: 11))
@@ -401,9 +401,10 @@ struct UpdateBanner: View {
             Spacer(minLength: 8)
             trailing()
         }
-        .padding(.horizontal, 8)
+        .padding(.leading, 8)
+        .padding(.trailing, 10)
         .padding(.vertical, 10)
-        .background(Color.accentColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .padding(.horizontal, 14)
         .padding(.top, 10)
         .padding(.bottom, 4)
