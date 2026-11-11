@@ -27,6 +27,8 @@ pub struct Snapshot {
     pub windows: Vec<Window>,
     pub overage_in_use: bool,
     pub updated_at: Option<DateTime<Utc>>,
+    #[serde(skip)]
+    pub polled_at: Option<DateTime<Utc>>,
 }
 
 impl Snapshot {
@@ -43,6 +45,25 @@ impl Snapshot {
 
     pub fn shared_windows(&self) -> impl Iterator<Item = &Window> {
         self.windows.iter().filter(|w| w.model_scope.is_none())
+    }
+
+    pub fn model_window(&self, model: &str) -> Option<&Window> {
+        let words = |s: &str| -> Vec<String> {
+            s.to_lowercase()
+                .split(|c: char| !c.is_alphanumeric())
+                .filter(|w| !w.is_empty())
+                .map(String::from)
+                .collect()
+        };
+        let model = words(model);
+        let names_model = |name: Vec<String>| {
+            name.iter().any(|w| w != "claude" && w.chars().all(char::is_alphabetic))
+                && model.windows(name.len()).any(|run| run == name.as_slice())
+        };
+        self.windows
+            .iter()
+            .filter(|w| w.model_scope.as_deref().map(words).is_some_and(names_model))
+            .max_by(|a, b| a.used_pct.total_cmp(&b.used_pct))
     }
 
     pub fn longest(&self) -> Option<&Window> {
@@ -165,6 +186,7 @@ pub fn parse_claude_usage(v: &Value, now: DateTime<Utc>) -> Snapshot {
         }
     }
     s.updated_at = Some(now);
+    s.polled_at = Some(now);
     s
 }
 
@@ -185,6 +207,7 @@ pub fn parse_codex_usage(v: &Value, now: DateTime<Utc>) -> Snapshot {
         }
     }
     s.updated_at = Some(now);
+    s.polled_at = Some(now);
     s
 }
 
@@ -381,5 +404,35 @@ mod tests {
         }});
         let s = parse_codex_usage(&x, now);
         assert_eq!(s.longest().unwrap().duration_secs, Some(604800));
+    }
+
+    #[test]
+    fn model_windows_match_whole_names_in_order() {
+        let windows = |name: &str| Snapshot {
+            windows: vec![Window {
+                key: format!("weekly:{name}"),
+                used_pct: 0.0,
+                resets_at: None,
+                duration_secs: None,
+                model_scope: Some(name.into()),
+            }],
+            ..Snapshot::default()
+        };
+        for (name, model, matches) in [
+            ("Fable", "claude-fable-5-1", true),
+            ("Claude Fable 5.1", "claude-fable-5-1", true),
+            ("Sonnet 4", "claude-sonnet-4-5", true),
+            ("Sonnet 5", "claude-sonnet-4-5", false),
+            ("Opus", "claude-fable-5-1", false),
+            ("Claude", "claude-fable-5-1", false),
+            ("5.1", "claude-fable-5-1", false),
+            ("", "claude-fable-5-1", false),
+        ] {
+            assert_eq!(
+                windows(name).model_window(model).is_some(),
+                matches,
+                "{name} vs {model}"
+            );
+        }
     }
 }

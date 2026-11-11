@@ -12,9 +12,10 @@ use crate::usage::{Snapshot, Usage};
 const PIN_TTL: chrono::Duration = chrono::Duration::hours(1);
 const MAX_WINDOW: chrono::Duration = chrono::Duration::hours(7 * 24 + 1);
 const ACCOUNT_SCOPE: &str = "account";
+const MODEL_SCOPE: &str = "model:";
 
 pub fn model_scope(model: &str) -> String {
-    format!("model:{model}")
+    format!("{MODEL_SCOPE}{model}")
 }
 
 #[derive(Clone, Debug)]
@@ -30,6 +31,21 @@ pub struct Cooldown {
     pub scope: String,
     pub until: DateTime<Utc>,
     pub reason: String,
+    #[serde(default = "Utc::now")]
+    at: DateTime<Utc>,
+}
+
+impl Cooldown {
+    fn lifted_by(&self, snap: &Snapshot, now: DateTime<Utc>) -> bool {
+        let scope_has_room = match self.scope.strip_prefix(MODEL_SCOPE) {
+            Some(model) => {
+                snap.polled_at.is_some_and(|t| t > self.at)
+                    && snap.model_window(model).is_some_and(|w| w.used_pct < 100.0)
+            }
+            None => self.scope == ACCOUNT_SCOPE,
+        };
+        scope_has_room && has_room_since(snap, self.at, now)
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -40,8 +56,12 @@ struct BillingBlock {
 
 impl BillingBlock {
     fn cleared_by(&self, snap: &Snapshot, now: DateTime<Utc>) -> bool {
-        snap.updated_at.is_some_and(|t| t > self.at) && snap.is_fresh(now) && !snap.exhausted(now)
+        has_room_since(snap, self.at, now)
     }
+}
+
+fn has_room_since(snap: &Snapshot, since: DateTime<Utc>, now: DateTime<Utc>) -> bool {
+    snap.updated_at.is_some_and(|t| t > since) && snap.is_fresh(now) && !snap.exhausted(now)
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -117,6 +137,15 @@ impl Router {
                     continue;
                 }
                 st.billing_blocked.remove(&e.id);
+            }
+            if let Some(cds) = st.cooldowns.get_mut(&e.id) {
+                cds.retain(|_, c| {
+                    let lifted = c.until > now && c.lifted_by(&snap, now);
+                    if lifted {
+                        tracing::info!(account = %e.id, scope = %c.scope, reason = %c.reason, until = %c.until, "usage shows room again; cooldown lifted");
+                    }
+                    !lifted
+                });
             }
             if let Some(until) = Self::cooling(&st, &e.id, model, now) {
                 soonest = Some(soonest.map_or(until, |s| s.min(until)));
@@ -229,6 +258,7 @@ impl Router {
                 scope: scope.to_string(),
                 until,
                 reason: reason.to_string(),
+                at: now,
             },
         );
     }
@@ -249,11 +279,17 @@ impl Router {
     }
 
     pub fn cooldowns(&self, account: &str) -> Vec<Cooldown> {
+        let snap = self.usage.get(account);
         let now = Utc::now();
         let st = self.state.lock().unwrap();
         st.cooldowns
             .get(account)
-            .map(|m| m.values().filter(|c| c.until > now).cloned().collect())
+            .map(|m| {
+                m.values()
+                    .filter(|c| c.until > now && !c.lifted_by(&snap, now))
+                    .cloned()
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -318,6 +354,7 @@ mod tests {
             ],
             overage_in_use: false,
             updated_at: Some(now),
+            polled_at: Some(now),
         }
     }
 
@@ -447,6 +484,19 @@ mod tests {
     }
 
     #[test]
+    fn a_cooldown_handed_to_the_next_process_keeps_blocking() {
+        let (_d, store, usage, router) = setup(&[("a", Provider::Codex)]);
+        let a = id(Provider::Codex, "a");
+        usage.set(&a, snap(100, 10.0, 10.0));
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        router.cool(&a, ACCOUNT, Utc::now() + chrono::Duration::days(2), "Codex usage limit");
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let next = Router::new(store, usage);
+        next.import(&router.export(tx));
+        assert!(next.pick(&route(Provider::Codex), &HashSet::new()).is_err());
+    }
+
+    #[test]
     fn billing_boundary_blocks_instead_of_cooling() {
         let (_d, _s, _u, router) = setup(&[("a", Provider::Claude)]);
         let a = id(Provider::Claude, "a");
@@ -501,20 +551,79 @@ mod tests {
     }
 
     #[test]
-    fn a_healthy_poll_lifts_a_billing_block() {
-        let (_d, _s, usage, router) = setup(&[("a", Provider::Claude)]);
+    fn a_healthy_poll_lifts_quota_blocks_after_an_early_reset() {
+        let (_d, _s, usage, router) = setup(&[("a", Provider::Claude), ("b", Provider::Claude)]);
         let a = id(Provider::Claude, "a");
+        let b = id(Provider::Claude, "b");
+        let fable = model_scope("claude-fable-5-1");
         usage.set(&a, snap(100, 10.0, 10.0));
+        usage.set(&b, snap(100, 10.0, 10.0));
         router.cool(&a, ACCOUNT, Utc::now() + chrono::Duration::days(20), "quota");
+        router.cool(&b, ACCOUNT, Utc::now() + chrono::Duration::days(2), "quota");
+        router.cool(&b, &fable, Utc::now() + chrono::Duration::days(2), "fable weekly");
         let req = route(Provider::Claude);
         assert!(
             router.pick(&req, &HashSet::new()).is_err(),
             "a snapshot from before the block proves nothing"
         );
         std::thread::sleep(std::time::Duration::from_millis(2));
+        usage.set(&b, snap(100, 10.0, 100.0));
+        assert_eq!(
+            router.cooldowns(&b).len(),
+            2,
+            "a poll that is still full keeps the block"
+        );
         usage.set(&a, snap(100, 10.0, 10.0));
+        usage.set(&b, snap(100, 10.0, 10.0));
         assert!(router.billing_blocked(&a).is_none());
-        assert!(router.pick(&req, &HashSet::new()).is_ok());
+        let without_b: HashSet<_> = [b.clone()].into();
+        assert_eq!(router.pick(&req, &without_b).unwrap().id, a);
+        let left: Vec<_> = router.cooldowns(&b).into_iter().map(|c| c.scope).collect();
+        assert_eq!(left, vec![fable]);
+        let without_a: HashSet<_> = [a.clone()].into();
+        assert_eq!(router.pick(&req, &without_a).unwrap().id, b);
+        let fable_req = RouteRequest {
+            model: Some("claude-fable-5-1".into()),
+            ..route(Provider::Claude)
+        };
+        assert!(router.pick(&fable_req, &without_a).is_err());
+        let with_models = |fable_pct: f64| {
+            let scoped = |name: &str, percent: f64| {
+                serde_json::json!({"kind": "weekly_scoped", "percent": percent,
+                    "scope": {"model": {"display_name": name}}})
+            };
+            crate::usage::parse_claude_usage(
+                &serde_json::json!({
+                    "five_hour": {"utilization": 10.0},
+                    "seven_day": {"utilization": 10.0},
+                    "limits": [scoped("Opus", 0.0), scoped("Fable", fable_pct)],
+                }),
+                Utc::now(),
+            )
+        };
+        let mut polled_before_the_cap = with_models(0.0);
+        polled_before_the_cap.polled_at = Some(Utc::now() - chrono::Duration::hours(1));
+        usage.set(&b, polled_before_the_cap);
+        let mut healthy = http::HeaderMap::new();
+        for tag in ["5h", "7d"] {
+            healthy.insert(
+                http::HeaderName::try_from(format!("anthropic-ratelimit-unified-{tag}-utilization")).unwrap(),
+                http::HeaderValue::from_static("0.1"),
+            );
+        }
+        usage.observe_headers(&b, Provider::Claude, &healthy);
+        assert!(
+            router.pick(&fable_req, &without_a).is_err(),
+            "headers carry no model window, so they cannot lift a model cooldown"
+        );
+        usage.set(&b, with_models(100.0));
+        assert!(
+            router.pick(&fable_req, &without_a).is_err(),
+            "another model's window refilling says nothing about Fable"
+        );
+        usage.set(&b, with_models(0.0));
+        assert_eq!(router.pick(&fable_req, &without_a).unwrap().id, b);
+        assert!(router.cooldowns(&b).is_empty());
     }
 
     #[test]
