@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use crate::config::{Config, Endpoints, Paths, Role};
 use crate::setup::{self, ClientPaths};
 use crate::tailnet::{self, TailnetSelf};
-use crate::{app, hubmove, node, service, supervisor};
+use crate::{app, hubmove, link, node, service, supervisor};
 
 #[derive(Parser)]
 #[command(
@@ -29,6 +29,7 @@ pub enum Command {
     Update {
         machines: Vec<String>,
     },
+    Wait,
     Join {
         hub: String,
         #[arg(long)]
@@ -180,11 +181,31 @@ pub async fn run(cli: Cli) -> Result<()> {
             if let Some((_, pending)) = hubmove::find_pending(&paths)? {
                 tracing::warn!(old_hub = %pending.old_hub, "a hub move is unfinished. Run `conflux hub take-over` to finish it.");
             }
-            match cfg.role {
-                Role::Hub => app::serve(cfg, paths, Endpoints::from_env()).await,
-                Role::Node => node::serve(cfg, paths).await,
+            loop {
+                let cfg = Config::load(&paths)?;
+                match cfg.role {
+                    Role::Hub => return app::serve(cfg, paths, Endpoints::from_env()).await,
+                    Role::Node => return node::serve(cfg, paths).await,
+                    Role::Waiting => link::serve(cfg, paths.clone()).await?,
+                }
             }
         }
+        Command::Wait => match link::become_waiting(&paths)? {
+            Some(role) => {
+                let role = if role == Role::Node { "linked to a hub" } else { "a hub" };
+                println!("This machine is already {role}. Its role did not change.");
+                if service::installed() {
+                    service::restart()?;
+                }
+                Ok(())
+            }
+            None => {
+                println!("Installed {}.", service::install()?);
+                println!("conflux is running and waiting to be linked to a hub.");
+                println!("On the hub's dashboard, open Machines and click Find machines.");
+                Ok(())
+            }
+        },
         Command::Join { hub, no_service, force } => join(cfg, paths, &hub, no_service, force).await,
         Command::Sync { setting } => {
             let mut cfg = cfg;
@@ -292,15 +313,6 @@ fn is_this_machine(hub: &str) -> bool {
         || t.ips.iter().any(|ip| ip.to_string() == hub)
 }
 
-fn has_local_accounts(paths: &Paths) -> bool {
-    std::fs::read_dir(paths.accounts_dir()).is_ok_and(|entries| {
-        entries.flatten().any(|e| {
-            let n = e.file_name().to_string_lossy().to_string();
-            n.ends_with(".json") && !n.ends_with(".settings.json")
-        })
-    })
-}
-
 async fn commit_move(http: &reqwest::Client, pending: &hubmove::Pending, me: &str) -> Result<bool> {
     let url = format!("http://{}:{}/conflux/move/commit", pending.old_hub, pending.port);
     for attempt in 0..30 {
@@ -344,7 +356,7 @@ async fn take_over(mut cfg: Config, paths: Paths, old_hub: &str, code: Option<St
             found
         }
         None => {
-            if has_local_accounts(&paths) {
+            if paths.has_accounts() {
                 bail!("this machine already holds accounts");
             }
             let code = code.context("pass --code with the code from `conflux hub move-code`")?;
@@ -413,7 +425,7 @@ async fn join(mut cfg: Config, paths: Paths, hub: &str, no_service: bool, force:
         _ => crate::fsutil::remove_durable(&state_file)?,
     }
     let becoming_hub = is_this_machine(hub);
-    if !becoming_hub && has_local_accounts(&paths) && !force {
+    if !becoming_hub && paths.has_accounts() && !force {
         bail!(
             "this machine holds logged-in accounts. Joining another hub would strand them. \
              Move them with `conflux hub take-over` on the new hub, or pass --force."
@@ -592,6 +604,11 @@ fn pct(v: &Value) -> String {
 }
 
 fn print_status(v: &Value) -> Result<()> {
+    if v["role"] == "waiting" {
+        println!("This machine is waiting to be linked to a hub.");
+        println!("On the hub's dashboard, open Machines and click Find machines. Or run `conflux join <hub>` here.");
+        return Ok(());
+    }
     let accounts = v["accounts"].as_array().cloned().unwrap_or_default();
     if accounts.is_empty() {
         println!("No accounts yet. Add one with `conflux login claude` or `conflux login codex`.");

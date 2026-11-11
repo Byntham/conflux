@@ -1,10 +1,11 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
+use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use axum::extract::State;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::extract::{ConnectInfo, State};
 use axum::response::Response;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -41,6 +42,7 @@ pub struct Machine {
 struct Link {
     id: u64,
     commands: mpsc::UnboundedSender<Value>,
+    address: IpAddr,
 }
 
 struct Entry {
@@ -56,7 +58,7 @@ pub struct Machines {
 }
 
 impl Machines {
-    pub fn connect(&self, report: Report) -> (u64, mpsc::UnboundedReceiver<Value>) {
+    pub fn connect(&self, report: Report, address: IpAddr) -> (u64, mpsc::UnboundedReceiver<Value>) {
         let id = self.next_link.fetch_add(1, Ordering::SeqCst);
         let (commands, receiver) = mpsc::unbounded_channel();
         self.map.lock().unwrap().insert(
@@ -64,7 +66,7 @@ impl Machines {
             Entry {
                 report,
                 last_seen: Utc::now(),
-                link: Some(Link { id, commands }),
+                link: Some(Link { id, commands, address }),
             },
         );
         (id, receiver)
@@ -138,6 +140,15 @@ impl Machines {
         }
     }
 
+    pub fn addresses(&self) -> HashSet<IpAddr> {
+        self.map
+            .lock()
+            .unwrap()
+            .values()
+            .filter_map(|e| e.link.as_ref().map(|l| l.address))
+            .collect()
+    }
+
     pub fn list(&self) -> Vec<Machine> {
         let now = Utc::now();
         self.map
@@ -162,8 +173,12 @@ pub fn hub_moved(hub: &str) -> Value {
     json!({ "type": "hub", "hub": hub })
 }
 
-pub async fn control(State(app): State<Arc<App>>, upgrade: WebSocketUpgrade) -> Response {
-    upgrade.on_upgrade(move |socket| serve_control(app, socket))
+pub async fn control(
+    State(app): State<Arc<App>>,
+    ConnectInfo(from): ConnectInfo<SocketAddr>,
+    upgrade: WebSocketUpgrade,
+) -> Response {
+    upgrade.on_upgrade(move |socket| serve_control(app, socket, from.ip()))
 }
 
 async fn next_report(node: &mut WebSocket) -> Option<Option<Report>> {
@@ -174,12 +189,12 @@ async fn next_report(node: &mut WebSocket) -> Option<Option<Report>> {
     }
 }
 
-async fn serve_control(app: Arc<App>, mut node: WebSocket) {
+async fn serve_control(app: Arc<App>, mut node: WebSocket, address: IpAddr) {
     let Some(Some(first)) = next_report(&mut node).await else {
         return;
     };
     let hostname = first.hostname.clone();
-    let (link, mut commands) = app.machines.connect(first);
+    let (link, mut commands) = app.machines.connect(first, address);
     if let Some(hub) = app.redirect_hub() {
         app.machines.send(&hostname, hub_moved(&hub));
     }

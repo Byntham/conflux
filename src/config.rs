@@ -73,6 +73,14 @@ impl Paths {
     pub fn management_key_file(&self) -> PathBuf {
         self.config_dir.join("management-key")
     }
+    pub fn has_accounts(&self) -> bool {
+        std::fs::read_dir(self.accounts_dir()).is_ok_and(|entries| {
+            entries.flatten().any(|e| {
+                let n = e.file_name().to_string_lossy().to_string();
+                n.ends_with(".json") && !n.ends_with(".settings.json")
+            })
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -81,6 +89,7 @@ pub enum Role {
     #[default]
     Hub,
     Node,
+    Waiting,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

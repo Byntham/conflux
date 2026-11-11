@@ -238,6 +238,10 @@ impl Harness {
     }
 
     pub async fn on(listener: tokio::net::TcpListener) -> Self {
+        Self::on_tailnet(listener, conflux::tailnet::system_tailscale()).await
+    }
+
+    pub async fn on_tailnet(listener: tokio::net::TcpListener, tailscale: conflux::tailnet::Tailscale) -> Self {
         let fake = Arc::new(Fake::default());
         let fake_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let fake_addr = fake_listener.local_addr().unwrap();
@@ -251,10 +255,11 @@ impl Harness {
             port,
             ..Config::default()
         };
-        let mut app = App::new(
+        let mut app = App::on_tailnet(
             cfg,
             &Paths::under(dir.path()),
             Endpoints::all_at(&format!("http://{fake_addr}")),
+            tailscale,
         )
         .unwrap();
         Arc::get_mut(&mut app).unwrap().hostname = "hub-under-test".into();

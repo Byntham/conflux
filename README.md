@@ -74,6 +74,10 @@ conflux join <hub>
 
 conflux now runs in the background, and it has edited Claude Code's and Codex's settings to send their requests through the hub. Sessions that are already open need a restart to pick this up.
 
+You can also install conflux without naming a hub. Run the same command without `<hub>`, or on Windows without the `conflux join` line. conflux then starts and waits to be linked. On the dashboard, open Machines and click "Find machines". It lists your machines that are online on the tailnet. Click "Link" next to a waiting machine to make it a node of this hub. Machines that don't run conflux yet show the install command to copy.
+
+A waiting machine accepts a link only from a machine owned by the same Tailscale user. It refuses if it has logged-in accounts or already belongs to a hub. `conflux status` on it says it is waiting.
+
 To check that it worked, start a new session on that machine and send a message. It appears under "Recent requests" on the dashboard.
 
 On a system without a prebuilt binary, build it with Rust instead:

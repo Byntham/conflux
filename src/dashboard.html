@@ -250,6 +250,11 @@
   .panel { padding: 15px 16px; min-width: 0; }
   .panel p { margin: 3px 0 0; font-size: 12.5px; color: var(--muted); }
   .panel .seg { margin-top: 12px; }
+  .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .found { display: grid; gap: 8px; margin: 12px 0 14px; }
+  .found-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; }
+  .found-row .found-text { flex: 1; min-width: 0; }
+  .found-row .code-block { flex-basis: 100%; margin-top: 4px; }
   .code-block { display: flex; align-items: flex-start; gap: 6px; margin-top: 9px; padding: 5px 5px 5px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--raised); font-family: var(--mono); font-size: 12.5px; line-height: 1.6; }
   .code-text { flex: 1; min-width: 0; padding: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
   .nb { white-space: nowrap; }
@@ -534,8 +539,9 @@
         <div class="card table-wrap"><table id="machine-list"></table></div>
         <div class="panels">
           <div class="card panel">
-            <h2>Add a machine</h2>
-            <p>Run this on the new machine. It must be on your tailnet.</p>
+            <div class="panel-head"><h2>Add a machine</h2><button class="btn" id="find-machines">Find machines</button></div>
+            <div class="found" id="found-machines" hidden></div>
+            <p>Or run this on the new machine. It must be on your tailnet.</p>
             <div class="seg" role="group" aria-label="Install method">
               <button data-install="command" aria-pressed="true">macOS and Linux</button>
               <button data-install="windows_command" aria-pressed="false">Windows</button>
@@ -1251,6 +1257,43 @@ function confirmRemove(id, name, kind) {
   };
 }
 
+const OS_NAMES = { linux: "Linux", macOS: "macOS", windows: "Windows" };
+
+function foundRow(m, i) {
+  const what = { waiting: "Waiting to be linked", busy: "Not waiting to be linked", missing: "conflux is not running. Run this there:" }[m.state];
+  const link = m.state === "waiting" ? `<button class="btn small primary" data-link="${esc(m.address)}">Link</button>` : "";
+  const install = m.install ? `<div class="code-block"><span class="code-text" id="found-${i}">${commandHtml(m.install)}</span><button class="icon-btn" data-copy="found-${i}" title="Copy" aria-label="Copy">${icon("copy")}</button></div>` : "";
+  return `<div class="found-row"><div class="found-text"><span class="machine-name">${esc(m.name)}</span><div class="cell-sub">${esc(OS_NAMES[m.os] || m.os)} · ${esc(what)}</div></div>${link}${install}</div>`;
+}
+
+async function findMachines(button) {
+  const box = $("found-machines");
+  button.disabled = true;
+  box.hidden = false;
+  box.innerHTML = '<p>Looking for your machines on the tailnet...</p>';
+  try {
+    const d = await api("GET", "/conflux/api/discover");
+    box.innerHTML = d.machines.length ? d.machines.map(foundRow).join("") : "<p>No other machines of yours are online on the tailnet.</p>";
+  } catch (e) {
+    box.hidden = true;
+    showError(e);
+  } finally { button.disabled = false; }
+}
+
+async function linkMachine(button) {
+  button.disabled = true;
+  try {
+    const r = await api("POST", "/conflux/api/link", { address: button.dataset.link });
+    toast(`Linked ${r.linked}`);
+    button.closest(".found-row").remove();
+    if (!$("found-machines").children.length) $("found-machines").hidden = true;
+    await refresh();
+  } catch (e) {
+    showError(e);
+    button.disabled = false;
+  }
+}
+
 async function startUpdate(button) {
   const machine = button.dataset.update;
   button.disabled = true;
@@ -1289,6 +1332,7 @@ function copyText(text) {
   return Promise.resolve();
 }
 
+$("find-machines").onclick = (ev) => findMachines(ev.currentTarget);
 $("install-copy").onclick = () => copyText(latest.add_machine[installKey]).then(() => toast("Copied"), showError);
 $("thread-machine").onchange = loadThreads;
 $("thread-errors").onchange = loadThreads;
@@ -1357,6 +1401,8 @@ document.addEventListener("click", (ev) => {
   if (thread) return openThread(thread.dataset.thread);
   const action = ev.target.closest("[data-act]");
   if (action) return accountAction(action);
+  const linkButton = ev.target.closest("[data-link]");
+  if (linkButton) return linkMachine(linkButton);
   const update = ev.target.closest("[data-update], [data-update-all]");
   if (update) return startUpdate(update);
 });

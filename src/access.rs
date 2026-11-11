@@ -29,7 +29,7 @@ pub fn is_proxy_path(path: &str) -> bool {
 }
 
 fn is_machine_path(path: &str) -> bool {
-    is_proxy_path(path) || path == "/conflux/control"
+    is_proxy_path(path) || path == "/conflux/control" || path == "/conflux/link"
 }
 
 fn changes_state(method: &Method) -> bool {
@@ -141,6 +141,15 @@ mod tests {
         let page = headers(&[("host", "localhost:8317"), ("origin", "http://localhost:8317")]);
         assert!(matches!(
             check(&allowed(), &Method::GET, "/conflux/control", &page),
+            Verdict::Deny(..)
+        ));
+        let link = headers(&[
+            ("host", "localhost:8317"),
+            ("origin", "http://localhost:8317"),
+            ("content-type", "application/json"),
+        ]);
+        assert!(matches!(
+            check(&allowed(), &Method::POST, "/conflux/link", &link),
             Verdict::Deny(..)
         ));
         let node = headers(&[("host", "localhost:8317")]);
