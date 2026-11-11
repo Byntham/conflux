@@ -93,6 +93,8 @@ On macOS, the install script puts Conflux.app in `~/Applications` and links `~/.
 
 conflux keeps running when you quit the app. The app opens again at your next login.
 
+The app's routing switch edits Claude Code's and Codex's settings in their default folders. If you set `CLAUDE_CONFIG_DIR` or `CODEX_HOME` in your shell profile, use `conflux on` and `conflux off` in the terminal instead.
+
 To install only the `conflux` command, add `--no-app`:
 
 ```sh

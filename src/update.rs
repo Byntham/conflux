@@ -325,11 +325,16 @@ impl Updater {
         .await;
         if let Err(e) = handed_over {
             let installed = app_bundle(exe).unwrap_or(exe);
-            if installed.is_dir() {
-                remove_path(installed);
-            }
-            if let Err(restore) = std::fs::rename(&backup, installed) {
-                tracing::error!("could not put the previous binary back: {restore}");
+            let failed = aside(exe, "failed");
+            let set_aside = installed.is_dir() && std::fs::rename(installed, &failed).is_ok();
+            match std::fs::rename(&backup, installed) {
+                Ok(()) => remove_path(&failed),
+                Err(restore) => {
+                    tracing::error!("could not put the previous binary back: {restore}");
+                    if set_aside {
+                        let _ = std::fs::rename(&failed, installed);
+                    }
+                }
             }
             return Err(e);
         }

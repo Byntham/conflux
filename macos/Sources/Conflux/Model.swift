@@ -3,7 +3,7 @@ import Foundation
 
 enum Phase: Equatable {
     case loading
-    case translocated
+    case outsideApplications
     case notSetUp
     case notRunning
     case waiting
@@ -124,10 +124,8 @@ final class Model: ObservableObject {
     func refresh() async {
         now = Date()
         relaunchIfReplaced()
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let inApplications = ["/Applications/", "\(home)/Applications/"].contains { bundle.path.hasPrefix($0) }
-        if bundle.path.contains("/AppTranslocation/") || (!inApplications && !local.serviceInstalled) {
-            phase = .translocated
+        if !inApplications && !local.serviceInstalled {
+            phase = .outsideApplications
             return
         }
         routing = local.routing
@@ -258,8 +256,15 @@ final class Model: ObservableObject {
         dashboard?.machines.contains { $0.online && $0.isUpdating } ?? false
     }
 
+    var inApplications: Bool {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return ["/Applications/", "\(home)/Applications/"].contains { bundle.path.hasPrefix($0) }
+    }
+
     var updateFailure: String? {
-        guard let machine = dashboard?.machines.first(where: { $0.update?.state == "failed" }) else { return nil }
+        guard let machine = dashboard?.machines.first(where: { $0.online && $0.update?.state == "failed" }) else {
+            return nil
+        }
         return "\(machine.hostname): \(machine.update?.error ?? "update failed")"
     }
 
@@ -280,7 +285,7 @@ final class Model: ObservableObject {
             case "waiting": return "Waiting to be linked"
             default: return runningVersion.map { "v\($0)" } ?? ""
             }
-        case .notSetUp, .translocated:
+        case .notSetUp, .outsideApplications:
             return runningVersion.map { "v\($0)" } ?? ""
         case .problem:
             return runningVersion.map { "v\($0)" } ?? ""
@@ -318,6 +323,9 @@ final class Model: ObservableObject {
 
     func setUp(asHub: Bool) {
         perform("Setting up…") {
+            guard self.inApplications else {
+                throw Command.Failure(message: "Move Conflux to the Applications folder in your home folder first.")
+            }
             _ = try? await Command.run(
                 URL(fileURLWithPath: "/usr/bin/xattr"),
                 ["-dr", "com.apple.quarantine", self.bundle.path]
@@ -349,7 +357,8 @@ final class Model: ObservableObject {
             request.httpMethod = "POST"
             request.timeoutInterval = 30
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = Data("{}".utf8)
+            let machines = self.outdatedMachines.map(\.hostname)
+            request.httpBody = try JSONSerialization.data(withJSONObject: ["machines": machines])
             let (body, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             let answer = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]

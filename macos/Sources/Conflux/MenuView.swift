@@ -38,7 +38,7 @@ struct MenuView: View {
         switch model.phase {
         case .loading:
             Notice(title: "Connecting to conflux…", detail: nil)
-        case .translocated:
+        case .outsideApplications:
             Notice(
                 title: "Move Conflux to Applications",
                 detail: "Conflux updates itself in place, so it has to run from an Applications folder. Drag it into the Applications folder in your home folder, then open it again."
