@@ -258,7 +258,9 @@ final class Model: ObservableObject {
 
     var inApplications: Bool {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return ["/Applications/", "\(home)/Applications/"].contains { bundle.path.hasPrefix($0) }
+        let folder = bundle.deletingLastPathComponent().path
+        return ["/Applications", "\(home)/Applications"].contains(folder)
+            && FileManager.default.isWritableFile(atPath: folder)
     }
 
     var updateFailure: String? {
@@ -358,6 +360,7 @@ final class Model: ObservableObject {
             request.timeoutInterval = 30
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             let machines = self.outdatedMachines.map(\.hostname)
+            guard !machines.isEmpty else { throw Command.Failure(message: "Nothing to update right now.") }
             request.httpBody = try JSONSerialization.data(withJSONObject: ["machines": machines])
             let (body, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0

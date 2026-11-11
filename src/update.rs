@@ -326,6 +326,7 @@ impl Updater {
         if let Err(e) = handed_over {
             let installed = app_bundle(exe).unwrap_or(exe);
             let failed = aside(exe, "failed");
+            remove_path(&failed);
             let set_aside = installed.is_dir() && std::fs::rename(installed, &failed).is_ok();
             match std::fs::rename(&backup, installed) {
                 Ok(()) => remove_path(&failed),
