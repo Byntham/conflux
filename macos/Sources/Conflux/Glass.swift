@@ -17,7 +17,7 @@ extension View {
     @ViewBuilder func panelBackground(cornerRadius: CGFloat) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         if #available(macOS 26, *) {
-            background(shape.fill(Palette.dim))
+            background(shape.fill(Palette.glassTint))
                 .glassEffect(.regular, in: shape)
                 .overlay(shape.strokeBorder(Palette.rim, lineWidth: 0.5))
         } else {
@@ -35,8 +35,18 @@ enum Palette {
     static let ok = dynamic(light: 0x047857, dark: 0x34D399)
     static let warn = dynamic(light: 0xA15C00, dark: 0xFBBF24)
     static let warnFill = dynamic(light: 0xD97F06, dark: 0xF59E0B)
-    static let bad = dynamic(light: 0xC81E1E, dark: 0xF87171)
+    static let bad = dynamic(light: 0xC81E1E, dark: 0xFCA5A5)
     static let badFill = dynamic(light: 0xC81E1E, dark: 0xE5484D)
+    static let link = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(srgbRed: 0.6, green: 0.8, blue: 1, alpha: 1)
+            : NSColor.linkColor
+    })
+    static let pillBase = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor.black.withAlphaComponent(0.3)
+            : NSColor.clear
+    })
     static let meter = dynamic(light: 0x71717A, dark: 0xA1A1AA)
     static let muted = Color(nsColor: NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
@@ -53,9 +63,9 @@ enum Palette {
             ? NSColor.white.withAlphaComponent(0.14)
             : NSColor.clear
     })
-    static let dim = Color(nsColor: NSColor(name: nil) { appearance in
+    static let glassTint = Color(nsColor: NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? NSColor.black.withAlphaComponent(0.5)
+            ? NSColor.white.withAlphaComponent(0.04)
             : NSColor.white.withAlphaComponent(0.18)
     })
 

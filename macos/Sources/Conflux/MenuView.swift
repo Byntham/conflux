@@ -239,7 +239,8 @@ struct AccountRow: View {
             let windows = account.sharedWindows
             if account.needsLogin != nil {
                 Button("Log in again in the dashboard", action: openDashboard)
-                    .buttonStyle(.link)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Palette.link)
                     .font(.system(size: 13))
             } else if windows.isEmpty {
                 Text("No usage data yet")
@@ -282,6 +283,7 @@ struct StatePill: View {
                 .padding(.horizontal, 7)
                 .padding(.vertical, 2)
                 .background(tint.opacity(0.2), in: Capsule())
+                .background(Palette.pillBase, in: Capsule())
                 .lineLimit(1)
                 .fixedSize()
         }
