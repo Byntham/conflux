@@ -35,9 +35,14 @@ impl Drop for Started {
     }
 }
 
-fn start(command: &str, home: &Path, fake: &str) -> Started {
+fn exe_name() -> String {
+    format!("conflux{}", std::env::consts::EXE_SUFFIX)
+}
+
+fn start(command: &str, home: &Path, fake: &str, exe_dir: &str) -> Started {
     let bin = tempfile::tempdir().unwrap();
-    let exe = bin.path().join(format!("conflux{}", std::env::consts::EXE_SUFFIX));
+    let exe = bin.path().join(exe_dir).join(exe_name());
+    std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
     std::fs::copy(BUILT, &exe).unwrap();
     let nothing_on_path = bin.path().join("empty");
     std::fs::create_dir(&nothing_on_path).unwrap();
@@ -111,6 +116,21 @@ fn offer_release(h: &Harness) {
     *h.fake.release.lock().unwrap() = Some(("999.0.0".into(), PathBuf::from(BUILT)));
 }
 
+const APP_HELPERS: &str = "Conflux.app/Contents/Helpers";
+
+fn offer_app_release(h: &Harness, dir: &Path) {
+    let path = dir.join("app.zip");
+    let mut zip = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+    let stored = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    zip.start_file(format!("{APP_HELPERS}/{}", exe_name()), stored.unix_permissions(0o755))
+        .unwrap();
+    std::io::copy(&mut std::fs::File::open(BUILT).unwrap(), &mut zip).unwrap();
+    zip.start_file("Conflux.app/Contents/Info.plist", stored).unwrap();
+    std::io::Write::write_all(&mut zip, b"from the release").unwrap();
+    zip.finish().unwrap();
+    *h.fake.release.lock().unwrap() = Some(("999.0.0".into(), path));
+}
+
 fn free_port() -> u16 {
     std::net::TcpListener::bind("127.0.0.1:0")
         .unwrap()
@@ -134,7 +154,7 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
     }
     .save(&Paths::under(h.dir.path()))
     .unwrap();
-    let mut hub = start("worker", h.dir.path(), &h.app.ep.anthropic_api);
+    let mut hub = start("worker", h.dir.path(), &h.app.ep.anthropic_api, "");
     let base = format!("http://127.0.0.1:{port}");
     let status = format!("{base}/conflux/api/status");
     let old_pid = eventually("the hub to start", async || pid_at(&status).await).await;
@@ -288,7 +308,7 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
 }
 
 #[tokio::test]
-async fn a_node_updates_on_the_hubs_command_and_its_supervisor_keeps_watch() {
+async fn a_node_in_the_mac_app_updates_the_whole_app_and_its_supervisor_keeps_watch() {
     let Ok(hub_listener) = tokio::net::TcpListener::bind("[::1]:0").await else {
         eprintln!("skipped: this machine has no IPv6 loopback to put a hub and a node on one port");
         return;
@@ -296,8 +316,8 @@ async fn a_node_updates_on_the_hubs_command_and_its_supervisor_keeps_watch() {
     let port = hub_listener.local_addr().unwrap().port();
     let hub = Harness::on(hub_listener).await;
     hub.add(Provider::Claude, "a").await;
-    offer_release(&hub);
     let home = tempfile::tempdir().unwrap();
+    offer_app_release(&hub, home.path());
     Config {
         role: Role::Node,
         hub: Some("[::1]".into()),
@@ -306,7 +326,8 @@ async fn a_node_updates_on_the_hubs_command_and_its_supervisor_keeps_watch() {
     }
     .save(&Paths::under(home.path()))
     .unwrap();
-    let mut node = start("serve", home.path(), &hub.app.ep.anthropic_api);
+    let mut node = start("serve", home.path(), &hub.app.ep.anthropic_api, APP_HELPERS);
+    let installed = node._bin.path().join("Conflux.app");
     let base = format!("http://127.0.0.1:{port}");
     let status = format!("{base}/conflux/node");
     let first_pid = eventually("the node to start", async || pid_at(&status).await).await;
@@ -360,6 +381,17 @@ async fn a_node_updates_on_the_hubs_command_and_its_supervisor_keeps_watch() {
     assert_eq!(claude(&http, &base).send().await.unwrap().status(), 200);
     eventually("the new node to reach the hub", async || {
         hub.app.machines.list().into_iter().find(|m| m.online).map(|_| ())
+    })
+    .await;
+    assert_eq!(
+        std::fs::read_to_string(installed.join("Contents/Info.plist")).unwrap(),
+        "from the release"
+    );
+    eventually("the old app to be removed", async || {
+        let leftover = std::fs::read_dir(node._bin.path())
+            .unwrap()
+            .any(|e| e.unwrap().file_name().to_string_lossy().starts_with("Conflux.app."));
+        (!leftover).then_some(())
     })
     .await;
 
