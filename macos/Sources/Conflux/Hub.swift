@@ -100,13 +100,17 @@ struct Local {
         )
     }
 
-    var port: Int {
+    func config(_ key: String) -> String? {
         let text = (try? String(contentsOf: configDir.appendingPathComponent("config.toml"), encoding: .utf8)) ?? ""
         for line in text.split(separator: "\n") {
             let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-            if parts.count == 2, parts[0] == "port", let port = Int(parts[1]) { return port }
+            if parts.count == 2, parts[0] == key { return parts[1].trimmingCharacters(in: CharacterSet(charactersIn: "\"")) }
         }
-        return 8317
+        return nil
+    }
+
+    var port: Int {
+        config("port").flatMap(Int.init) ?? 8317
     }
 
     var routing: Bool? {

@@ -53,6 +53,8 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.delegate = self
         panel.dismiss = { [weak self] in self?.close() }
+        item.button?.wantsLayer = true
+        item.button?.layer?.cornerRadius = 6
         item.button?.target = self
         item.button?.action = #selector(toggle)
         updateIcon()
@@ -70,7 +72,7 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
     }
 
     private func updateIcon() {
-        item.button?.image = MenuBarIcon.image(badge: model.attention)
+        item.button?.image = MenuBarIcon.image(badge: model.attention, dimmed: model.isDown)
         item.button?.setAccessibilityLabel(model.needsAttention ? "conflux needs attention" : "conflux")
     }
 
@@ -87,7 +89,7 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         place()
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
-        item.button?.highlight(true)
+        item.button?.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.12).cgColor
         outsideClicks = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             Task { @MainActor in self?.close() }
         }
@@ -97,7 +99,7 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         guard panel.isVisible else { return }
         panel.orderOut(nil)
         closedAt = Date()
-        item.button?.highlight(false)
+        item.button?.layer?.backgroundColor = nil
         model.menuClosed()
         if let outsideClicks {
             NSEvent.removeMonitor(outsideClicks)
@@ -133,14 +135,21 @@ enum MenuBarIcon {
     private static let logo: CGPath? = Bundle.main.url(forResource: "icon", withExtension: "svg")
         .flatMap { try? String(contentsOf: $0, encoding: .utf8) }
         .flatMap(Logo.path(svg:))
-    private static var cache: [NSColor?: NSImage] = [:]
+    private struct Key: Hashable {
+        let badge: NSColor?
+        let dimmed: Bool
+    }
 
-    static func image(badge: NSColor?) -> NSImage {
-        if let image = cache[badge] { return image }
+    private static var cache: [Key: NSImage] = [:]
+
+    static func image(badge: NSColor?, dimmed: Bool) -> NSImage {
+        let key = Key(badge: badge, dimmed: dimmed)
+        if let image = cache[key] { return image }
         let badged = badge != nil
         let image = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { rect in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
-            context.setFillColor(badged ? NSColor.labelColor.withAlphaComponent(1).cgColor : NSColor.black.cgColor)
+            let glyph = badged ? NSColor.labelColor.withAlphaComponent(dimmed ? 0.45 : 1) : NSColor.black
+            context.setFillColor(glyph.cgColor)
             if let logo {
                 Logo.draw(logo, in: rect.insetBy(dx: 1.5, dy: 1), context: context)
             } else {
@@ -158,7 +167,7 @@ enum MenuBarIcon {
         }
         image.isTemplate = !badged
         image.cacheMode = .never
-        cache[badge] = image
+        cache[key] = image
         return image
     }
 }

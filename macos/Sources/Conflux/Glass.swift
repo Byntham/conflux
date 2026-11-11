@@ -50,7 +50,7 @@ enum Palette {
     })
     static let dim = Color(nsColor: NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? NSColor.black.withAlphaComponent(0.6)
+            ? NSColor.black.withAlphaComponent(0.5)
             : NSColor.white.withAlphaComponent(0.18)
     })
 

@@ -193,6 +193,10 @@ final class Model: ObservableObject {
         }
     }
 
+    var isDown: Bool {
+        phase == .notRunning || phase == .hubUnreachable
+    }
+
     var needsAttention: Bool {
         attention != nil
     }
@@ -203,6 +207,10 @@ final class Model: ObservableObject {
 
     var showsRouting: Bool {
         [.ready, .hubUnreachable, .notRunning].contains(phase)
+    }
+
+    var showsUpdateCard: Bool {
+        updating || updateFailure != nil || latestVersion != nil
     }
 
     var latestVersion: String? {
@@ -234,7 +242,14 @@ final class Model: ObservableObject {
             return node.map { "Linked to \($0.hub)" } ?? "Linked to a hub"
         case .waiting:
             return "Waiting to be linked"
-        case .notRunning, .notSetUp, .translocated:
+        case .notRunning:
+            switch local.config("role") {
+            case "hub": return "This Mac is the hub"
+            case "node": return local.config("hub").map { "Linked to \($0)" } ?? "Linked to a hub"
+            case "waiting": return "Waiting to be linked"
+            default: return runningVersion.map { "v\($0)" } ?? ""
+            }
+        case .notSetUp, .translocated:
             return runningVersion.map { "v\($0)" } ?? ""
         case .loading:
             return "Connecting…"

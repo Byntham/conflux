@@ -18,7 +18,11 @@ struct MenuView: View {
                     .padding(.horizontal, 14)
                     .padding(.top, 6)
             }
-            Separator()
+            if model.phase == .ready && model.showsUpdateCard {
+                Spacer().frame(height: 6)
+            } else {
+                Separator()
+            }
             Actions()
         }
         .padding(.top, 10)
@@ -126,16 +130,16 @@ struct StatusDot: View {
             if model.accounts.isEmpty { return (Palette.meter, "No accounts") }
             let ready = "\(model.readyCount) of \(model.accounts.count) ready"
             switch model.attention {
-            case .systemRed?: return (Palette.badFill, ready)
-            case .some: return (Palette.warnFill, ready)
+            case .systemRed?: return (Color(nsColor: .systemRed), ready)
+            case .some: return (Color(nsColor: .systemOrange), ready)
             case nil: return (Palette.ok, ready)
             }
         case .notRunning:
-            return (Palette.badFill, "Stopped")
+            return (Color(nsColor: .systemRed), "Stopped")
         case .hubUnreachable:
-            return (Palette.badFill, "Offline")
+            return (Color(nsColor: .systemRed), "Offline")
         case .waiting:
-            return (Palette.warnFill, "Waiting")
+            return (Color(nsColor: .systemOrange), "Waiting")
         default:
             return (.clear, "")
         }
@@ -188,14 +192,14 @@ struct Accounts: View {
                 }
             }
             .padding(.horizontal, 14)
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
                     Text("Accounts")
                     Spacer()
                     Text("Used").frame(width: 34, alignment: .trailing)
                     Text("Resets in").frame(width: 52, alignment: .trailing)
                 }
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: 11))
                 .foregroundStyle(Palette.muted)
                 .padding(.horizontal, 14)
                 if model.accounts.count > 4 {
@@ -216,7 +220,7 @@ struct AccountRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(account.email ?? account.id)
                     .font(.system(size: 13, weight: .medium))
                     .lineLimit(1)
@@ -370,10 +374,10 @@ struct UpdateBanner: View {
         } else if let latest = model.latestVersion {
             let behind = model.outdatedMachines
             banner(
-                title: "conflux v\(latest) is available",
+                title: "Update available",
                 detail: behind.count == 1
-                    ? "\(model.isThisMac(behind[0]) ? "This Mac" : behind[0].hostname) is on v\(behind[0].version)"
-                    : "\(behind.count) machines are behind"
+                    ? "\(model.isThisMac(behind[0]) ? "This Mac" : behind[0].hostname) · v\(behind[0].version) → v\(latest)"
+                    : "\(behind.count) machines · v\(latest)"
             ) {
                 Button(behind.count == 1 ? "Update" : "Update all") { model.updateAll() }
                     .glassButton()
@@ -383,9 +387,9 @@ struct UpdateBanner: View {
 
     private func banner<Trailing: View>(title: String, detail: String, @ViewBuilder trailing: () -> Trailing) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: "arrow.triangle.2.circlepath")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.primary)
+            Image(systemName: "arrow.down.circle")
+                .font(.system(size: 16))
+                .foregroundStyle(Palette.muted)
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).font(.system(size: 13, weight: .medium))
@@ -397,10 +401,10 @@ struct UpdateBanner: View {
             Spacer(minLength: 8)
             trailing()
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 8)
         .padding(.vertical, 10)
         .background(Color.accentColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 14)
         .padding(.top, 10)
         .padding(.bottom, 4)
     }
@@ -425,13 +429,18 @@ struct Actions: View {
                 .help("Off makes Claude Code and Codex on this Mac use their own logins.")
                 Separator(inset: 9)
             }
-            if model.phase == .ready || model.phase == .hubUnreachable {
+            let showsDashboard = model.phase == .ready || model.phase == .hubUnreachable
+            let showsRestart = model.local.serviceInstalled && model.phase != .notRunning
+            if showsDashboard {
                 MenuRow(title: "Open dashboard", action: model.openDashboard)
                 MenuRow(title: "Add account…", action: model.openDashboard)
-                Separator(inset: 9)
             }
-            if model.local.serviceInstalled && model.phase != .notRunning {
+            if showsRestart {
                 MenuRow(title: "Restart conflux", action: model.restart)
+                    .help("Active Claude Code and Codex requests through this Mac are cut off.")
+            }
+            if showsDashboard || showsRestart {
+                Separator(inset: 9)
             }
             MenuRow(title: "Quit menu bar app", action: { NSApp.terminate(nil) }) {
                 Text("⌘Q").font(.system(size: 13)).opacity(0.62)
