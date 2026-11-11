@@ -30,6 +30,14 @@ pub struct Cooldown {
     pub scope: String,
     pub until: DateTime<Utc>,
     pub reason: String,
+    #[serde(skip)]
+    at: DateTime<Utc>,
+}
+
+impl Cooldown {
+    fn lifted_by(&self, snap: &Snapshot, now: DateTime<Utc>) -> bool {
+        self.scope == ACCOUNT_SCOPE && has_room_since(snap, self.at, now)
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -40,8 +48,12 @@ struct BillingBlock {
 
 impl BillingBlock {
     fn cleared_by(&self, snap: &Snapshot, now: DateTime<Utc>) -> bool {
-        snap.updated_at.is_some_and(|t| t > self.at) && snap.is_fresh(now) && !snap.exhausted(now)
+        has_room_since(snap, self.at, now)
     }
+}
+
+fn has_room_since(snap: &Snapshot, since: DateTime<Utc>, now: DateTime<Utc>) -> bool {
+    snap.updated_at.is_some_and(|t| t > since) && snap.is_fresh(now) && !snap.exhausted(now)
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -117,6 +129,9 @@ impl Router {
                     continue;
                 }
                 st.billing_blocked.remove(&e.id);
+            }
+            if let Some(cds) = st.cooldowns.get_mut(&e.id) {
+                cds.retain(|_, c| !c.lifted_by(&snap, now));
             }
             if let Some(until) = Self::cooling(&st, &e.id, model, now) {
                 soonest = Some(soonest.map_or(until, |s| s.min(until)));
@@ -229,6 +244,7 @@ impl Router {
                 scope: scope.to_string(),
                 until,
                 reason: reason.to_string(),
+                at: now,
             },
         );
     }
@@ -249,11 +265,17 @@ impl Router {
     }
 
     pub fn cooldowns(&self, account: &str) -> Vec<Cooldown> {
+        let snap = self.usage.get(account);
         let now = Utc::now();
         let st = self.state.lock().unwrap();
         st.cooldowns
             .get(account)
-            .map(|m| m.values().filter(|c| c.until > now).cloned().collect())
+            .map(|m| {
+                m.values()
+                    .filter(|c| c.until > now && !c.lifted_by(&snap, now))
+                    .cloned()
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -501,11 +523,16 @@ mod tests {
     }
 
     #[test]
-    fn a_healthy_poll_lifts_a_billing_block() {
-        let (_d, _s, usage, router) = setup(&[("a", Provider::Claude)]);
+    fn a_healthy_poll_lifts_quota_blocks_after_an_early_reset() {
+        let (_d, _s, usage, router) = setup(&[("a", Provider::Claude), ("b", Provider::Claude)]);
         let a = id(Provider::Claude, "a");
+        let b = id(Provider::Claude, "b");
+        let fable = model_scope("claude-fable-5-1");
         usage.set(&a, snap(100, 10.0, 10.0));
+        usage.set(&b, snap(100, 10.0, 10.0));
         router.cool(&a, ACCOUNT, Utc::now() + chrono::Duration::days(20), "quota");
+        router.cool(&b, ACCOUNT, Utc::now() + chrono::Duration::days(2), "quota");
+        router.cool(&b, &fable, Utc::now() + chrono::Duration::days(2), "fable weekly");
         let req = route(Provider::Claude);
         assert!(
             router.pick(&req, &HashSet::new()).is_err(),
@@ -513,8 +540,12 @@ mod tests {
         );
         std::thread::sleep(std::time::Duration::from_millis(2));
         usage.set(&a, snap(100, 10.0, 10.0));
+        usage.set(&b, snap(100, 10.0, 10.0));
         assert!(router.billing_blocked(&a).is_none());
-        assert!(router.pick(&req, &HashSet::new()).is_ok());
+        let left: Vec<_> = router.cooldowns(&b).into_iter().map(|c| c.scope).collect();
+        assert_eq!(left, vec![fable]);
+        let without_a: HashSet<_> = [a.clone()].into();
+        assert_eq!(router.pick(&req, &without_a).unwrap().id, b);
     }
 
     #[test]
