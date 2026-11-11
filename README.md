@@ -25,7 +25,7 @@ You need:
 - [Tailscale](https://tailscale.com) on every machine, on a tailnet that holds only your own devices, with MagicDNS on (the default). conflux has no login of its own, so anyone who can reach the hub can use your accounts.
 - One machine to be the **hub**. It should stay on and stay at home. Don't send its internet traffic through another VPN or a Tailscale exit node, so the providers see one home IP address.
 
-conflux runs on Linux with systemd, macOS on Apple silicon, and Windows x64. A hub on macOS or Windows runs only while you're signed in. On Linux, the installer tries to keep it running after you log out and tells you if it can't.
+conflux runs on Linux with systemd, macOS on Apple silicon, and Windows x64. A hub on macOS or Windows runs only while you're signed in. On Linux, the installer tries to keep it running after you log out and tells you if it can't. On a Mac, conflux also comes with a [menu bar app](#the-mac-menu-bar-app).
 
 ## Set up the hub
 
@@ -87,6 +87,28 @@ cargo install --git https://github.com/Byntham/conflux
 conflux join <hub>    # use self on the hub
 ```
 
+## The Mac menu bar app
+
+On macOS, the install script puts Conflux.app in `~/Applications` and links `~/.local/bin/conflux` to the `conflux` binary inside it. The app adds an icon to the menu bar. Click it to see every account's limits, update your machines, turn routing on or off for this Mac, and open the dashboard. A dot on the icon means something needs you, such as an account that needs a new login or a hub that doesn't answer.
+
+conflux keeps running when you quit the app. The app opens again at your next login.
+
+To install only the `conflux` command, add `--no-app`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Byntham/conflux/main/install.sh | sh -s -- --no-app <hub>
+```
+
+You can also download `conflux-darwin-aarch64-app.zip` from the [latest release](https://github.com/Byntham/conflux/releases/latest) in a browser. The app isn't signed by Apple, so macOS blocks it the first time:
+
+1. Move Conflux.app to your Applications folder and open it.
+2. When macOS refuses, open System Settings > Privacy & Security and click Open Anyway.
+3. In the menu bar, click the conflux icon. Choose to make this Mac the hub, or to wait to be linked.
+
+An app installed this way doesn't put `conflux` on your PATH. The binary is at `Conflux.app/Contents/Helpers/conflux`, or run the install script to get the command.
+
+If you installed conflux on a Mac before the app existed, run the install script again to switch to the app.
+
 ## Update conflux
 
 When a new release is out, the dashboard marks each machine that is behind and shows a round arrow button in its bottom left corner. Click that button to update every machine, or run this on any machine:
@@ -97,6 +119,8 @@ conflux update <machine>    # one machine
 ```
 
 Each machine downloads the release and starts it next to the running version. The new version takes every new request. The old one finishes the requests it already has, then exits. A Codex WebSocket closes when its current turn ends, and Codex opens a new one for the next turn.
+
+On a Mac with the menu bar app, the update replaces the whole app.
 
 A machine that is off during an update stays on its old version. The dashboard keeps it marked until you update it.
 
