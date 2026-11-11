@@ -38,7 +38,10 @@ pub struct Cooldown {
 impl Cooldown {
     fn lifted_by(&self, snap: &Snapshot, now: DateTime<Utc>) -> bool {
         let scope_has_room = match self.scope.strip_prefix(MODEL_SCOPE) {
-            Some(model) => snap.model_window(model).is_some_and(|w| w.used_pct < 100.0),
+            Some(model) => {
+                snap.polled_at.is_some_and(|t| t > self.at)
+                    && snap.model_window(model).is_some_and(|w| w.used_pct < 100.0)
+            }
             None => self.scope == ACCOUNT_SCOPE,
         };
         scope_has_room && has_room_since(snap, self.at, now)
@@ -351,6 +354,7 @@ mod tests {
             ],
             overage_in_use: false,
             updated_at: Some(now),
+            polled_at: Some(now),
         }
     }
 
@@ -583,6 +587,21 @@ mod tests {
             }
             s
         };
+        let mut polled_before_the_cap = with_models(0.0);
+        polled_before_the_cap.polled_at = Some(Utc::now() - chrono::Duration::hours(1));
+        usage.set(&b, polled_before_the_cap);
+        let mut healthy = http::HeaderMap::new();
+        for tag in ["5h", "7d"] {
+            healthy.insert(
+                http::HeaderName::try_from(format!("anthropic-ratelimit-unified-{tag}-utilization")).unwrap(),
+                http::HeaderValue::from_static("0.1"),
+            );
+        }
+        usage.observe_headers(&b, Provider::Claude, &healthy);
+        assert!(
+            router.pick(&fable_req, &without_a).is_err(),
+            "headers carry no model window, so they cannot lift a model cooldown"
+        );
         usage.set(&b, with_models(100.0));
         assert!(
             router.pick(&fable_req, &without_a).is_err(),
