@@ -295,3 +295,40 @@ async fn control_api_reaches_the_hub_through_the_node() {
     assert_eq!(v["role"], "node");
     assert_eq!(v["hub"], "127.0.0.1");
 }
+
+#[test]
+fn bare_conflux_prints_the_dashboard_link() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = |role: Role, hub: Option<&str>| {
+        Config {
+            role,
+            hub: hub.map(str::to_string),
+            port: 4321,
+            ..Config::default()
+        }
+        .save(&Paths::under(dir.path()))
+        .unwrap();
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_conflux"))
+            .env("CONFLUX_HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+        String::from_utf8(out.stdout).unwrap()
+    };
+
+    let node = run(Role::Node, Some("example-hub"));
+    assert!(node.contains("Commands:"), "{node}");
+    assert!(
+        node.trim_end().ends_with("Dashboard: http://example-hub:4321"),
+        "{node}"
+    );
+
+    let hub = run(Role::Hub, None);
+    let last = hub.trim_end().lines().last().unwrap();
+    assert!(
+        last.starts_with("Dashboard: http://") && last.ends_with(":4321"),
+        "{hub}"
+    );
+
+    assert!(!run(Role::Waiting, None).contains("Dashboard:"));
+}

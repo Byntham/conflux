@@ -53,7 +53,7 @@ conflux login codex
 
 Each command prints a link you can open in any browser signed in to that account. For Claude, approve access. The browser then shows a connection error, which is expected. Paste the URL from its address bar into the terminal. For Codex, enter the code it shows you and wait.
 
-The dashboard is now at `http://127.0.0.1:8317` on the hub. From your other devices, use `http://<hub>:8317`, where `<hub>` is the hub's name in `tailscale status`.
+The dashboard is now at `http://127.0.0.1:8317` on the hub. From your other devices, use `http://<hub>:8317`, where `<hub>` is the hub's name in `tailscale status`. Run `conflux` on any machine to print the link.
 
 If you use Claude Code or Codex on the hub itself, restart any open sessions. They now go through conflux too.
 
