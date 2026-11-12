@@ -200,7 +200,7 @@ struct Accounts: View {
                 HStack(spacing: 8) {
                     Text("Accounts")
                     Spacer()
-                    Text("Used").frame(width: 34, alignment: .trailing)
+                    Text("Left").frame(width: 34, alignment: .trailing)
                     Text("Resets in").frame(width: 52, alignment: .trailing)
                 }
                 .font(.system(size: 11))
@@ -294,7 +294,7 @@ struct StatePill: View {
         case .needsLogin: return ("Needs login", Palette.bad, Palette.badFill)
         case .billingBlocked: return ("Billing blocked", Palette.bad, Palette.badFill)
         case let .cooling(until): return ("Cooling \(Countdown.text(until, now: now))", Palette.warn, Palette.warnFill)
-        case .quotaFull: return ("Quota full", Palette.warn, Palette.warnFill)
+        case .quotaFull: return ("Out of quota", Palette.warn, Palette.warnFill)
         case let .modelsCooling(n): return ("\(n) \(n == 1 ? "model" : "models") cooling", Palette.warn, Palette.warnFill)
         case .ready, .disabled: return ("", .clear, .clear)
         }
@@ -335,7 +335,7 @@ struct Meter: View {
     }
 
     private func color(_ left: Double) -> Color {
-        left <= 0 ? Palette.badFill : left <= 20 ? Palette.warnFill : Palette.meter
+        left <= 20 ? Palette.warnFill : Palette.meter
     }
 
     private var name: String {

@@ -154,7 +154,6 @@
   .track { position: relative; height: 5px; border-radius: 3px; background: var(--track); }
   .track > i { display: block; height: 100%; border-radius: 3px; background: var(--fill); }
   .track > i.high { background: var(--warn-fill); }
-  .track > i.full { background: var(--bad-fill); }
   .track > b { position: absolute; z-index: 1; top: -3px; width: 2px; height: 11px; margin-left: -1px; border-radius: 1px; background: var(--fg); }
   .no-usage { margin-top: 13px; font-size: 12.5px; color: var(--muted); }
   .account-login { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: auto; padding-top: 11px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--fg-2); }
@@ -717,7 +716,7 @@ function statusPill(a) {
   if (!a.enabled) return '<span class="pill">Disabled</span>';
   const cooling = accountCooldown(a);
   if (cooling) return `<span class="pill warn" title="${esc(cooling.reason)}">Cooling ${esc(until(cooling.until))}</span>`;
-  if (quotaExhausted(a)) return '<span class="pill warn">Quota full</span>';
+  if (quotaExhausted(a)) return '<span class="pill warn">Out of quota</span>';
   if (!a.cooldowns.length) return '<span class="pill ok">Ready</span>';
   const n = a.cooldowns.length;
   return `<span class="pill warn">${n} ${n === 1 ? "model" : "models"} cooling</span>`;
