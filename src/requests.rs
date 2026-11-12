@@ -298,7 +298,7 @@ pub struct ResponseTap {
     scanner: BodyScanner,
     provider: Provider,
     usage: TokenUsage,
-    record: u64,
+    record: Option<u64>,
     log: Arc<RequestLog>,
     router: Arc<Router>,
     account: String,
@@ -308,7 +308,7 @@ impl ResponseTap {
     pub fn new(
         scanner: BodyScanner,
         provider: Provider,
-        record: u64,
+        record: Option<u64>,
         log: Arc<RequestLog>,
         router: Arc<Router>,
         account: String,
@@ -346,7 +346,9 @@ impl Drop for ResponseTap {
         for v in events {
             self.take(v);
         }
-        self.log.set_usage(self.record, self.usage);
+        if let Some(record) = self.record {
+            self.log.set_usage(record, self.usage);
+        }
     }
 }
 
