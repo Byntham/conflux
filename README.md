@@ -140,6 +140,13 @@ The first command prints the second one for you. Wait a minute before the third,
 
 Anyone who can reach the hub can use and manage your accounts and read synced transcripts. Account tokens are stored unencrypted in files on the hub, so protect that machine like you would a password manager. `conflux leave` keeps them, so run `conflux remove <account>` first if you're done with a hub. After a hub move, the old hub keeps a copy in a `retired-*` folder under `~/.local/share/conflux`. Delete it once the move has worked.
 
+## More docs
+
+- [Commands](docs/commands.md) explains every command and option.
+- [Configuration](docs/configuration.md) lists the files conflux keeps, `config.toml`, and environment variables.
+- [Troubleshooting](docs/troubleshooting.md) covers logs, the background service, and common problems.
+- [Architecture](docs/architecture.md) gives contributors a map of the code.
+
 ## License
 
 [MIT](LICENSE)
