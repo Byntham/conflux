@@ -49,6 +49,8 @@ A fix that works on one path is often missing from the others. Before calling a 
 
 ## Checks
 
+Run `git config core.hooksPath .githooks` once per clone. The pre-commit hook then runs fmt and clippy before each commit.
+
 - `cargo fmt`
 - `cargo clippy --all-targets -- -D warnings`
 - `cargo test`
