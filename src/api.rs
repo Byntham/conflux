@@ -139,7 +139,7 @@ pub async fn status(State(app): State<Arc<App>>) -> Json<Value> {
 #[derive(Deserialize)]
 pub struct UpdateRequest {
     #[serde(default)]
-    machines: Option<Vec<String>>,
+    pub machines: Option<Vec<String>>,
 }
 
 pub async fn update(State(app): State<Arc<App>>, Json(req): Json<UpdateRequest>) -> ApiResult<Json<Value>> {

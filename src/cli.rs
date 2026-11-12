@@ -307,7 +307,12 @@ pub async fn run(cli: Cli) -> Result<()> {
                 match cfg.role {
                     Role::Hub => return app::serve(cfg, paths, Endpoints::from_env()).await,
                     Role::Node => return node::serve(cfg, paths).await,
-                    Role::Waiting => link::serve(cfg, paths.clone()).await?,
+                    Role::Waiting => {
+                        let linked = link::serve(cfg, paths.clone()).await?;
+                        if !linked {
+                            return Ok(());
+                        }
+                    }
                 }
             }
         }
@@ -636,7 +641,7 @@ async fn update(daemon: &Daemon, machines: Vec<String>) -> Result<()> {
         .any(|s| s["reason"] == "unknown machine");
     if waiting.is_empty() {
         if unknown {
-            bail!("the hub does not know every machine you named");
+            bail!("conflux does not know every machine you named");
         }
         println!("Nothing to update. The latest release is v{version}.");
         return Ok(());
@@ -646,10 +651,14 @@ async fn update(daemon: &Daemon, machines: Vec<String>) -> Result<()> {
     let mut failed = unknown;
     while !waiting.is_empty() && std::time::Instant::now() < deadline {
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let Ok(dashboard) = daemon.get("/conflux/api/dashboard").await else {
-            continue;
+        let fleet = match daemon.get("/conflux/api/dashboard").await {
+            Ok(dashboard) => dashboard,
+            Err(_) => match daemon.get("/conflux/api/status").await {
+                Ok(waiting) => waiting,
+                Err(_) => continue,
+            },
         };
-        for m in dashboard["machines"].as_array().into_iter().flatten() {
+        for m in fleet["machines"].as_array().into_iter().flatten() {
             let Some(name) = m["hostname"].as_str().filter(|n| waiting.iter().any(|w| w == n)) else {
                 continue;
             };

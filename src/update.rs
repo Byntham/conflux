@@ -343,21 +343,25 @@ impl Updater {
         Ok(())
     }
 
-    pub async fn run<H: Handoff>(self: Arc<Self>, version: String, lifecycle: Arc<Lifecycle>, host: Arc<H>) {
-        let mut started = false;
+    pub fn claim(&self, version: &str) -> bool {
         self.status.send_if_modified(|status| {
             if status.as_ref().is_some_and(UpdateStatus::in_progress) {
                 return false;
             }
             *status = Some(UpdateStatus::Downloading {
-                version: version.clone(),
+                version: version.to_string(),
             });
-            started = true;
             true
-        });
-        if !started {
-            return;
+        })
+    }
+
+    pub async fn run<H: Handoff>(self: Arc<Self>, version: String, lifecycle: Arc<Lifecycle>, host: Arc<H>) {
+        if self.claim(&version) {
+            self.run_claimed(version, lifecycle, host).await;
         }
+    }
+
+    pub async fn run_claimed<H: Handoff>(self: Arc<Self>, version: String, lifecycle: Arc<Lifecycle>, host: Arc<H>) {
         tracing::info!(version, "updating conflux");
         if let Err(e) = self.replace_and_hand_over(&version, &lifecycle, &*host).await {
             tracing::error!(version, "update failed: {e:#}");

@@ -12,6 +12,11 @@ struct Dashboard: Decodable {
     let machines: [Machine]
 }
 
+struct WaitingStatus: Decodable {
+    let latestVersion: String?
+    let machines: [Machine]
+}
+
 struct Account: Decodable, Identifiable {
     let id: String
     let provider: String

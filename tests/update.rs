@@ -433,3 +433,46 @@ async fn a_node_updates_on_the_hubs_command_and_its_supervisor_keeps_watch() {
     .await;
     node.later_pids.push(third_pid);
 }
+
+#[tokio::test]
+async fn a_waiting_machine_updates_itself_and_keeps_waiting() {
+    let releases = Harness::new().await;
+    offer_release(&releases);
+    let home = tempfile::tempdir().unwrap();
+    let port = free_port();
+    Config {
+        role: Role::Waiting,
+        port,
+        ..Config::default()
+    }
+    .save(&Paths::under(home.path()))
+    .unwrap();
+    let mut waiting = start("serve", home.path(), &releases.app.ep.anthropic_api, "");
+    let base = format!("http://127.0.0.1:{port}");
+    let status = format!("{base}/conflux/api/status");
+    let first_pid = eventually("the waiting machine to start", async || pid_at(&status).await).await;
+    waiting.later_pids.push(first_pid);
+    eventually("the waiting machine to see the new release", async || {
+        let v: Value = reqwest::get(&status).await.ok()?.json().await.ok()?;
+        (v["machines"][0]["outdated"] == true).then_some(())
+    })
+    .await;
+
+    let asked: Value = reqwest::Client::new()
+        .post(format!("{base}/conflux/api/update"))
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(asked["started"].as_array().map(Vec::len), Some(1), "{asked}");
+    let second_pid = eventually("the new conflux to take over", async || {
+        pid_at(&status).await.filter(|pid| *pid != first_pid)
+    })
+    .await;
+    waiting.later_pids.push(second_pid);
+    let now: Value = reqwest::get(&status).await.unwrap().json().await.unwrap();
+    assert_eq!(now["role"], "waiting");
+}
