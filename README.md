@@ -4,167 +4,186 @@
 
 conflux lets all of your computers share a pool of Claude and ChatGPT subscriptions.
 
-You log in to your accounts once, on one always-on machine at home. Claude Code and Codex on your other machines then send their requests through it.
+One always-on machine, the **hub**, holds your account logins. Claude Code and Codex on your other machines send their requests through it.
 
 ## What you get
 
-- **Less wasted quota.** New sessions start on an available account whose weekly limit resets soonest.
-- **Automatic failover.** When an account runs out, conflux sends that request to one that still has room and keeps the session on it.
-- **Stable sessions.** A session stays on one account, which keeps its prompt cache working.
-- **A dashboard.** See every account's limits, your machines, and recent requests from any device on your Tailscale network.
+- **Less wasted quota.** New sessions start on the available account whose weekly limit resets soonest.
+- **Automatic failover.** When an account runs out, conflux moves the session to one that still has room.
+- **Stable sessions.** A session stays on one account, so its prompt cache keeps working.
+- **A dashboard.** It shows every account's limits, your machines, and recent requests, from any device on your tailnet.
 - **Optional thread history.** Collect Claude Code and Codex threads from the machines you choose, to read and search in one place.
 
 > [!WARNING]
 > Pooling subscriptions this way may break your providers' terms and could get your accounts banned. conflux is unofficial and logs in through Claude Code's and Codex's own OAuth clients, so either provider can break it at any time. It's for one person's own work on their own machines. Don't use it to serve other people, and only use Claude subscriptions from Claude Code.
 
-## Before you start
+## Install
 
-You need:
+### Requirements
 
-- Claude Code or Codex on each machine you work from. The hub doesn't need them.
-- [Tailscale](https://tailscale.com) on every machine, on a tailnet that holds only your own devices, with MagicDNS on (the default). conflux has no login of its own, so anyone who can reach the hub can use your accounts.
-- One machine to be the **hub**. It should stay on and stay at home. Don't send its internet traffic through another VPN or a Tailscale exit node, so the providers see one home IP address.
+- Every machine runs [Tailscale](https://tailscale.com) with MagicDNS on, which is the default. Use a tailnet that holds only your own devices, because anyone who can reach the hub can use your accounts.
+- The hub stays on and stays at home. Linux is best, because a macOS or Windows hub runs only while you're signed in. Don't route its traffic through another VPN or an exit node, so the providers see one home IP address.
+- Each machine you work from has Claude Code or Codex. The hub doesn't need them.
+- The installer supports Linux x64 and ARM64 with systemd, macOS on Apple silicon, and Windows x64. On other architectures, [build from source](#other-ways-to-install).
 
-conflux runs on Linux with systemd, macOS on Apple silicon, and Windows x64. A hub on macOS or Windows runs only while you're signed in. On Linux, the installer tries to keep it running after you log out and tells you if it can't. On a Mac, conflux also comes with a [menu bar app](#the-mac-menu-bar-app).
+### 1. Install on the hub
 
-## Set up the hub
+`self` makes this machine the hub.
 
-On the machine you've picked, run:
+macOS and Linux:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Byntham/conflux/main/install.sh | sh -s -- self
 ```
 
-On Windows, in PowerShell:
+If the installer says it changed your PATH, open a new terminal. On a Mac, it also installs the [menu bar app](#the-mac-menu-bar-app).
+
+Windows, in PowerShell. Run both commands. The first says this machine is waiting to be linked. The second makes it the hub.
 
 ```powershell
 irm https://raw.githubusercontent.com/Byntham/conflux/main/install.ps1 | iex
 conflux join self
 ```
 
-If the installer says it changed your PATH, open a new terminal before continuing.
+### 2. Add your accounts
 
-Next, log in. Run one command per account you want in the pool, and skip a provider you don't use.
+On the hub, run the matching command once for each subscription. On Windows, run them in PowerShell.
+
+A Claude subscription:
 
 ```sh
 conflux login claude
+```
+
+A ChatGPT subscription:
+
+```sh
 conflux login codex
 ```
 
-Each command prints a link you can open in any browser signed in to that account. For Claude, approve access. The browser then shows a connection error, which is expected. Paste the URL from its address bar into the terminal. For Codex, enter the code it shows you and wait.
+Each command prints a link and the steps to follow. Open the link in a browser signed in to that account. The browser can be on any machine.
 
-The dashboard is now at `http://127.0.0.1:8317` on the hub. From your other devices, use `http://<hub>:8317`, where `<hub>` is the hub's name in `tailscale status`. Run `conflux` on any machine to print the link.
+Your accounts now show on the dashboard. Its address is the "Dashboard:" line that step 1 printed, and it works from any of your devices. Run `conflux` on the hub to print it again.
 
-If you use Claude Code or Codex on the hub itself, restart any open sessions. They now go through conflux too.
+### 3. Add your other machines
 
-## Add your other machines
+On each machine, install conflux.
 
-The dashboard's "Add a machine" panel has these commands with your hub's name filled in.
+macOS and Linux:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Byntham/conflux/main/install.sh | sh -s -- <hub>
+curl -fsSL https://raw.githubusercontent.com/Byntham/conflux/main/install.sh | sh
 ```
 
-On Windows, in PowerShell:
+Windows, in PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/Byntham/conflux/main/install.ps1 | iex
-conflux join <hub>
 ```
 
-conflux now runs in the background, and it has edited Claude Code's and Codex's settings to send their requests through the hub. Sessions that are already open need a restart to pick this up.
+The machine now waits to be linked. On the hub's dashboard, open Machines, click "Find machines", and click "Link" next to it. conflux then points Claude Code and Codex at the hub.
 
-You can also install conflux without naming a hub. Run the same command without `<hub>`, or on Windows without the `conflux join` line. conflux then starts and waits to be linked. On the dashboard, open Machines and click "Find machines". It lists your machines that are online on the tailnet. Click "Link" next to a waiting machine to make it a node of this hub. Machines that don't run conflux yet show the install command to copy.
+Find machines lists only machines that are online and owned by the same Tailscale user as the hub.
 
-A waiting machine accepts a link only from a machine owned by the same Tailscale user. It refuses if it has logged-in accounts or already belongs to a hub. `conflux status` on it says it is waiting.
+To skip linking, or for a machine that isn't listed, end the install command with the hub's name: `sh -s -- <hub>` instead of `sh`. On Windows, run `conflux join <hub>` after the installer. The "Add a machine" panel on the same page shows these commands with your hub's name filled in.
 
-To check that it worked, start a new session on that machine and send a message. It appears under "Recent requests" on the dashboard.
+### 4. Restart and check
 
-On a system without a prebuilt binary, build it with Rust instead:
+Restart open Claude Code and Codex sessions on every machine, including the hub. Send a message from one. It shows up under "Recent requests" on the dashboard.
+
+If it doesn't, see [Troubleshooting](docs/troubleshooting.md).
+
+### Other ways to install
+
+**Mac without the menu bar app.** These commands install only `conflux`, without Conflux.app. Use them in place of the command in step 1 or step 3.
+
+On the hub:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Byntham/conflux/main/install.sh | sh -s -- --no-app self
+```
+
+On other Macs:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Byntham/conflux/main/install.sh | sh -s -- --no-app
+```
+
+**Add the menu bar app to an existing Mac install.** Run the install command from step 3. It keeps this machine's role.
+
+**Build from source.** On a system without a prebuilt binary, install with Rust:
 
 ```sh
 cargo install --git https://github.com/Byntham/conflux
-conflux join <hub>    # use self on the hub
+```
+
+Then, on the hub, run this and add your accounts as in step 2:
+
+```sh
+conflux join self
+```
+
+On other machines, run this, then link them as in step 3:
+
+```sh
+conflux wait
 ```
 
 ## The Mac menu bar app
 
-On macOS, the install script puts Conflux.app in `~/Applications` and links `~/.local/bin/conflux` to the `conflux` binary inside it. The app adds an icon to the menu bar. Click it to see every account's limits, update your machines, turn routing on or off for this Mac, and open the dashboard. A dot on the icon means something needs you, such as an account that needs a new login or a hub that doesn't answer.
+Conflux.app adds an icon to the menu bar. It shows every account's limits, and lets you update machines, turn routing on or off for this Mac, and open the dashboard. A dot on the icon means something needs you, such as an account that needs a new login.
 
-conflux keeps running when you quit the app. The app opens again at your next login.
+Quitting the app doesn't stop conflux. The app opens again at your next login.
 
-The app's routing switch and setup buttons edit Claude Code's and Codex's settings in their default folders. If you set `CLAUDE_CONFIG_DIR` or `CODEX_HOME` in your shell profile, set up conflux and use `conflux on` and `conflux off` in the terminal instead.
+If you set `CLAUDE_CONFIG_DIR` or `CODEX_HOME`, use `conflux on` and `conflux off` instead of the app's routing switch. The app edits only the default folders.
 
-To install only the `conflux` command, add `--no-app`:
+## Update
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/Byntham/conflux/main/install.sh | sh -s -- --no-app <hub>
-```
-
-You can also download `conflux-darwin-aarch64-app.zip` from the [latest release](https://github.com/Byntham/conflux/releases/latest) in a browser. The app isn't signed by Apple, so macOS blocks it the first time:
-
-1. Move Conflux.app to the Applications folder in your home folder (`~/Applications`) and open it. conflux replaces the app there when it updates, so it needs a folder you can write to.
-2. When macOS refuses, open System Settings > Privacy & Security and click Open Anyway.
-3. In the menu bar, click the conflux icon. Choose to make this Mac the hub, or to wait to be linked.
-
-An app installed this way doesn't put `conflux` on your PATH. The binary is at `Conflux.app/Contents/Helpers/conflux`, or run the install script to get the command.
-
-If you installed conflux on a Mac before the app existed, run the install script again to switch to the app.
-
-## Update conflux
-
-When a new release is out, the dashboard marks each machine that is behind and shows a round arrow button in its bottom left corner. Click that button to update every machine, or run this on any machine:
+When a machine is behind, the dashboard shows a round button with an up arrow at the bottom left. Click it, or run:
 
 ```sh
 conflux update              # every machine that is online
 conflux update <machine>    # one machine
 ```
 
-Each machine downloads the release and starts it next to the running version. The new version takes every new request. The old one finishes the requests it already has, then exits. A Codex WebSocket closes when its current turn ends, and Codex opens a new one for the next turn.
-
-On a Mac with the menu bar app, the update replaces the whole app.
-
-A machine that is off during an update stays on its old version. The dashboard keeps it marked until you update it.
-
-A system without a prebuilt binary cannot update this way. Run `cargo install` on it again.
+Requests already running finish on the old version. A machine that is off stays on its old version, and the dashboard marks it until you update it. A system without a prebuilt binary can't update this way. Run `cargo install` again.
 
 ## Everyday commands
 
 | Command | What it does |
 | --- | --- |
 | `conflux status` | Show accounts, usage, and cooldowns |
-| `conflux update` | Update every online machine to the latest release |
 | `conflux login claude` or `codex` | Add an account, or log one in again |
 | `conflux disable <account>` | Stop using an account. `enable` brings it back |
 | `conflux remove <account>` | Delete an account from the hub |
 | `conflux off` | Point this machine back at its own logins. `on` undoes it |
 | `conflux leave` | Stop conflux and restore Claude Code's and Codex's settings. The binary and account data stay |
 
-If the hub is ever down, run `conflux off` on the machine you're using and restart your tool. If you've never logged in to Claude Code or Codex on that machine, log in directly first.
+If the hub is down, run `conflux off` on the machine you're using and restart your tool. If you've never logged in to Claude Code or Codex on that machine, log in directly first.
 
-## Move the hub to another machine
+## Move the hub
 
-The new machine needs conflux installed. Any machine you've already added is ready. Your logins move with the hub, and your other machines follow on their own.
+Your logins move with the hub, and your other machines follow on their own. The new machine needs conflux installed.
 
 ```sh
 conflux hub move-code                               # on the current hub
 conflux hub take-over <old-hub> --code <code>       # on the new machine, within 10 minutes
-conflux join <new-hub>                              # back on the old machine
+conflux join <new-hub>                              # back on the old machine, a minute later
 ```
 
-The first command prints the second one for you. Wait a minute before the third, with the old hub still running, so your other machines can switch and HTTP responses already streaming there can finish. Codex WebSocket sessions close when the move starts. A machine that was off during the move can run `conflux join <new-hub>` itself. If a move gets stuck before it finishes, `conflux hub resume` on the old hub puts it back in service.
+See [Moving the hub](docs/commands.md#moving-the-hub) for details.
 
 ## Optional features
 
-**Thread history.** Run `conflux sync on` on each machine you want to collect from, to copy its Claude Code and Codex transcripts to `~/conflux/transcripts` on the hub. The dashboard's Threads tab lists and searches them, and you can point an agent at the folder to look for patterns. It's off by default because transcripts contain everything your agents have read. `conflux sync off` stops it. Copies already on the hub stay until you delete them.
+**Thread history.** Run `conflux sync on` on each machine you want to collect from. It copies Claude Code and Codex transcripts to `~/conflux/transcripts` on the hub, and the dashboard's Threads tab lists and searches them. It's off by default because transcripts contain everything your agents have read. `conflux sync off` stops it. Copies already on the hub stay until you delete them.
 
-**Extra usage.** conflux won't use a Claude account's paid extra usage unless you allow it with `conflux overage <account> on`, and then only when no other account has room.
+**Extra usage.** conflux uses a Claude account's paid extra usage only if you run `conflux overage <account> on`, and then only when no other account has room.
 
 **T3 Code.** Run `conflux t3-key` on the hub, then add the URL and key under Settings > Providers > Usage providers in [T3 Code](https://t3.codes) to see your pooled limits there.
 
 ## Security
 
-Anyone who can reach the hub can use and manage your accounts and read synced transcripts. Account tokens are stored unencrypted in files on the hub, so protect that machine like you would a password manager. `conflux leave` keeps them, so run `conflux remove <account>` first if you're done with a hub. After a hub move, the old hub keeps a copy in a `retired-*` folder under `~/.local/share/conflux`. Delete it once the move has worked.
+Anyone who can reach the hub can use and manage your accounts and read synced transcripts. The hub stores account tokens unencrypted, so protect it like a password manager. `conflux leave` keeps the tokens, so run `conflux remove <account>` first if you're done with a hub. After a hub move, the old hub keeps a copy in a `retired-*` folder under `~/.local/share/conflux`. Delete it once the move has worked.
 
 ## More docs
 
