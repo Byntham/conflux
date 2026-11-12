@@ -9,10 +9,9 @@ Rust proxy that pools Claude Code and Codex subscription accounts on one hub mac
 
 ## Don't break the developer's setup
 
-- Never run `conflux` against the real install. Set `CONFLUX_HOME` to a temp dir and point the `CONFLUX_*` endpoint variables at a fake upstream. The real install holds OAuth tokens for live accounts.
+- Never run `conflux` against the real install. Set `CONFLUX_HOME` to a temp dir. The real install holds OAuth tokens for live accounts.
 - Never run `conflux on`, `off`, `join` or `service` for real. `CONFLUX_HOME` does not isolate them. They rewrite `~/.claude/settings.json` and `~/.codex/config.toml` and restart the user's conflux service, which can cut off the agent running the command. Test that code through `ClientPaths` with temp paths, as `src/setup.rs` does.
 - Never kill conflux by name, for example with `pkill -f conflux`. The developer's hub may be serving their agent sessions, including yours. Kill only a PID you started.
-- Never call Anthropic or OpenAI for real. Tests use the fake upstream in `tests/common`.
 
 ## Hit every path
 
