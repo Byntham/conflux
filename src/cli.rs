@@ -604,6 +604,9 @@ async fn join(mut cfg: Config, paths: Paths, hub: &str, no_service: bool, force:
         println!("Claude Code and Codex on this machine now go through {hub}.");
     }
     println!("New or restarted Claude Code and Codex sessions pick this up. Running ones keep their old settings.");
+    if let Some(url) = dashboard_url(&cfg) {
+        println!("\nDashboard: {url}");
+    }
     Ok(())
 }
 

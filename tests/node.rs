@@ -331,4 +331,19 @@ fn bare_conflux_prints_the_dashboard_link() {
     );
 
     assert!(!run(Role::Waiting, None).contains("Dashboard:"));
+
+    let joined = std::process::Command::new(env!("CARGO_BIN_EXE_conflux"))
+        .args(["join", "self", "--no-service"])
+        .env("CONFLUX_HOME", dir.path())
+        .env("HOME", dir.path())
+        .env("CLAUDE_CONFIG_DIR", dir.path().join("claude"))
+        .env("CODEX_HOME", dir.path().join("codex"))
+        .output()
+        .unwrap();
+    assert!(joined.status.success(), "{joined:?}");
+    let joined = String::from_utf8(joined.stdout).unwrap();
+    assert!(
+        joined.contains("Dashboard: http://") && joined.contains(":4321"),
+        "{joined}"
+    );
 }
