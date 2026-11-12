@@ -252,6 +252,19 @@ async fn codex_paths_and_account_header() {
         .unwrap();
     assert_eq!(r.status(), 200);
     assert_eq!(h.fake.hits.lock().unwrap()[0].0, "/backend-api/codex/responses");
+
+    let r = h
+        .http
+        .get(format!("{}/v1/models?client_version=0.200.0", h.base))
+        .header("user-agent", "codex_cli_rs/0.200.0")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    assert_eq!(h.fake.hits.lock().unwrap()[1].0, "/backend-api/codex/models");
+    let logged = h.app.requests.recent();
+    assert_eq!(logged.len(), 1);
+    assert_eq!(logged[0].model.as_deref(), Some("gpt-6.1-sol"));
 }
 
 #[tokio::test]

@@ -495,6 +495,10 @@ pub async fn handle(State(app): State<Arc<App>>, req: Request) -> Response {
     let route = route_request(provider, &parts.headers, &body);
     let machine = machine_name(&app, &parts.headers);
     let started = Instant::now();
+    let log = |account: &AccountEntry, status: u16| {
+        (parts.method == http::Method::POST)
+            .then(|| log_attempt(&app, provider, account, &route, &machine, status, started))
+    };
     let attempt = Attempt {
         app: &app,
         provider,
@@ -567,7 +571,7 @@ pub async fn handle(State(app): State<Arc<App>>, req: Request) -> Response {
                     Utc::now() + chrono::Duration::seconds(60),
                     "upstream 401",
                 );
-                log_attempt(&app, provider, &account, &route, &machine, 401, started);
+                log(&account, 401);
                 last_rejection = Some(buffered_response(StatusCode::UNAUTHORIZED, &headers, bytes));
                 continue;
             }
@@ -587,20 +591,12 @@ pub async fn handle(State(app): State<Arc<App>>, req: Request) -> Response {
                 Rejection::Quota { scope, until, reason } => app.router.cool(&account.id, scope, *until, reason),
                 Rejection::Short { scope, until } => app.router.cool(&account.id, scope, *until, "short rate limit"),
             }
-            log_attempt(&app, provider, &account, &route, &machine, 429, started);
+            log(&account, 429);
             last_rejection = Some(buffered_response(StatusCode::TOO_MANY_REQUESTS, &headers, bytes));
             continue;
         }
 
-        let record = log_attempt(
-            &app,
-            provider,
-            &account,
-            &route,
-            &machine,
-            resp.status().as_u16(),
-            started,
-        );
+        let record = log(&account, resp.status().as_u16());
         let scanner = BodyScanner::new(
             header_str(resp.headers(), "content-encoding"),
             header_str(resp.headers(), "content-type"),
