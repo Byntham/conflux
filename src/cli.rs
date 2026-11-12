@@ -427,7 +427,13 @@ pub async fn run(cli: Cli) -> Result<()> {
 
 fn dashboard_url(cfg: &Config) -> Option<String> {
     let host = match cfg.role {
-        Role::Hub => TailnetSelf::detect().short_name().unwrap_or_else(|| "127.0.0.1".into()),
+        Role::Hub => {
+            let me = TailnetSelf::detect();
+            me.dns_name
+                .clone()
+                .or_else(|| me.short_name())
+                .unwrap_or_else(|| "127.0.0.1".into())
+        }
         Role::Node => cfg.hub.clone()?,
         Role::Waiting => return None,
     };
