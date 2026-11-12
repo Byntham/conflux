@@ -2,6 +2,8 @@
 
 Every `conflux` command, what it does, and where to run it. `conflux help <command>` prints a short version in the terminal.
 
+`conflux` on its own prints the command list and a link to the hub's dashboard. On a node, the link points at the hub.
+
 Some commands change only the machine you run them on. The account commands send their request to the conflux service on this machine. On a node, that service passes the request on to the hub. So you can manage accounts from any machine, as long as conflux runs there and the hub is up.
 
 An account ID looks like `claude-1a2b3c4d5e6f` or `codex-1a2b3c4d5e6f`. `conflux status` lists them.

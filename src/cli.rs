@@ -2,7 +2,7 @@ use std::io::{BufRead, Write};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use serde_json::{Value, json};
 
 use crate::config::{Config, Endpoints, Paths, Role};
@@ -21,7 +21,7 @@ use crate::{app, hubmove, link, node, service, supervisor};
 )]
 pub struct Cli {
     #[command(subcommand)]
-    pub command: Command,
+    pub command: Option<Command>,
 }
 
 #[derive(Subcommand)]
@@ -268,7 +268,14 @@ pub async fn run(cli: Cli) -> Result<()> {
     let paths = Paths::from_env()?;
     let cfg = Config::load(&paths)?;
     let daemon = Daemon::new(&cfg);
-    match cli.command {
+    let Some(command) = cli.command else {
+        Cli::command().print_help()?;
+        if let Some(url) = dashboard_url(&cfg) {
+            println!("\nDashboard: {url}");
+        }
+        return Ok(());
+    };
+    match command {
         Command::Hub {
             action: HubAction::MoveCode,
         } => {
@@ -416,6 +423,15 @@ pub async fn run(cli: Cli) -> Result<()> {
             print_status(&json!({ "accounts": [v] }))
         }
     }
+}
+
+fn dashboard_url(cfg: &Config) -> Option<String> {
+    let host = match cfg.role {
+        Role::Hub => TailnetSelf::detect().short_name().unwrap_or_else(|| "127.0.0.1".into()),
+        Role::Node => cfg.hub.clone()?,
+        Role::Waiting => return None,
+    };
+    Some(format!("http://{host}:{}", cfg.port))
 }
 
 fn is_this_machine(hub: &str) -> bool {
