@@ -79,6 +79,7 @@ extension Account {
 final class Model: ObservableObject {
     @Published private(set) var phase: Phase = .loading
     @Published private(set) var dashboard: Dashboard?
+    @Published private(set) var waiting: WaitingStatus?
     @Published private(set) var node: NodeInfo?
     @Published private(set) var routing: Bool?
     @Published private(set) var busy: String?
@@ -123,6 +124,8 @@ final class Model: ObservableObject {
 
     func refresh() async {
         now = Date()
+        var waitingNow: WaitingStatus?
+        defer { waiting = waitingNow }
         relaunchIfReplaced()
         if !inApplications && !local.serviceInstalled {
             phase = .outsideApplications
@@ -155,6 +158,9 @@ final class Model: ObservableObject {
         case .answered(409, _):
             dashboard = nil
             phase = .waiting
+            if case let .answered(200, body) = await fetch(base.appendingPathComponent("conflux/api/status")) {
+                waitingNow = try? JSON.decoder.decode(WaitingStatus.self, from: body)
+            }
         case let .answered(status, body):
             dashboard = nil
             if let node, !node.hubLink.connected {
@@ -229,7 +235,11 @@ final class Model: ObservableObject {
     }
 
     func isThisMac(_ machine: Machine) -> Bool {
-        node.map { machine.hostname == $0.hostname } ?? (machine.role == "hub")
+        node.map { machine.hostname == $0.hostname } ?? (machine.role == "hub" || machine.role == "waiting")
+    }
+
+    var machines: [Machine] {
+        dashboard?.machines ?? waiting?.machines ?? []
     }
 
     var showsRouting: Bool {
@@ -244,16 +254,16 @@ final class Model: ObservableObject {
     }
 
     var latestVersion: String? {
-        guard let latest = dashboard?.latestVersion, !outdatedMachines.isEmpty else { return nil }
+        guard let latest = dashboard?.latestVersion ?? waiting?.latestVersion, !outdatedMachines.isEmpty else { return nil }
         return latest
     }
 
     var outdatedMachines: [Machine] {
-        dashboard?.machines.filter { $0.outdated && $0.online && !$0.isUpdating } ?? []
+        machines.filter { $0.outdated && $0.online && !$0.isUpdating }
     }
 
     var updating: Bool {
-        dashboard?.machines.contains { $0.online && $0.isUpdating } ?? false
+        machines.contains { $0.online && $0.isUpdating }
     }
 
     var inApplications: Bool {
@@ -264,7 +274,7 @@ final class Model: ObservableObject {
     }
 
     var updateFailure: String? {
-        guard let machine = dashboard?.machines.first(where: { $0.online && $0.update?.state == "failed" }) else {
+        guard let machine = machines.first(where: { $0.online && $0.update?.state == "failed" }) else {
             return nil
         }
         return "\(machine.hostname): \(machine.update?.error ?? "update failed")"

@@ -18,7 +18,7 @@ struct MenuView: View {
                     .padding(.horizontal, 14)
                     .padding(.top, 6)
             }
-            if model.phase == .ready && model.showsUpdateCard {
+            if (model.phase == .ready || model.phase == .waiting) && model.showsUpdateCard {
                 Spacer().frame(height: 10)
             } else {
                 Separator()
@@ -69,6 +69,7 @@ struct MenuView: View {
             ) {
                 Button("Make this the hub") { model.setUp(asHub: true) }.glassButton()
             }
+            UpdateBanner()
         case let .problem(message):
             Notice(title: "conflux reported a problem", detail: message)
         case .hubUnreachable:

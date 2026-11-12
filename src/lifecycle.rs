@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::process::{Child, Command};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -13,6 +14,7 @@ use tokio::net::TcpStream;
 use tokio::sync::{mpsc, watch};
 
 const HANDOFF_ENV: &str = "CONFLUX_HANDOFF";
+static INVITATION_TAKEN: AtomicBool = AtomicBool::new(false);
 const HELLO_TIMEOUT: Duration = Duration::from_secs(30);
 const READY_TIMEOUT: Duration = Duration::from_secs(60);
 const DRAIN_LIMIT: Duration = Duration::from_secs(60 * 60);
@@ -111,6 +113,11 @@ impl Lifecycle {
         tokio::net::TcpListener::from_std(listener)
     }
 
+    pub fn close_listeners(&self) {
+        self.listeners.lock().unwrap().clear();
+        self.inherited.lock().unwrap().clear();
+    }
+
     pub async fn spawn_successor(&self, exe: &Path) -> Result<Successor> {
         let door = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
         let invitation = Invitation {
@@ -153,6 +160,9 @@ impl Lifecycle {
         let Ok(raw) = std::env::var(HANDOFF_ENV) else {
             return Ok(None);
         };
+        if INVITATION_TAKEN.swap(true, Ordering::SeqCst) {
+            return Ok(None);
+        }
         let invitation: Invitation = serde_json::from_str(&raw).context("read the handoff invitation")?;
         let stream = TcpStream::connect(("127.0.0.1", invitation.port))
             .await

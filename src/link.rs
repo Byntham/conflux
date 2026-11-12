@@ -8,19 +8,21 @@ use axum::Json;
 use axum::extract::{ConnectInfo, Request, State};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use http::{HeaderMap, StatusCode, header};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::access::{self, Verdict};
-use crate::api::ApiError;
+use crate::api::{ApiError, UpdateRequest};
 use crate::app::App;
-use crate::config::{Config, Paths, Role};
+use crate::config::{Config, Endpoints, Paths, Role};
+use crate::lifecycle::Lifecycle;
 use crate::setup::{self, ClientPaths};
 use crate::tailnet::{self, Peer, TailnetSelf, Tailscale};
+use crate::update::{UpdateStatus, Updater};
 use crate::{dashboard, update};
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
@@ -166,6 +168,8 @@ pub struct Waiting {
     allowed_hosts: RwLock<Vec<String>>,
     accepting: tokio::sync::Mutex<()>,
     linked: watch::Sender<bool>,
+    lifecycle: Arc<Lifecycle>,
+    updater: Arc<Updater>,
 }
 
 fn refuse(status: StatusCode, message: impl Into<String>) -> Response {
@@ -183,6 +187,8 @@ impl Waiting {
             allowed_hosts: RwLock::new(access::local_hosts(port)),
             accepting: tokio::sync::Mutex::new(()),
             linked: watch::channel(false).0,
+            lifecycle: Arc::default(),
+            updater: Updater::new(&Endpoints::from_env().releases),
         })
     }
 
@@ -190,21 +196,26 @@ impl Waiting {
         axum::Router::new()
             .route("/conflux/link", get(offer).post(accept))
             .route("/conflux/api/status", get(waiting_status))
+            .route("/conflux/api/update", post(update_self))
             .fallback(not_linked)
             .layer(axum::middleware::from_fn_with_state(self.clone(), guard))
             .with_state(self.clone())
     }
 
-    fn linked(&self) -> impl Future<Output = ()> + Send + 'static {
+    fn stopped(&self) -> impl Future<Output = ()> + Send + 'static {
         let mut linked = self.linked.subscribe();
+        let replaced = self.lifecycle.drain_started();
         async move {
-            let _ = linked.wait_for(|l| *l).await;
+            tokio::select! {
+                _ = linked.wait_for(|l| *l) => {}
+                () = replaced => {}
+            }
         }
     }
 
     fn serve_on(self: &Arc<Self>, listener: tokio::net::TcpListener) -> JoinHandle<()> {
         let routes = self.routes().into_make_service_with_connect_info::<SocketAddr>();
-        let stop = self.linked();
+        let stop = self.stopped();
         tokio::spawn(async move {
             if let Err(e) = axum::serve(listener, routes).with_graceful_shutdown(stop).await {
                 tracing::error!("listener stopped: {e}");
@@ -215,8 +226,8 @@ impl Waiting {
     async fn listen_on_tailnet(self: Arc<Self>) -> Vec<JoinHandle<()>> {
         let mut bound = HashSet::new();
         let mut servers = Vec::new();
-        let linked = self.linked();
-        tokio::pin!(linked);
+        let stopped = self.stopped();
+        tokio::pin!(stopped);
         loop {
             let tailscale = self.tailscale.clone();
             let found = tokio::task::spawn_blocking(move || tailnet::status(&tailscale))
@@ -233,7 +244,7 @@ impl Waiting {
                     continue;
                 }
                 let addr = SocketAddr::new(ip, self.port);
-                match tokio::net::TcpListener::bind(addr).await {
+                match self.lifecycle.listen(addr) {
                     Ok(listener) => {
                         bound.insert(ip);
                         tracing::info!(%addr, "waiting to be linked on the tailnet");
@@ -243,7 +254,7 @@ impl Waiting {
                 }
             }
             tokio::select! {
-                () = &mut linked => return servers,
+                () = &mut stopped => return servers,
                 () = tokio::time::sleep(RESCAN_TAILNET) => {}
             }
         }
@@ -262,8 +273,60 @@ async fn offer(State(w): State<Arc<Waiting>>) -> Json<Value> {
     Json(json!({ "state": "waiting", "hostname": w.hostname, "version": update::CURRENT }))
 }
 
-async fn waiting_status() -> Json<Value> {
-    Json(json!({ "role": Role::Waiting, "version": update::CURRENT, "pid": std::process::id() }))
+async fn waiting_status(State(w): State<Arc<Waiting>>) -> Json<Value> {
+    let latest = w.updater.latest();
+    let this_machine = json!({
+        "hostname": w.hostname,
+        "role": Role::Waiting,
+        "version": update::CURRENT,
+        "online": true,
+        "outdated": latest.as_deref().is_some_and(|l| update::is_newer(l, update::CURRENT)),
+        "update": w.updater.status(),
+    });
+    Json(json!({
+        "role": Role::Waiting,
+        "version": update::CURRENT,
+        "pid": std::process::id(),
+        "latest_version": latest,
+        "machines": [this_machine],
+    }))
+}
+
+async fn update_self(State(w): State<Arc<Waiting>>, Json(req): Json<UpdateRequest>) -> Response {
+    let version = match w.updater.check_latest().await {
+        Ok(version) => version,
+        Err(e) => {
+            return refuse(
+                StatusCode::BAD_GATEWAY,
+                format!("could not check for a new release: {e:#}"),
+            );
+        }
+    };
+    let mut skipped: Vec<Value> = req
+        .machines
+        .iter()
+        .flatten()
+        .filter(|name| **name != w.hostname)
+        .map(|name| json!({ "machine": name, "reason": "unknown machine" }))
+        .collect();
+    let mut started = Vec::new();
+    if req.machines.as_ref().is_none_or(|only| only.contains(&w.hostname)) {
+        let obstacle = if !update::is_newer(&version, update::CURRENT) {
+            Some("already up to date")
+        } else if w.updater.status().as_ref().is_some_and(UpdateStatus::in_progress) {
+            Some("already updating")
+        } else {
+            None
+        };
+        match obstacle {
+            Some(reason) => skipped.push(json!({ "machine": w.hostname, "reason": reason })),
+            None => {
+                started.push(w.hostname.clone());
+                tokio::spawn(w.updater.clone().run(version.clone(), w.lifecycle.clone(), w.clone()));
+            }
+        }
+    }
+    Json(json!({ "version": version, "started": started, "skipped": skipped })).into_response()
 }
 
 async fn not_linked() -> Response {
@@ -286,6 +349,12 @@ async fn accept(State(w): State<Arc<Waiting>>, ConnectInfo(from): ConnectInfo<So
         );
     }
     let _one_at_a_time = w.accepting.lock().await;
+    if w.updater.status().as_ref().is_some_and(UpdateStatus::in_progress) {
+        return refuse(
+            StatusCode::CONFLICT,
+            "this machine is updating conflux. Try again in a minute.",
+        );
+    }
     match w.become_node(&url_host(caller)) {
         Ok(None) => Json(json!({ "hostname": w.hostname })).into_response(),
         Ok(Some(reason)) => refuse(StatusCode::CONFLICT, reason),
@@ -328,13 +397,33 @@ impl Waiting {
     }
 }
 
-pub async fn serve(cfg: Config, paths: Paths) -> Result<()> {
+impl update::Handoff for Waiting {
+    async fn pause(&self) -> (Value, mpsc::UnboundedReceiver<Value>) {
+        (Value::Null, mpsc::unbounded_channel().1)
+    }
+
+    async fn resume(&self) {}
+}
+
+pub async fn serve(cfg: Config, paths: Paths) -> Result<bool> {
     let waiting = Waiting::new(cfg.port, paths, ClientPaths::from_env()?, tailnet::system_tailscale());
+    let takeover = waiting.lifecycle.take_over().await?;
+    let exe = update::running_exe()?;
+    waiting.updater.replaces(exe.clone());
     let addr = SocketAddr::from(([127, 0, 0, 1], cfg.port));
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .with_context(|| format!("bind {addr}"))?;
+    let listener = waiting.lifecycle.listen(addr).with_context(|| format!("bind {addr}"))?;
     tracing::info!(%addr, "conflux is waiting to be linked to a hub");
-    waiting.run(vec![listener]).await;
-    Ok(())
+    if let Some(takeover) = takeover {
+        takeover.ready(|_| {}).await?;
+    }
+    update::remove_old_binaries(&exe);
+    let checks = tokio::spawn(waiting.updater.clone().run_checks());
+    waiting.clone().run(vec![listener]).await;
+    checks.abort();
+    if waiting.lifecycle.is_draining() {
+        tracing::info!("a newer conflux took over");
+        return Ok(false);
+    }
+    waiting.lifecycle.close_listeners();
+    Ok(true)
 }
