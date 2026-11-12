@@ -205,11 +205,13 @@ impl Waiting {
     fn stopped(&self) -> impl Future<Output = ()> + Send + 'static {
         let mut linked = self.linked.subscribe();
         let replaced = self.lifecycle.drain_started();
+        let lifecycle = self.lifecycle.clone();
         async move {
             tokio::select! {
                 _ = linked.wait_for(|l| *l) => {}
                 () = replaced => {}
             }
+            lifecycle.close_listeners();
         }
     }
 
@@ -311,9 +313,16 @@ async fn update_self(State(w): State<Arc<Waiting>>, Json(req): Json<UpdateReques
         .collect();
     let mut started = Vec::new();
     if req.machines.as_ref().is_none_or(|only| only.contains(&w.hostname)) {
+        let _one_at_a_time = w.accepting.lock().await;
+        if *w.linked.borrow() {
+            return refuse(
+                StatusCode::CONFLICT,
+                "this machine was just linked to a hub. Run the update again.",
+            );
+        }
         let obstacle = if !update::is_newer(&version, update::CURRENT) {
             Some("already up to date")
-        } else if w.updater.status().as_ref().is_some_and(UpdateStatus::in_progress) {
+        } else if !w.updater.claim(&version) {
             Some("already updating")
         } else {
             None
@@ -322,7 +331,11 @@ async fn update_self(State(w): State<Arc<Waiting>>, Json(req): Json<UpdateReques
             Some(reason) => skipped.push(json!({ "machine": w.hostname, "reason": reason })),
             None => {
                 started.push(w.hostname.clone());
-                tokio::spawn(w.updater.clone().run(version.clone(), w.lifecycle.clone(), w.clone()));
+                tokio::spawn(
+                    w.updater
+                        .clone()
+                        .run_claimed(version.clone(), w.lifecycle.clone(), w.clone()),
+                );
             }
         }
     }
@@ -424,6 +437,5 @@ pub async fn serve(cfg: Config, paths: Paths) -> Result<bool> {
         tracing::info!("a newer conflux took over");
         return Ok(false);
     }
-    waiting.lifecycle.close_listeners();
     Ok(true)
 }

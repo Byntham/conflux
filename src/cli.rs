@@ -641,7 +641,7 @@ async fn update(daemon: &Daemon, machines: Vec<String>) -> Result<()> {
         .any(|s| s["reason"] == "unknown machine");
     if waiting.is_empty() {
         if unknown {
-            bail!("the hub does not know every machine you named");
+            bail!("conflux does not know every machine you named");
         }
         println!("Nothing to update. The latest release is v{version}.");
         return Ok(());

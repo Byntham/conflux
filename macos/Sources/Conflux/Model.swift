@@ -212,6 +212,8 @@ final class Model: ObservableObject {
             }
             let enabled = accounts.filter(\.enabled)
             return !enabled.isEmpty && readyCount == 0 ? .systemOrange : nil
+        case .waiting:
+            return updateFailure == nil ? nil : .systemRed
         default:
             return nil
         }
