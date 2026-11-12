@@ -201,7 +201,7 @@ struct Accounts: View {
                 HStack(spacing: 8) {
                     Text("Accounts")
                     Spacer()
-                    Text("Used").frame(width: 34, alignment: .trailing)
+                    Text("Left").frame(width: 34, alignment: .trailing)
                     Text("Resets in").frame(width: 52, alignment: .trailing)
                 }
                 .font(.system(size: 11))
@@ -295,7 +295,7 @@ struct StatePill: View {
         case .needsLogin: return ("Needs login", Palette.bad, Palette.badFill)
         case .billingBlocked: return ("Billing blocked", Palette.bad, Palette.badFill)
         case let .cooling(until): return ("Cooling \(Countdown.text(until, now: now))", Palette.warn, Palette.warnFill)
-        case .quotaFull: return ("Quota full", Palette.warn, Palette.warnFill)
+        case .quotaFull: return ("Out of quota", Palette.warn, Palette.warnFill)
         case let .modelsCooling(n): return ("\(n) \(n == 1 ? "model" : "models") cooling", Palette.warn, Palette.warnFill)
         case .ready, .disabled: return ("", .clear, .clear)
         }
@@ -307,7 +307,7 @@ struct Meter: View {
     let now: Date
 
     var body: some View {
-        let pct = min(100, max(0, window.usedPct.rounded()))
+        let left = 100 - min(100, max(0, window.usedPct.rounded()))
         HStack(spacing: 8) {
             Text(name)
                 .font(.system(size: 11))
@@ -317,14 +317,14 @@ struct Meter: View {
                 ZStack(alignment: .leading) {
                     Capsule().fill(Palette.track)
                     Capsule()
-                        .fill(color(pct))
-                        .frame(width: max(pct > 0 ? 4 : 0, geometry.size.width * pct / 100))
+                        .fill(color(left))
+                        .frame(width: max(left > 0 ? 4 : 0, geometry.size.width * left / 100))
                 }
             }
             .frame(height: 6)
-            Text("\(Int(pct))%")
+            Text("\(Int(left))%")
                 .font(.system(size: 11).monospacedDigit())
-                .foregroundStyle(pct >= 100 ? Palette.bad : pct >= 80 ? Palette.warn : .primary)
+                .foregroundStyle(left <= 0 ? Palette.bad : left <= 20 ? Palette.warn : .primary)
                 .frame(width: 34, alignment: .trailing)
             Text(window.resetsAt.map { Countdown.text($0, now: now) } ?? "")
                 .font(.system(size: 11).monospacedDigit())
@@ -332,11 +332,11 @@ struct Meter: View {
                 .frame(width: 52, alignment: .trailing)
                 .lineLimit(1)
         }
-        .help(window.resetsAt.map { "\(name) limit resets in \(Countdown.text($0, now: now))" } ?? name)
+        .help("\(Int(left))% of the \(name) limit left" + (window.resetsAt.map { ", resets in \(Countdown.text($0, now: now))" } ?? ""))
     }
 
-    private func color(_ pct: Double) -> Color {
-        pct >= 100 ? Palette.badFill : pct >= 80 ? Palette.warnFill : Palette.meter
+    private func color(_ left: Double) -> Color {
+        left <= 20 ? Palette.warnFill : Palette.meter
     }
 
     private var name: String {

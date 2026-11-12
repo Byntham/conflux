@@ -83,7 +83,7 @@
   .key { display: inline-flex; align-items: center; gap: 6px; }
   .key i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; }
   .key i.tick { width: 2px; height: 11px; border-radius: 1px; background: var(--fg); }
-  .key i.used { background: var(--fill); width: 16px; height: 5px; border-radius: 3px; }
+  .key i.left { background: var(--fill); width: 16px; height: 5px; border-radius: 3px; }
   .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .link { color: var(--accent); text-decoration: none; font-size: 12.5px; font-weight: 500; }
   .link:hover { text-decoration: underline; }
@@ -154,7 +154,6 @@
   .track { position: relative; height: 5px; border-radius: 3px; background: var(--track); }
   .track > i { display: block; height: 100%; border-radius: 3px; background: var(--fill); }
   .track > i.high { background: var(--warn-fill); }
-  .track > i.full { background: var(--bad-fill); }
   .track > b { position: absolute; z-index: 1; top: -3px; width: 2px; height: 11px; margin-left: -1px; border-radius: 1px; background: var(--fg); }
   .no-usage { margin-top: 13px; font-size: 12.5px; color: var(--muted); }
   .account-login { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: auto; padding-top: 11px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--fg-2); }
@@ -506,7 +505,7 @@
         <div class="section">
           <div class="section-head hide-first-run">
             <h2>Accounts</h2>
-            <div class="section-note" id="quota-key"><span class="key"><i class="used"></i>Quota used</span><span class="key"><i class="tick"></i>Time elapsed in window</span></div>
+            <div class="section-note" id="quota-key"><span class="key"><i class="left"></i>Quota left</span><span class="key"><i class="tick"></i>Time left in window</span></div>
           </div>
           <div class="accounts" id="accounts"></div>
         </div>
@@ -717,28 +716,28 @@ function statusPill(a) {
   if (!a.enabled) return '<span class="pill">Disabled</span>';
   const cooling = accountCooldown(a);
   if (cooling) return `<span class="pill warn" title="${esc(cooling.reason)}">Cooling ${esc(until(cooling.until))}</span>`;
-  if (quotaExhausted(a)) return '<span class="pill warn">Quota full</span>';
+  if (quotaExhausted(a)) return '<span class="pill warn">Out of quota</span>';
   if (!a.cooldowns.length) return '<span class="pill ok">Ready</span>';
   const n = a.cooldowns.length;
   return `<span class="pill warn">${n} ${n === 1 ? "model" : "models"} cooling</span>`;
 }
 
-function windowElapsed(w) {
+function windowTimeLeft(w) {
   if (!w.resets_at || !w.duration_secs) return null;
   const left = (new Date(w.resets_at) - Date.now()) / 1000;
-  return Math.max(0, Math.min(100, 100 - (left / w.duration_secs) * 100));
+  return Math.max(0, Math.min(100, (left / w.duration_secs) * 100));
 }
 
 function renderMeters(a) {
   const windows = [...a.usage.windows].sort((x, y) => (x.duration_secs || 0) - (y.duration_secs || 0));
   if (!windows.length) return '<div class="no-usage">No usage data yet.</div>';
   return `<div class="meters">${windows.map((w) => {
-    const pct = Math.min(100, Math.round(w.used_pct));
-    const cls = pct >= 100 ? "full" : pct >= 80 ? "high" : "";
-    const elapsed = windowElapsed(w);
+    const left = 100 - Math.min(100, Math.round(w.used_pct));
+    const cls = left <= 0 ? "full" : left <= 20 ? "high" : "";
+    const timeLeft = windowTimeLeft(w);
     const name = windowName(w);
-    const tick = elapsed === null ? "" : `<b style="left:${elapsed.toFixed(1)}%" title="${Math.round(elapsed)}% of this window has passed"></b>`;
-    return `<div class="meter"><span class="meter-name" title="${esc(name)}">${esc(name)}</span><div class="track" role="meter" aria-label="${esc(name)} quota used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><i class="${cls}" style="width:${pct}%"></i>${tick}</div><span class="meter-pct ${cls}">${pct}%</span><span class="meter-reset">${w.resets_at ? `resets ${esc(until(w.resets_at))}` : ""}</span></div>`;
+    const tick = timeLeft === null ? "" : `<b style="left:${timeLeft.toFixed(1)}%" title="${Math.round(timeLeft)}% of this window is left"></b>`;
+    return `<div class="meter"><span class="meter-name" title="${esc(name)}">${esc(name)}</span><div class="track" role="meter" aria-label="${esc(name)} quota left" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${left}"><i class="${cls}" style="width:${left}%"></i>${tick}</div><span class="meter-pct ${cls}">${left}%</span><span class="meter-reset">${w.resets_at ? `resets ${esc(until(w.resets_at))}` : ""}</span></div>`;
   }).join("")}</div>`;
 }
 
