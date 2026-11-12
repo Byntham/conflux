@@ -19,7 +19,44 @@ add_to_path() {
   fi
 }
 
+install_binary() {
+  curl -fsSL -o "$1/conflux.download" \
+    "https://github.com/$repo/releases/latest/download/conflux-$2"
+  chmod +x "$1/conflux.download"
+  mv "$1/conflux.download" "$1/conflux"
+  echo "Installed conflux to $1/conflux."
+}
+
+install_app() {
+  apps="$HOME/Applications"
+  mkdir -p "$apps"
+  work=$(mktemp -d "$apps/.conflux-install.XXXXXX")
+  trap 'rm -rf "$work"' EXIT
+  curl -fsSL -o "$work/app.zip" \
+    "https://github.com/$repo/releases/latest/download/conflux-darwin-aarch64-app.zip" || return 1
+  ditto -x -k "$work/app.zip" "$work" || return 1
+  [ -d "$work/Conflux.app" ] || return 1
+  ln -sf "$apps/Conflux.app/Contents/Helpers/conflux" "$1/conflux" || return 1
+  if [ -e "$apps/Conflux.app" ]; then
+    mv "$apps/Conflux.app" "$work/previous.app" || return 1
+  fi
+  if ! mv "$work/Conflux.app" "$apps/Conflux.app"; then
+    [ -e "$work/previous.app" ] && mv "$work/previous.app" "$apps/Conflux.app"
+    return 1
+  fi
+  echo "Installed Conflux.app to $apps and linked $1/conflux to it."
+}
+
 main() {
+  app=yes
+  hub=
+  for arg in "$@"; do
+    case "$arg" in
+      --no-app) app=no ;;
+      *) hub=$arg ;;
+    esac
+  done
+
   os=$(uname -s | tr '[:upper:]' '[:lower:]')
   arch=$(uname -m)
   case "$arch" in
@@ -37,15 +74,20 @@ main() {
 
   bin_dir="${CONFLUX_BIN_DIR:-$HOME/.local/bin}"
   mkdir -p "$bin_dir"
-  curl -fsSL -o "$bin_dir/conflux.download" \
-    "https://github.com/$repo/releases/latest/download/conflux-$os-$arch"
-  chmod +x "$bin_dir/conflux.download"
-  mv "$bin_dir/conflux.download" "$bin_dir/conflux"
-  echo "Installed conflux to $bin_dir/conflux."
+  if [ "$os" != darwin ] || [ "$app" = no ]; then
+    install_binary "$bin_dir" "$os-$arch"
+  elif ! install_app "$bin_dir"; then
+    if [ -e "$HOME/Applications/Conflux.app" ]; then
+      echo "Could not update Conflux.app. Try again later." >&2
+      exit 1
+    fi
+    echo "Could not install Conflux.app. Installing the conflux command only."
+    install_binary "$bin_dir" "$os-$arch"
+  fi
   add_to_path "$bin_dir"
 
-  if [ "$#" -gt 0 ]; then
-    "$bin_dir/conflux" join "$1" </dev/null
+  if [ -n "$hub" ]; then
+    "$bin_dir/conflux" join "$hub" </dev/null
   else
     "$bin_dir/conflux" wait </dev/null
   fi

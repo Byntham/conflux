@@ -34,6 +34,25 @@ pub fn is_newer(candidate: &str, than: &str) -> bool {
     }
 }
 
+pub const APP_ASSET: &str = "conflux-darwin-aarch64-app.zip";
+
+pub fn app_bundle(exe: &Path) -> Option<&Path> {
+    let helpers = exe.parent()?;
+    let contents = helpers.parent()?;
+    let bundle = contents.parent()?;
+    let is_bundle =
+        helpers.file_name()? == "Helpers" && contents.file_name()? == "Contents" && bundle.extension()? == "app";
+    is_bundle.then_some(bundle)
+}
+
+pub fn running_exe() -> Result<PathBuf> {
+    let exe = std::env::current_exe().context("find the conflux binary")?;
+    if cfg!(target_os = "macos") {
+        return exe.canonicalize().context("resolve the conflux binary");
+    }
+    Ok(exe)
+}
+
 pub fn asset_name() -> Option<&'static str> {
     match (std::env::consts::OS, std::env::consts::ARCH) {
         ("linux", "x86_64") => Some("conflux-linux-x86_64"),
@@ -80,16 +99,50 @@ fn sibling(exe: &Path, tag: &str) -> PathBuf {
     exe.with_file_name(name)
 }
 
+fn bundle_sibling(bundle: &Path, tag: &str) -> PathBuf {
+    let name = bundle.file_name().unwrap_or_default().to_string_lossy();
+    bundle.with_file_name(format!("{name}.{tag}"))
+}
+
+fn aside(exe: &Path, tag: &str) -> PathBuf {
+    match app_bundle(exe) {
+        Some(bundle) => bundle_sibling(bundle, tag),
+        None => sibling(exe, tag),
+    }
+}
+
+fn remove_path(path: &Path) {
+    let _ = if path.is_dir() {
+        std::fs::remove_dir_all(path)
+    } else {
+        std::fs::remove_file(path)
+    };
+}
+
 pub fn remove_old_binaries(exe: &Path) {
-    let (Some(dir), Some(stem)) = (exe.parent(), exe.file_stem()) else {
+    let (installed, name) = match app_bundle(exe) {
+        Some(bundle) => (bundle, bundle.file_name()),
+        None => (exe, exe.file_stem()),
+    };
+    let (Some(dir), Some(name)) = (installed.parent(), name) else {
         return;
     };
-    let prefix = format!("{}.old-", stem.to_string_lossy());
+    let prefix = format!("{}.old-", name.to_string_lossy());
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         if entry.file_name().to_string_lossy().starts_with(&prefix) {
-            let _ = std::fs::remove_file(entry.path());
+            remove_path(&entry.path());
         }
     }
+}
+
+async fn unpack(zip: PathBuf, into: PathBuf) -> Result<()> {
+    tokio::task::spawn_blocking(move || {
+        let file = std::fs::File::open(&zip).with_context(|| format!("open {}", zip.display()))?;
+        zip::ZipArchive::new(file)
+            .and_then(|mut archive| archive.extract_unwrapped_root_dir(&into, zip::read::root_dir_common_filter))
+            .context("unpack the downloaded app")
+    })
+    .await?
 }
 
 async fn verify(binary: &Path) -> Result<()> {
@@ -179,9 +232,7 @@ impl Updater {
         }
     }
 
-    async fn download(&self, version: &str, to: &Path) -> Result<()> {
-        let asset =
-            asset_name().context("conflux has no prebuilt binary for this system. Update it with `cargo install`.")?;
+    async fn download(&self, version: &str, asset: &str, to: &Path) -> Result<()> {
         let url = format!("{}/download/v{version}/{asset}", self.releases);
         let resp = self
             .http
@@ -207,24 +258,42 @@ impl Updater {
         Ok(())
     }
 
+    async fn fetch(&self, version: &str, exe: &Path, incoming: &Path) -> Result<()> {
+        let Some(bundle) = app_bundle(exe) else {
+            let asset = asset_name()
+                .context("conflux has no prebuilt binary for this system. Update it with `cargo install`.")?;
+            self.download(version, asset, incoming).await?;
+            return verify(incoming).await;
+        };
+        let zip = aside(exe, "download.zip");
+        let downloaded = self.download(version, APP_ASSET, &zip).await;
+        let unpacked = match downloaded {
+            Ok(()) => unpack(zip.clone(), incoming.to_path_buf()).await,
+            Err(e) => Err(e),
+        };
+        remove_path(&zip);
+        unpacked?;
+        verify(&incoming.join(exe.strip_prefix(bundle)?)).await
+    }
+
     async fn install(&self, version: &str, exe: &Path) -> Result<PathBuf> {
-        let downloaded = sibling(exe, "download");
-        let fetched = async {
-            self.download(version, &downloaded).await?;
-            verify(&downloaded).await
-        }
-        .await;
-        if let Err(e) = fetched {
-            let _ = std::fs::remove_file(&downloaded);
+        let installed = app_bundle(exe).unwrap_or(exe);
+        let incoming = aside(exe, "download");
+        remove_path(&incoming);
+        if let Err(e) = self.fetch(version, exe, &incoming).await {
+            remove_path(&incoming);
             return Err(e);
         }
-        let backup = sibling(exe, &format!("old-{CURRENT}"));
-        let _ = std::fs::remove_file(&backup);
-        std::fs::rename(exe, &backup).with_context(|| format!("move {} aside", exe.display()))?;
-        if let Err(e) = std::fs::rename(&downloaded, exe) {
-            let _ = std::fs::rename(&backup, exe);
-            let _ = std::fs::remove_file(&downloaded);
-            return Err(e).with_context(|| format!("replace {}", exe.display()));
+        let backup = aside(exe, &format!("old-{CURRENT}"));
+        remove_path(&backup);
+        if let Err(e) = std::fs::rename(installed, &backup) {
+            remove_path(&incoming);
+            return Err(e).with_context(|| format!("move {} aside", installed.display()));
+        }
+        if let Err(e) = std::fs::rename(&incoming, installed) {
+            let _ = std::fs::rename(&backup, installed);
+            remove_path(&incoming);
+            return Err(e).with_context(|| format!("replace {}", installed.display()));
         }
         Ok(backup)
     }
@@ -255,8 +324,18 @@ impl Updater {
         }
         .await;
         if let Err(e) = handed_over {
-            if let Err(restore) = std::fs::rename(&backup, exe) {
-                tracing::error!("could not put the previous binary back: {restore}");
+            let installed = app_bundle(exe).unwrap_or(exe);
+            let failed = aside(exe, "failed");
+            remove_path(&failed);
+            let set_aside = installed.is_dir() && std::fs::rename(installed, &failed).is_ok();
+            match std::fs::rename(&backup, installed) {
+                Ok(()) => remove_path(&failed),
+                Err(restore) => {
+                    tracing::error!("could not put the previous binary back: {restore}");
+                    if set_aside {
+                        let _ = std::fs::rename(&failed, installed);
+                    }
+                }
             }
             return Err(e);
         }

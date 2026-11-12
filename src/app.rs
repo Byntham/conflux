@@ -371,7 +371,7 @@ pub async fn serve(cfg: Config, paths: Paths, ep: Endpoints) -> Result<()> {
     if let Some(takeover) = &takeover {
         app.import_state(&takeover.state);
     }
-    let exe = std::env::current_exe().context("find the conflux binary")?;
+    let exe = update::running_exe()?;
     app.updater.replaces(exe.clone());
     let mut background = app.start_background();
     let listener = lifecycle.listen(addr).with_context(|| format!("bind {addr}"))?;

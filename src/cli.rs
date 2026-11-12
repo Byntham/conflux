@@ -309,7 +309,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 let role = if role == Role::Node { "linked to a hub" } else { "a hub" };
                 println!("This machine is already {role}. Its role did not change.");
                 if service::installed() {
-                    service::restart()?;
+                    service::install()?;
                 }
                 Ok(())
             }

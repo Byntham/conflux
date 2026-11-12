@@ -5,6 +5,7 @@ use anyhow::{Context, Result, bail};
 
 const UNIT_NAME: &str = "conflux.service";
 const LAUNCHD_LABEL: &str = "dev.conflux";
+const MENU_BAR_LABEL: &str = "dev.conflux.menubar";
 
 fn home() -> Result<PathBuf> {
     crate::config::home_dir()
@@ -40,6 +41,14 @@ pub fn systemd_unit(exe: &Path) -> String {
     )
 }
 
+fn xml(path: &Path) -> String {
+    path.display()
+        .to_string()
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
 pub fn launchd_plist(exe: &Path, log: &Path) -> String {
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -55,9 +64,26 @@ pub fn launchd_plist(exe: &Path, log: &Path) -> String {
 </dict>
 </plist>
 "#,
-        exe.display(),
-        log.display(),
-        log.display()
+        xml(exe),
+        xml(log),
+        xml(log)
+    )
+}
+
+fn menu_bar_plist(app: &Path) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>{MENU_BAR_LABEL}</string>
+  <key>ProgramArguments</key><array><string>{}</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>AbandonProcessGroup</key><true/>
+</dict>
+</plist>
+"#,
+        xml(&app.join("Contents/MacOS/Conflux"))
     )
 }
 
@@ -82,10 +108,43 @@ fn uid() -> String {
         .unwrap_or_default()
 }
 
+fn plist_path_for(label: &str) -> Result<PathBuf> {
+    Ok(home()?.join("Library/LaunchAgents").join(format!("{label}.plist")))
+}
+
 fn plist_path() -> Result<PathBuf> {
-    Ok(home()?
-        .join("Library/LaunchAgents")
-        .join(format!("{LAUNCHD_LABEL}.plist")))
+    plist_path_for(LAUNCHD_LABEL)
+}
+
+fn launchd_unload(label: &str) -> Result<()> {
+    let _ = Command::new("launchctl")
+        .args(["bootout", &format!("gui/{}/{label}", uid())])
+        .output();
+    let path = plist_path_for(label)?;
+    if path.exists() {
+        std::fs::remove_file(path)?;
+    }
+    Ok(())
+}
+
+fn launchd_loaded_with(label: &str, plist: &str) -> Result<bool> {
+    let same = std::fs::read_to_string(plist_path_for(label)?).is_ok_and(|on_disk| on_disk == plist);
+    Ok(same
+        && Command::new("launchctl")
+            .args(["print", &format!("gui/{}/{label}", uid())])
+            .output()
+            .is_ok_and(|o| o.status.success()))
+}
+
+fn launchd_load(label: &str, plist: &str) -> Result<()> {
+    launchd_unload(label)?;
+    let path = plist_path_for(label)?;
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    std::fs::write(&path, plist)?;
+    run(
+        "launchctl",
+        &["bootstrap", &format!("gui/{}", uid()), &path.display().to_string()],
+    )
 }
 
 fn unit_path() -> Result<PathBuf> {
@@ -93,7 +152,7 @@ fn unit_path() -> Result<PathBuf> {
 }
 
 pub fn install() -> Result<String> {
-    let exe = std::env::current_exe().context("find the conflux binary")?;
+    let exe = crate::update::running_exe()?;
     if cfg!(windows) {
         let launch = windows_launch_command(&exe);
         run(
@@ -114,15 +173,19 @@ pub fn install() -> Result<String> {
         windows_start(&exe)?;
         Ok("a startup entry that runs conflux when you sign in".to_string())
     } else if cfg!(target_os = "macos") {
-        let path = plist_path()?;
-        std::fs::create_dir_all(path.parent().unwrap())?;
         let log = home()?.join("Library/Logs/conflux.log");
-        std::fs::write(&path, launchd_plist(&exe, &log))?;
-        let target = format!("gui/{}", uid());
-        let _ = Command::new("launchctl")
-            .args(["bootout", &format!("{target}/{LAUNCHD_LABEL}")])
-            .status();
-        run("launchctl", &["bootstrap", &target, &path.display().to_string()])?;
+        launchd_load(LAUNCHD_LABEL, &launchd_plist(&exe, &log))?;
+        match crate::update::app_bundle(&exe) {
+            Some(app) => {
+                let plist = menu_bar_plist(app);
+                if !launchd_loaded_with(MENU_BAR_LABEL, &plist)?
+                    && let Err(e) = launchd_load(MENU_BAR_LABEL, &plist)
+                {
+                    eprintln!("Warning: the menu bar app will not open at login: {e:#}");
+                }
+            }
+            None => launchd_unload(MENU_BAR_LABEL)?,
+        }
         Ok(format!("launchd agent {LAUNCHD_LABEL} (logs in {})", log.display()))
     } else {
         let path = unit_path()?;
@@ -184,13 +247,8 @@ pub fn uninstall() -> Result<()> {
             .args(["delete", WINDOWS_RUN_KEY, "/v", "conflux", "/f"])
             .output();
     } else if cfg!(target_os = "macos") {
-        let path = plist_path()?;
-        let _ = Command::new("launchctl")
-            .args(["bootout", &format!("gui/{}/{LAUNCHD_LABEL}", uid())])
-            .status();
-        if path.exists() {
-            std::fs::remove_file(path)?;
-        }
+        launchd_unload(LAUNCHD_LABEL)?;
+        launchd_unload(MENU_BAR_LABEL)?;
     } else {
         let path = unit_path()?;
         let _ = Command::new("systemctl")

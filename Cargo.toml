@@ -29,6 +29,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 url = "2.5.8"
 uuid = { version = "1.29.1", features = ["v4", "v5"] }
+zip = { version = "9.5.1", default-features = false, features = ["deflate-flate2"] }
 zstd = "0.14.3"
 
 [target.'cfg(unix)'.dependencies]

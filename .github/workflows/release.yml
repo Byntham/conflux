@@ -23,7 +23,7 @@ jobs:
           - os: ubuntu-22.04
             target: aarch64-unknown-linux-gnu
             asset: conflux-linux-aarch64
-          - os: macos-latest
+          - os: macos-26
             target: aarch64-apple-darwin
             asset: conflux-darwin-aarch64
           - os: windows-latest
@@ -62,10 +62,18 @@ jobs:
           bin=target/${{ matrix.target }}/release/conflux
           [ -f "$bin.exe" ] && bin="$bin.exe"
           cp "$bin" "${{ matrix.asset }}"
+      - if: matrix.target == 'aarch64-apple-darwin'
+        run: macos/build-app.sh "${{ matrix.asset }}" target/app
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
           path: ${{ matrix.asset }}
+          if-no-files-found: error
+      - if: matrix.target == 'aarch64-apple-darwin'
+        uses: actions/upload-artifact@v4
+        with:
+          name: conflux-darwin-aarch64-app.zip
+          path: target/app/conflux-darwin-aarch64-app.zip
           if-no-files-found: error
 
   publish:
