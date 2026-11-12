@@ -22,7 +22,7 @@ pub fn system_tailscale() -> Tailscale {
 fn run_tailscale(args: &[&str]) -> Option<Value> {
     let out = TAILSCALE_COMMANDS
         .iter()
-        .find_map(|cmd| Command::new(cmd).args(args).output().ok())?;
+        .find_map(|cmd| Command::new(cmd).args(args).env("TAILSCALE_BE_CLI", "1").output().ok())?;
     if !out.status.success() {
         return None;
     }
