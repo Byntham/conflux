@@ -1672,7 +1672,7 @@ async function checkForUpdates(button) {
   try {
     const r = await api("POST", "/conflux/api/update/check", {});
     await refresh();
-    toast(latest && updatable(latest).length ? `v${r.latest_version} is available` : `Every machine is up to date. The latest release is v${r.latest_version}.`);
+    toast(latest && latest.machines.some((m) => m.outdated) ? `v${r.latest_version} is available` : `Every machine is up to date. The latest release is v${r.latest_version}.`);
   } catch (e) { showError(e); } finally { button.disabled = false; }
 }
 
