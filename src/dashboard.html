@@ -348,7 +348,7 @@
   #toast { position: fixed; z-index: 50; left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; align-items: center; gap: 7px; max-width: calc(100vw - 32px); padding: 8px 13px; border-radius: 8px; background: var(--fg); color: var(--bg); font-size: 13px; font-weight: 500; box-shadow: var(--shadow-pop); }
   #toast.bad { background: var(--bad-fill); color: #ffffff; }
 
-  .pool-board { overflow: hidden; }
+  .pool-board { overflow: hidden; padding-bottom: 8px; }
   .pool-claude { --series: var(--claude); }
   .pool-codex { --series: var(--codex); }
   .pool-chart { position: relative; padding: 14px 22px 0; touch-action: pan-y; }
@@ -400,9 +400,6 @@
   .pool-tip div i.scope { background: var(--scoped); }
   .pool-tip div span:last-child { margin-left: auto; padding-left: 12px; color: var(--fg); font-weight: 500; }
   .pool-tip p { margin: 4px 0 0; color: var(--muted); max-width: 220px; }
-  .pool-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding: 10px 22px; border-top: 1px solid var(--line); font-size: 13px; color: var(--fg-2); text-decoration: none; }
-  .pool-foot:hover { color: var(--fg); background: var(--hover); }
-  .pool-foot svg { transform: scaleX(-1); }
 
   @media (min-width: 761px) {
     .note + .note::before { content: "·"; margin-right: 7px; color: var(--muted); font-weight: 400; }
@@ -511,7 +508,6 @@
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="logo" viewBox="0 0 1024 1024"><path d="M431 977C405 972 384 950 378 924C376 918 376 908 376 838C376 699 370 664 333 608C316 580 302 564 252 514C207 468 203 463 191 450C138 387 110 322 104 250C102 224 103 119 106 111C116 79 139 56 172 47C183 44 257 45 268 48C299 56 322 78 332 108C336 120 336 125 336 181C336 307 351 368 399 440C415 464 455 509 460 509C463 509 456 477 444 446C427 396 423 382 417 361C409 327 405 302 402 265C400 238 400 129 402 118C409 81 440 52 476 46C488 44 549 45 557 47C589 56 612 80 622 114C624 121 625 229 623 258C619 320 609 366 586 429C571 471 561 509 565 509C567 509 584 492 594 480C648 419 676 356 687 270C688 259 688 243 689 188C690 110 689 114 698 96C711 69 734 52 762 47C772 45 835 44 846 46C885 52 915 83 921 123C923 135 922 250 920 265C907 357 875 411 775 512C696 592 672 627 658 686C650 720 650 723 649 829C648 922 648 922 646 930C638 954 617 973 594 978C584 980 441 980 431 977Z"/></symbol>
   <symbol id="i-overview" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7.5" height="7.5" rx="1.6"/><rect x="13" y="3.5" width="7.5" height="7.5" rx="1.6"/><rect x="3.5" y="13" width="7.5" height="7.5" rx="1.6"/><rect x="13" y="13" width="7.5" height="7.5" rx="1.6"/></symbol>
-  <symbol id="i-accounts" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="4"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></symbol>
   <symbol id="i-requests" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
   <symbol id="i-machines" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="1.6"/><rect x="3" y="13" width="18" height="7" rx="1.6"/><path d="M7 7.5h.01M7 16.5h.01"/></symbol>
   <symbol id="i-threads" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-12.4 7.5L3.5 20.5l1-5A8.5 8.5 0 1 1 21 12z"/></symbol>
@@ -530,8 +526,7 @@
   <aside class="sidebar">
     <div class="brand"><svg aria-hidden="true"><use href="#logo"/></svg>conflux</div>
     <nav class="nav" aria-label="Sections">
-      <a href="#overview" data-view="overview"><svg class="i" aria-hidden="true"><use href="#i-overview"/></svg>Overview</a>
-      <a href="#accounts" data-view="accounts"><svg class="i" aria-hidden="true"><use href="#i-accounts"/></svg>Accounts<span id="nav-alert" class="alert" hidden></span></a>
+      <a href="#overview" data-view="overview"><svg class="i" aria-hidden="true"><use href="#i-overview"/></svg>Overview<span id="nav-alert" class="alert" hidden></span></a>
       <a href="#requests" data-view="requests"><svg class="i" aria-hidden="true"><use href="#i-requests"/></svg>Requests</a>
       <a href="#machines" data-view="machines"><svg class="i" aria-hidden="true"><use href="#i-machines"/></svg>Machines<span id="nav-machines" class="count"></span></a>
       <a href="#threads" data-view="threads"><svg class="i" aria-hidden="true"><use href="#i-threads"/></svg>Threads</a>
@@ -560,20 +555,12 @@
           </div>
         </div>
         <div class="alerts" id="hub-alert" hidden></div>
-        <div id="pool"></div>
-      </section>
-
-      <section id="view-accounts" hidden>
-        <div class="page-head">
-          <div><h1>Accounts</h1></div>
-          <div class="row">
-            <button class="btn" data-add="claude"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>Add Claude</button>
-            <button class="btn" data-add="codex"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>Add Codex</button>
-          </div>
-        </div>
         <div class="alerts" id="alerts" hidden></div>
-        <div class="section-head" id="quota-key"><div class="section-note"><span class="key"><i class="left"></i>Quota left</span><span class="key"><i class="tick"></i>Time left in window</span></div></div>
-        <div class="accounts" id="accounts"></div>
+        <div id="pool"></div>
+        <div class="section hide-first-run">
+          <div class="section-head" id="quota-key"><h2>Accounts</h2><div class="section-note"><span class="key"><i class="left"></i>Quota left</span><span class="key"><i class="tick"></i>Time left in window</span></div></div>
+          <div class="accounts" id="accounts"></div>
+        </div>
       </section>
 
       <section id="view-requests" hidden>
@@ -646,7 +633,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const icon = (name) => `<svg class="i" aria-hidden="true"><use href="#i-${name}"/></svg>`;
-const VIEWS = ["overview", "accounts", "requests", "machines", "threads"];
+const VIEWS = ["overview", "requests", "machines", "threads"];
 const HOUR_MS = 3600000;
 const REQUEST_ROWS = 100;
 const STALE_USAGE_MS = 30 * 60000;
@@ -1024,11 +1011,8 @@ function renderInstall() {
 }
 
 function renderAccounts(d) {
-  $("quota-key").hidden = !d.accounts.length;
   const ordered = [...d.accounts].sort((x, y) => severity(x) - severity(y));
-  setHtml("accounts", ordered.length
-    ? ordered.map((a) => renderAccount(a, d.requests)).join("")
-    : `<div class="card empty" style="grid-column:1/-1"><strong>No accounts yet</strong>Add a subscription and conflux will start routing requests to it.<div class="row"><button class="btn" data-add="claude">Add Claude account</button><button class="btn" data-add="codex">Add Codex account</button></div></div>`);
+  setHtml("accounts", ordered.map((a) => renderAccount(a, d.requests)).join(""));
 }
 
 const POOL_BACK_H = 72;
@@ -1254,9 +1238,8 @@ function renderPools(d) {
   parts.push(`<line class="cross" x1="0" x2="0" y1="${lanes[0].top}" y2="${bottom}" visibility="hidden"/>`);
 
   const summary = `Pooled quota left over the past 3 days, and the scheduled resets in the next 7 days. ${lanes.map((l) => `${providerName(l.pool.provider)} has ${l.pool.size ? pct(l.pool.now) : "no quota data"} left.`).join(" ")}`;
-  const accountCount = d.accounts.length;
   poolGeom = { lanes, padL, plotW, width, pad, height, x, at };
-  setHtml("pool", `<div class="card pool-board"><div class="pool-chart${narrow ? " narrow" : ""}"><svg viewBox="0 0 ${width} ${height}" height="${height}" role="img" aria-label="${esc(summary)}">${parts.join("")}</svg>${lanes.map((l) => poolGutter(l, narrow)).join("")}<div class="pool-tip" hidden></div></div><a class="pool-foot" href="#accounts">${icon("back")}${accountCount} account${accountCount === 1 ? "" : "s"} in these pools</a></div>`);
+  setHtml("pool", `<div class="card pool-board"><div class="pool-chart${narrow ? " narrow" : ""}"><svg viewBox="0 0 ${width} ${height}" height="${height}" role="img" aria-label="${esc(summary)}">${parts.join("")}</svg>${lanes.map((l) => poolGutter(l, narrow)).join("")}<div class="pool-tip" hidden></div></div></div>`);
 }
 
 function poolValueAt(pool, t, k) {
