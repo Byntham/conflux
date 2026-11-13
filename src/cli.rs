@@ -380,9 +380,8 @@ pub async fn run(cli: Cli) -> Result<()> {
                 bail!("run this on the hub ({})", cfg.hub.as_deref().unwrap_or("not set"));
             }
             let key = crate::management::load_or_create_key(&paths.management_key_file())?;
-            let host = TailnetSelf::detect().short_name().unwrap_or_else(tailnet::hostname);
             println!("In T3 Code, open Settings > Providers > Usage providers > Add hub.");
-            println!("URL: http://{host}:{}", cfg.port);
+            println!("URL: http://{}:{}", hub_address(), cfg.port);
             println!("Management key: {key}");
             Ok(())
         }
@@ -447,15 +446,17 @@ pub async fn run(cli: Cli) -> Result<()> {
     }
 }
 
+fn hub_address() -> String {
+    let me = TailnetSelf::detect();
+    me.dns_name
+        .clone()
+        .or_else(|| me.short_name())
+        .unwrap_or_else(|| "127.0.0.1".into())
+}
+
 fn dashboard_url(cfg: &Config) -> Option<String> {
     let host = match cfg.role {
-        Role::Hub => {
-            let me = TailnetSelf::detect();
-            me.dns_name
-                .clone()
-                .or_else(|| me.short_name())
-                .unwrap_or_else(|| "127.0.0.1".into())
-        }
+        Role::Hub => hub_address(),
         Role::Node => cfg.hub.clone()?,
         Role::Waiting => return None,
     };
