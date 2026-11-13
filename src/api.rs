@@ -293,19 +293,29 @@ pub async fn remove_machine(
         .into_iter()
         .find(|m| m.hostname == hostname)
         .ok_or_else(|| not_found("machine"))?;
+    let offline = || {
+        ApiError(
+            StatusCode::CONFLICT,
+            format!("{hostname} is offline. Use Remove from list instead."),
+        )
+    };
     if machine.online && query.forget {
         return Err(ApiError(StatusCode::CONFLICT, format!("{hostname} came back online")));
     }
-    if machine.online {
+    if !query.forget {
+        if !machine.online {
+            return Err(offline());
+        }
         if machine.routing.is_none() {
             return Err(ApiError(
                 StatusCode::CONFLICT,
                 format!("{hostname} runs an older conflux. Update it to remove conflux from it here."),
             ));
         }
-        if app.machines.send(&hostname, machines::leave())
-            && !app.machines.wait_for(&hostname, CONFIRM_LIMIT, |m| !m.online).await
-        {
+        if !app.machines.send(&hostname, machines::leave()) {
+            return Err(offline());
+        }
+        if !app.machines.wait_for(&hostname, CONFIRM_LIMIT, |m| !m.online).await {
             return Err(ApiError(
                 StatusCode::GATEWAY_TIMEOUT,
                 format!("{hostname} did not confirm. Update it if it runs an older conflux, or check its conflux log."),

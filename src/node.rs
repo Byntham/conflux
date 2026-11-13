@@ -180,11 +180,11 @@ impl Node {
 
     fn leave(&self) -> Result<()> {
         setup::leave(&self.clients, &self.paths.config_dir, self.port)?;
-        crate::supervisor::stop_when_workers_exit()?;
+        tracing::info!("left the hub; Claude Code and Codex use this machine's own logins again");
         if crate::service::running_as_service() {
             crate::service::uninstall()?;
         }
-        tracing::info!("left the hub; Claude Code and Codex use this machine's own logins again");
+        crate::supervisor::stop_when_workers_exit()?;
         self.lifecycle.begin_drain();
         Ok(())
     }

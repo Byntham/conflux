@@ -1617,7 +1617,7 @@ function confirmRemove(id, name, kind) {
 function confirmLeave(machine) {
   closeMenu();
   const host = esc(machine);
-  openModal(`<h2>Remove conflux from ${host}?</h2><p>Claude Code and Codex on ${host} go back to their own logins. conflux stops there and no longer starts at login. The conflux binary stays installed.</p><div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn danger" id="confirm-leave">Remove conflux</button></div>`);
+  openModal(`<h2>Remove conflux from ${host}?</h2><p>Claude Code and Codex on ${host} go back to their own logins. Sessions already running there stop working until you restart them. conflux stops and no longer starts at login. The conflux binary stays installed.</p><div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn danger" id="confirm-leave">Remove conflux</button></div>`);
   $("confirm-leave").onclick = async () => {
     closeModal();
     try {

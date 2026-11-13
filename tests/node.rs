@@ -251,6 +251,7 @@ async fn the_dashboard_changes_routing_and_removes_machines() {
     })
     .await;
     assert_eq!(set_routing(&hub, "old-node", true).await.status(), StatusCode::CONFLICT);
+    assert_eq!(remove(&hub, "old-node").await.status(), StatusCode::CONFLICT);
     let r = forget(&hub, "old-node").await;
     assert_eq!(r.status(), 200, "{}", r.text().await.unwrap());
     assert!(hub.app.machines.list().is_empty());
