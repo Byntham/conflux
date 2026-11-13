@@ -148,12 +148,21 @@ async fn set_routing(hub: &Harness, machine: &str, on: bool) -> reqwest::Respons
         .unwrap()
 }
 
+async fn remove(hub: &Harness, machine: &str) -> reqwest::Response {
+    hub.http
+        .delete(format!("{}/conflux/api/machines/{machine}", hub.base))
+        .header("content-type", "application/json")
+        .send()
+        .await
+        .unwrap()
+}
+
 fn fleet_routing(hub: &Harness) -> Vec<(String, Option<bool>)> {
     hub.app.fleet().iter().map(|m| (m.role.clone(), m.routing)).collect()
 }
 
 #[tokio::test]
-async fn the_dashboard_turns_routing_on_and_off_for_each_machine() {
+async fn the_dashboard_changes_routing_and_removes_machines() {
     let hub = Harness::new().await;
     let n = start_node(hub.port).await;
     let node_config = Paths::under(n.dir.path()).config_dir;
@@ -205,17 +214,35 @@ async fn the_dashboard_turns_routing_on_and_off_for_each_machine() {
     .unwrap();
     eventually(|| hub.app.machines.list().into_iter().find(|m| m.hostname == "old-node")).await;
     assert_eq!(set_routing(&hub, "old-node", true).await.status(), StatusCode::CONFLICT);
+    assert_eq!(remove(&hub, "old-node").await.status(), StatusCode::CONFLICT);
+    assert_eq!(remove(&hub, "hub-under-test").await.status(), StatusCode::CONFLICT);
 
-    control.abort();
+    let r = set_routing(&hub, "node-one", true).await;
+    assert_eq!(r.status(), 200, "{}", r.text().await.unwrap());
+    let r = remove(&hub, "node-one").await;
+    assert_eq!(r.status(), 200, "{}", r.text().await.unwrap());
+    assert_eq!(claude_base_url(&n.clients), None);
+    assert!(!setup::joined_path(&node_config).exists());
+    assert!(n.node.lifecycle.is_draining());
+    tokio::time::timeout(Duration::from_secs(5), control)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!hub.app.machines.list().iter().any(|m| m.hostname == "node-one"));
+
+    drop(old);
     eventually(|| {
         hub.app
             .machines
             .list()
             .into_iter()
-            .find(|m| m.hostname == "node-one" && !m.online)
+            .find(|m| m.hostname == "old-node" && !m.online)
     })
     .await;
-    assert_eq!(set_routing(&hub, "node-one", true).await.status(), StatusCode::CONFLICT);
+    assert_eq!(set_routing(&hub, "old-node", true).await.status(), StatusCode::CONFLICT);
+    let r = remove(&hub, "old-node").await;
+    assert_eq!(r.status(), 200, "{}", r.text().await.unwrap());
+    assert!(hub.app.machines.list().is_empty());
 }
 
 #[tokio::test]

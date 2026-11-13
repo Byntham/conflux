@@ -178,6 +178,15 @@ impl Node {
         Ok(true)
     }
 
+    fn leave(&self) -> Result<()> {
+        setup::leave(&self.clients, &self.paths.config_dir, self.port)?;
+        if crate::service::running_as_service() {
+            crate::service::uninstall()?;
+        }
+        self.lifecycle.begin_drain();
+        Ok(())
+    }
+
     async fn obey(self: &Arc<Self>, command: &str) -> bool {
         let command: Value = serde_json::from_str(command).unwrap_or(Value::Null);
         match (
@@ -193,6 +202,13 @@ impl Node {
                 }
                 false
             }
+            (Some("leave"), _, _) => match self.leave() {
+                Ok(()) => true,
+                Err(e) => {
+                    tracing::warn!("could not leave the hub: {e:#}");
+                    false
+                }
+            },
             (Some("hub"), Some(hub), _) => match self.follow_redirect(hub).await {
                 Ok(moved) => moved,
                 Err(e) => {
@@ -258,6 +274,9 @@ impl Node {
         let mut wait = RECONNECT_MIN;
         loop {
             let ended = self.control_session().await;
+            if self.lifecycle.is_draining() {
+                return;
+            }
             let was_connected = {
                 let mut link = self.hub_link.lock().unwrap();
                 if let Err(e) = ended {

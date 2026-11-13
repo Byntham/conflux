@@ -287,7 +287,10 @@ impl App {
             .route("/conflux/api/dashboard", get(dashboard::data))
             .route("/conflux/control", get(machines::control))
             .route("/conflux/api/update", post(api::update))
-            .route("/conflux/api/machines/{hostname}", patch(api::update_machine))
+            .route(
+                "/conflux/api/machines/{hostname}",
+                patch(api::update_machine).delete(api::remove_machine),
+            )
             .route("/conflux/api/update/check", post(api::check_update))
             .route("/conflux/api/discover", get(link::discover))
             .route("/conflux/api/link", post(link::link))

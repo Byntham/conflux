@@ -125,9 +125,11 @@ A waiting machine can also start the link itself. `conflux join` with no name an
 
 ## Control channel
 
-Each node keeps a WebSocket open to `/conflux/control` on the hub (`src/machines.rs`). The node reports its hostname, version, sync setting, routing setting (`conflux on` or `off`), and update status every 20 seconds. The hub uses the socket to send three commands: "the hub moved", "update to version X", and "turn routing on or off". The node reports again right after each command. The dashboard's machine list comes from these reports.
+Each node keeps a WebSocket open to `/conflux/control` on the hub (`src/machines.rs`). The node reports its hostname, version, sync setting, routing setting (`conflux on` or `off`), and update status every 20 seconds. The hub uses the socket to send four commands: "the hub moved", "update to version X", "turn routing on or off", and "leave". The node reports again right after each command. The dashboard's machine list comes from these reports.
 
 The dashboard's routing switch calls `PATCH /conflux/api/machines/<hostname>`. For the hub's own row, the hub edits its own client config. For a node, the hub sends the routing command and waits up to 5 seconds for a report with the new setting. A node older than this command reports no routing setting, so the hub refuses the request and asks for an update.
+
+Remove calls `DELETE /conflux/api/machines/<hostname>`. For an online node, the hub sends the leave command, waits up to 5 seconds for the node to disconnect, then drops it from the list. The node restores its client settings and deletes `joined.json`, as `conflux leave` does. If the node runs as the installed service, it then removes the service. `src/service.rs` deletes the systemd unit, launchd plist, or Run key before it stops the service, because the stop kills the process that asked for it. A node started by hand just exits. For an offline machine, the hub only drops it from the list. The hub refuses to remove itself.
 
 ## Transcript sync
 

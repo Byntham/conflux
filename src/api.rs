@@ -216,7 +216,7 @@ pub struct MachinePatch {
     routing: bool,
 }
 
-const ROUTING_CONFIRM_LIMIT: Duration = Duration::from_secs(5);
+const CONFIRM_LIMIT: Duration = Duration::from_secs(5);
 
 pub async fn update_machine(
     State(app): State<Arc<App>>,
@@ -257,7 +257,7 @@ pub async fn update_machine(
     }
     if !app
         .machines
-        .wait_for(&hostname, ROUTING_CONFIRM_LIMIT, |m| m.routing == Some(on))
+        .wait_for(&hostname, CONFIRM_LIMIT, |m| m.routing == Some(on))
         .await
     {
         return Err(ApiError(
@@ -268,6 +268,41 @@ pub async fn update_machine(
         ));
     }
     Ok(Json(done))
+}
+
+pub async fn remove_machine(State(app): State<Arc<App>>, Path(hostname): Path<String>) -> ApiResult<Json<Value>> {
+    if hostname == app.hostname {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            "Run `conflux leave` on the hub to remove conflux from it.".into(),
+        ));
+    }
+    let machine = app
+        .machines
+        .list()
+        .into_iter()
+        .find(|m| m.hostname == hostname)
+        .ok_or_else(|| not_found("machine"))?;
+    if machine.online {
+        if machine.routing.is_none() {
+            return Err(ApiError(
+                StatusCode::CONFLICT,
+                format!("{hostname} runs an older conflux. Update it to remove conflux from it here."),
+            ));
+        }
+        if app.machines.send(&hostname, machines::leave())
+            && !app.machines.wait_for(&hostname, CONFIRM_LIMIT, |m| !m.online).await
+        {
+            return Err(ApiError(
+                StatusCode::GATEWAY_TIMEOUT,
+                format!("{hostname} did not confirm. Update it if it runs an older conflux, or check its conflux log."),
+            ));
+        }
+    }
+    if !app.machines.forget(&hostname) {
+        return Err(ApiError(StatusCode::CONFLICT, format!("{hostname} came back online")));
+    }
+    Ok(Json(json!({ "removed": hostname })))
 }
 
 pub async fn claude_start(State(app): State<Arc<App>>) -> Json<Value> {

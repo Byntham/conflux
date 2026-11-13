@@ -417,9 +417,8 @@ pub async fn run(cli: Cli) -> Result<()> {
             Ok(())
         }
         Command::Leave => {
-            setup::restore(&ClientPaths::from_env()?, &paths.config_dir, cfg.port)?;
+            setup::leave(&ClientPaths::from_env()?, &paths.config_dir, cfg.port)?;
             service::uninstall()?;
-            crate::fsutil::remove_durable(&setup::joined_path(&paths.config_dir))?;
             println!("conflux is stopped and removed from Claude Code and Codex. Account data was left in place.");
             Ok(())
         }
