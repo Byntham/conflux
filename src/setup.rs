@@ -8,6 +8,8 @@ use toml_edit::{DocumentMut, Item, Table, value};
 use crate::fsutil;
 
 pub const CLAUDE_TOKEN: &str = "conflux";
+pub const CLAUDE_CACHE_TTL_KEY: &str = "CLAUDE_CODE_PROMPT_CACHE_TTL";
+pub const CLAUDE_CACHE_TTL: &str = "1h";
 pub const CODEX_PROVIDER: &str = "conflux";
 
 #[derive(Clone, Debug)]
@@ -37,6 +39,7 @@ pub struct Joined {
     pub active: bool,
     pub claude_base_url: Option<Value>,
     pub claude_auth_token: Option<Value>,
+    pub claude_cache_ttl: Option<Value>,
     pub codex_model_provider: Option<String>,
     pub codex_table: Option<String>,
     #[serde(default)]
@@ -121,6 +124,7 @@ pub fn apply(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Joined
     if !joined.recorded {
         joined.claude_base_url = env.get("ANTHROPIC_BASE_URL").cloned();
         joined.claude_auth_token = env.get("ANTHROPIC_AUTH_TOKEN").cloned();
+        joined.claude_cache_ttl = env.get(CLAUDE_CACHE_TTL_KEY).cloned();
         joined.codex_model_provider = doc.get("model_provider").and_then(|v| v.as_str()).map(str::to_string);
         joined.codex_table = providers_has_ours
             .then(|| doc["model_providers"][CODEX_PROVIDER].as_table().map(|t| t.to_string()))
@@ -133,6 +137,8 @@ pub fn apply(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Joined
 
     env.insert("ANTHROPIC_BASE_URL".into(), url);
     env.insert("ANTHROPIC_AUTH_TOKEN".into(), token);
+    env.entry(CLAUDE_CACHE_TTL_KEY)
+        .or_insert_with(|| Value::String(CLAUDE_CACHE_TTL.into()));
     write_claude(&paths.claude_settings, claude)?;
 
     doc["model_provider"] = value(CODEX_PROVIDER);
@@ -177,6 +183,12 @@ pub fn restore(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Opti
     if let Some(env) = claude.get_mut("env").and_then(Value::as_object_mut) {
         restore_value(env, "ANTHROPIC_BASE_URL", &url, &joined.claude_base_url);
         restore_value(env, "ANTHROPIC_AUTH_TOKEN", &token, &joined.claude_auth_token);
+        restore_value(
+            env,
+            CLAUDE_CACHE_TTL_KEY,
+            &Value::String(CLAUDE_CACHE_TTL.into()),
+            &joined.claude_cache_ttl,
+        );
         if env.is_empty() {
             claude.remove("env");
         }
@@ -268,6 +280,7 @@ mod tests {
         apply(&p, &conf, 8317).unwrap();
         let claude: Value = serde_json::from_str(&std::fs::read_to_string(&p.claude_settings).unwrap()).unwrap();
         assert_eq!(claude["env"]["ANTHROPIC_BASE_URL"], "http://127.0.0.1:8317");
+        assert_eq!(claude["env"][CLAUDE_CACHE_TTL_KEY], "1h");
         assert_eq!(claude.as_object().unwrap().keys().next().unwrap(), "theme");
         let codex = std::fs::read_to_string(&p.codex_config).unwrap();
         assert!(codex.contains("model_provider = \"conflux\""));
@@ -301,12 +314,19 @@ mod tests {
         let (p, conf) = paths(d.path());
         std::fs::create_dir_all(p.claude_settings.parent().unwrap()).unwrap();
         std::fs::create_dir_all(p.codex_config.parent().unwrap()).unwrap();
-        std::fs::write(&p.claude_settings, r#"{"env":{"ANTHROPIC_BASE_URL":"http://old"}}"#).unwrap();
+        std::fs::write(
+            &p.claude_settings,
+            r#"{"env":{"ANTHROPIC_BASE_URL":"http://old","CLAUDE_CODE_PROMPT_CACHE_TTL":"5m"}}"#,
+        )
+        .unwrap();
         std::fs::write(&p.codex_config, "model_provider = \"openai\"\n").unwrap();
         apply(&p, &conf, 9000).unwrap();
+        let during: Value = serde_json::from_str(&std::fs::read_to_string(&p.claude_settings).unwrap()).unwrap();
+        assert_eq!(during["env"][CLAUDE_CACHE_TTL_KEY], "5m");
         restore(&p, &conf, 9000).unwrap();
         let after: Value = serde_json::from_str(&std::fs::read_to_string(&p.claude_settings).unwrap()).unwrap();
         assert_eq!(after["env"]["ANTHROPIC_BASE_URL"], "http://old");
+        assert_eq!(after["env"][CLAUDE_CACHE_TTL_KEY], "5m");
         assert_eq!(
             std::fs::read_to_string(&p.codex_config).unwrap(),
             "model_provider = \"openai\"\n"
