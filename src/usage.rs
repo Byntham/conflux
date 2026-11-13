@@ -270,17 +270,14 @@ impl Usage {
             return;
         }
         let mut history = self.history.write().unwrap();
-        if history
-            .get(id)
-            .and_then(|samples| samples.last())
-            .is_some_and(|last| now - last.at < HISTORY_STEP)
-        {
+        let samples = history.entry(id.to_string()).or_default();
+        if let Some(last) = samples.last_mut().filter(|last| now - last.at < HISTORY_STEP) {
+            for (key, pct) in used {
+                last.used.entry(key).or_insert(pct);
+            }
             return;
         }
-        history
-            .entry(id.to_string())
-            .or_default()
-            .push(Sample { at: now, used });
+        samples.push(Sample { at: now, used });
         history.retain(|_, samples| {
             samples.retain(|x| now - x.at < HISTORY_KEPT);
             !samples.is_empty()
