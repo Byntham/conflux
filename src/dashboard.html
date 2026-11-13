@@ -80,7 +80,7 @@
   .topbar { display: none; }
   main { padding: 28px 36px 56px; max-width: 1240px; width: 100%; margin: 0 auto; }
   .first-run .hide-first-run { display: none; }
-  .first-run .accounts .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: calc(100vh - 150px); border: 0; background: none; box-shadow: none; }
+  .first-run .accounts .empty { grid-column: 1/-1; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: calc(100vh - 150px); border: 0; background: none; box-shadow: none; }
   .page-head { display: flex; align-items: flex-start; min-height: 31px; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
   h1 { margin: 0; font-size: 21px; line-height: 31px; font-weight: 600; letter-spacing: -.018em; }
   h2 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
@@ -1153,7 +1153,7 @@ function renderPools(d) {
   if ($("view-overview").hidden) return;
   if (!d.accounts.length) {
     poolGeom = null;
-    return setHtml("pool", `<div class="accounts"><div class="card empty" style="grid-column:1/-1"><strong>No accounts yet</strong>Add a subscription and conflux will start routing requests to it.<div class="row"><button class="btn" data-add="claude">Add Claude account</button><button class="btn" data-add="codex">Add Codex account</button></div></div></div>`);
+    return setHtml("pool", `<div class="accounts"><div class="card empty"><strong>No accounts yet</strong>Add a subscription and conflux will start routing requests to it.<div class="row"><button class="btn" data-add="claude">Add Claude account</button><button class="btn" data-add="codex">Add Codex account</button></div></div></div>`);
   }
   const now = Math.floor(Date.now() / 60000) * 60000;
   const providers = [...new Set(d.accounts.map((a) => a.provider))].sort();
