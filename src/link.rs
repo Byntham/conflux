@@ -184,7 +184,7 @@ fn installs_over_ssh(os: &str) -> bool {
 fn ssh_host(peer: &Peer, address: IpAddr) -> String {
     let label = peer.machine.dns_name.as_deref().and_then(|name| name.split('.').next());
     label
-        .filter(|label| !label.is_empty())
+        .filter(|label| !label.is_empty() && !label.starts_with('-'))
         .map_or_else(|| address.to_string(), str::to_string)
 }
 
@@ -259,7 +259,8 @@ async fn install_and_link(app: &App, peer: &Peer, address: IpAddr, name: &str) -
 pub async fn install(State(app): State<Arc<App>>, Json(req): Json<LinkRequest>) -> Result<Json<Value>, ApiError> {
     let peer = find_peer(&app, req.address).await?;
     let name = peer_name(&peer, req.address);
-    if !app.installing.lock().unwrap().insert(req.address) {
+    let machine = address(&peer).unwrap_or(req.address);
+    if !app.installing.lock().unwrap().insert(machine) {
         return Err(ApiError(
             StatusCode::CONFLICT,
             format!("the hub is already installing conflux on {name}"),
@@ -269,7 +270,7 @@ pub async fn install(State(app): State<Arc<App>>, Json(req): Json<LinkRequest>) 
         let (app, name) = (app.clone(), name.clone());
         async move {
             let result = install_and_link(&app, &peer, req.address, &name).await;
-            app.installing.lock().unwrap().remove(&req.address);
+            app.installing.lock().unwrap().remove(&machine);
             result
         }
     });

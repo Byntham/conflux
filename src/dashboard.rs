@@ -31,7 +31,8 @@ pub fn install_unless_running(port: u16) -> String {
     format!(
         "sh -c 'if curl -s -m 3 -o /dev/null http://127.0.0.1:{port}/; then \
          echo \"conflux already runs there, so the hub left it alone\" >&2; exit 1; fi; \
-         curl -fsSL {INSTALL_BASE}/install.sh | sh'"
+         installer=$(curl -fsSL {INSTALL_BASE}/install.sh) || exit 1; \
+         printf \"%s\\n\" \"$installer\" | sh'"
     )
 }
 

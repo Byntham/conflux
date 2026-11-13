@@ -154,7 +154,7 @@ conflux add studio laptop
 What happens to a named machine depends on its state:
 
 - It waits to be linked. The hub links it.
-- conflux is not running on it, and it runs macOS or Linux. The hub logs in over ssh, runs the installer, waits for conflux to start, and links it. If conflux already runs there, for example as a node that lost its hub, the hub leaves it alone.
+- conflux is not running on it, and it runs macOS or Linux. The hub logs in over ssh, runs the installer, waits for conflux to start, and links it. If conflux already runs there, for example as a node that lost its hub, the hub leaves it alone. Run [`conflux join <hub>`](#conflux-join-hub) there to move it to this hub.
 - conflux is not running on it, and it runs Windows. `add` prints the install command to run there.
 - It runs conflux but does not wait to be linked. `add` refuses. Run [`conflux join <hub>`](#conflux-join-hub) there.
 
