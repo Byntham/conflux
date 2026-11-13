@@ -38,6 +38,8 @@ const SSH_OPTIONS: &[&str] = &[
     "StrictHostKeyChecking=accept-new",
     "-o",
     "ConnectTimeout=10",
+    "-o",
+    "LogLevel=ERROR",
 ];
 const LOCAL_ONLY: &str = "run this on the machine itself";
 const RESCAN_TAILNET: Duration = Duration::from_secs(30);
