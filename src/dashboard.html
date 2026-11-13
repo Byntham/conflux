@@ -68,6 +68,7 @@
   .fleet li { display: flex; align-items: center; gap: 7px; color: var(--fg-2); }
   .fleet li.offline { color: var(--muted); }
   .fleet .dot.on { box-shadow: none; }
+  .fleet .dot.routing-off { background: var(--warn-fill); }
   .fleet.stale .dot.on { background: var(--muted); }
   .fleet .badge { background: var(--line); }
 
@@ -1004,7 +1005,7 @@ function renderMachines(d) {
     `<tr class="${m.online ? "" : "offline"}"><td><span class="machine-name">${esc(m.hostname)}${m.role === "hub" ? '<span class="badge">Hub</span>' : ""}</span><div class="cell-sub show-sm">v${esc(m.version)} · sync ${m.transcript_sync ? "on" : "off"}</div></td><td class="${m.online ? "" : "muted"}"><span class="status-cell"><span class="dot ${m.online ? "on" : ""}"></span>${m.online ? "Online" : "Offline"}${m.online && m.routing === false ? ROUTING_OFF : ""}</span></td><td class="mono hide-sm">${esc(m.version)}</td><td class="hide-sm ${m.transcript_sync ? "" : "muted"}">${m.transcript_sync ? "On" : "Off"}</td><td class="num when hide-sm">${esc(ago(m.last_seen))}</td><td class="num"><span class="update-cell">${updateCell(m, d.latest_version)}</span></td></tr>`
   ).join("")}</tbody>`);
   setHtml("fleet", d.machines.map((m) =>
-    `<li class="${m.online ? "" : "offline"}" title="${esc(m.hostname)}"><span class="dot ${m.online ? "on" : ""}"></span><span class="truncate">${esc(m.hostname)}</span>${m.role === "hub" ? '<span class="badge">Hub</span>' : ""}</li>`
+    `<li class="${m.online ? "" : "offline"}" title="${esc(m.hostname)}${m.online && m.routing === false ? " · routing off" : ""}"><span class="dot ${m.online ? "on" : ""} ${m.online && m.routing === false ? "routing-off" : ""}"></span><span class="truncate">${esc(m.hostname)}</span>${m.role === "hub" ? '<span class="badge">Hub</span>' : ""}</li>`
   ).join(""));
   setHtml("takeover-command", commandHtml(`conflux hub take-over ${d.hub.name} --code <code>`));
   renderInstall();
