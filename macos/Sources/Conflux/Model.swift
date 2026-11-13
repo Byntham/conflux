@@ -85,6 +85,7 @@ final class Model: ObservableObject {
     @Published private(set) var routing: Bool?
     @Published private(set) var busy: String?
     @Published var failure: String?
+    @Published private(set) var checkedForUpdates = false
     @Published private(set) var now = Date()
 
     let bundle = Bundle.main.bundleURL
@@ -117,6 +118,7 @@ final class Model: ObservableObject {
 
     func menuClosed() {
         menuOpen = false
+        checkedForUpdates = false
     }
 
     var dashboardURL: URL {
@@ -276,6 +278,10 @@ final class Model: ObservableObject {
         machines.filter { $0.outdated && $0.online && !$0.isUpdating }
     }
 
+    var upToDate: Bool {
+        checkedForUpdates && !updating && !machines.contains { $0.outdated }
+    }
+
     var updating: Bool {
         machines.contains { $0.online && $0.isUpdating }
     }
@@ -393,6 +399,15 @@ final class Model: ObservableObject {
             throw Command.Failure(message: fields["error"] as? String ?? "conflux answered HTTP \(status).")
         }
         return fields
+    }
+
+    func checkForUpdates() {
+        perform("Checking…") {
+            self.checkedForUpdates = false
+            _ = try await self.post("conflux/api/update/check", [:])
+            await self.refresh()
+            self.checkedForUpdates = true
+        }
     }
 
     func updateAll() {

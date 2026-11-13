@@ -453,15 +453,23 @@ struct Actions: View {
             }
             let showsDashboard = [.ready, .hubUnreachable].contains(model.phase)
             let showsRestart = model.local.serviceInstalled && model.phase != .notRunning
+            let showsUpdateCheck = [.ready, .waiting].contains(model.phase)
             if showsDashboard {
                 MenuRow(title: "Open dashboard", action: model.openDashboard)
                 MenuRow(title: "Add account…", action: model.openDashboard)
+            }
+            if showsUpdateCheck {
+                MenuRow(title: "Check for updates", action: model.checkForUpdates) {
+                    if model.upToDate {
+                        Text("Up to date").font(.system(size: 13)).opacity(0.62)
+                    }
+                }
             }
             if showsRestart {
                 MenuRow(title: "Restart conflux", action: model.restart)
                     .help("Active Claude Code and Codex requests through this Mac are cut off.")
             }
-            if showsDashboard || showsRestart {
+            if showsDashboard || showsRestart || showsUpdateCheck {
                 Separator(inset: 9)
             }
             MenuRow(title: "Quit menu bar app", action: { NSApp.terminate(nil) }) {

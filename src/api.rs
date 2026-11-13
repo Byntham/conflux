@@ -142,13 +142,25 @@ pub struct UpdateRequest {
     pub machines: Option<Vec<String>>,
 }
 
-pub async fn update(State(app): State<Arc<App>>, Json(req): Json<UpdateRequest>) -> ApiResult<Json<Value>> {
-    let version = app.updater.check_latest().await.map_err(|e| {
+async fn latest_release(updater: &update::Updater) -> ApiResult<String> {
+    updater.check_latest().await.map_err(|e| {
         ApiError(
             StatusCode::BAD_GATEWAY,
             format!("could not check for a new release: {e:#}"),
         )
-    })?;
+    })
+}
+
+pub async fn check_release(updater: &update::Updater) -> ApiResult<Json<Value>> {
+    Ok(Json(json!({ "latest_version": latest_release(updater).await? })))
+}
+
+pub async fn check_update(State(app): State<Arc<App>>) -> ApiResult<Json<Value>> {
+    check_release(&app.updater).await
+}
+
+pub async fn update(State(app): State<Arc<App>>, Json(req): Json<UpdateRequest>) -> ApiResult<Json<Value>> {
+    let version = latest_release(&app.updater).await?;
     let mut started = Vec::new();
     let mut skipped = Vec::new();
     let mut hub_starts = false;
