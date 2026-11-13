@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -12,6 +12,14 @@ use crate::accounts::{AccountEntry, Provider, Store};
 use crate::config::Endpoints;
 
 pub const STALE_AFTER: chrono::Duration = chrono::Duration::minutes(30);
+pub const HISTORY_KEPT: chrono::Duration = chrono::Duration::days(3);
+const HISTORY_STEP: chrono::Duration = chrono::Duration::minutes(15);
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Sample {
+    pub at: DateTime<Utc>,
+    pub used: BTreeMap<String, f64>,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Window {
@@ -214,6 +222,7 @@ pub fn parse_codex_usage(v: &Value, now: DateTime<Utc>) -> Snapshot {
 pub struct Usage {
     snaps: RwLock<HashMap<String, Snapshot>>,
     last_used: RwLock<HashMap<String, DateTime<Utc>>>,
+    history: RwLock<HashMap<String, Vec<Sample>>>,
     paused: AtomicBool,
     http: reqwest::Client,
     ep: Endpoints,
@@ -224,6 +233,7 @@ impl Usage {
         Self {
             snaps: RwLock::default(),
             last_used: RwLock::default(),
+            history: RwLock::default(),
             paused: AtomicBool::new(false),
             http,
             ep,
@@ -231,7 +241,11 @@ impl Usage {
     }
 
     pub fn export(&self) -> Value {
-        json!({ "snaps": *self.snaps.read().unwrap(), "last_used": *self.last_used.read().unwrap() })
+        json!({
+            "snaps": *self.snaps.read().unwrap(),
+            "last_used": *self.last_used.read().unwrap(),
+            "history": *self.history.read().unwrap(),
+        })
     }
 
     pub fn import(&self, state: &Value) {
@@ -241,6 +255,29 @@ impl Usage {
         if let Ok(last_used) = serde_json::from_value(state["last_used"].clone()) {
             *self.last_used.write().unwrap() = last_used;
         }
+        if let Ok(history) = serde_json::from_value(state["history"].clone()) {
+            *self.history.write().unwrap() = history;
+        }
+    }
+
+    pub fn history(&self) -> HashMap<String, Vec<Sample>> {
+        self.history.read().unwrap().clone()
+    }
+
+    fn record(&self, id: &str, s: &Snapshot, now: DateTime<Utc>) {
+        if s.windows.is_empty() {
+            return;
+        }
+        let mut history = self.history.write().unwrap();
+        let samples = history.entry(id.to_string()).or_default();
+        if samples.last().is_some_and(|last| now - last.at < HISTORY_STEP) {
+            return;
+        }
+        samples.retain(|x| now - x.at < HISTORY_KEPT);
+        samples.push(Sample {
+            at: now,
+            used: s.windows.iter().map(|w| (w.key.clone(), w.used_pct)).collect(),
+        });
     }
 
     pub fn get(&self, id: &str) -> Snapshot {
@@ -265,10 +302,15 @@ impl Usage {
         let now = Utc::now();
         let mut snaps = self.snaps.write().unwrap();
         let s = snaps.entry(id.to_string()).or_default();
-        match provider {
+        let touched = match provider {
             Provider::Claude => apply_claude_headers(s, h, now),
             Provider::Codex => apply_codex_headers(s, h, now),
         };
+        let s = s.clone();
+        drop(snaps);
+        if touched {
+            self.record(id, &s, now);
+        }
     }
 
     #[cfg(test)]
@@ -310,6 +352,7 @@ impl Usage {
         if let Some(old) = self.snaps.read().unwrap().get(&e.id) {
             snap.overage_in_use = old.overage_in_use && snap.exhausted(now);
         }
+        self.record(&e.id, &snap, now);
         self.snaps.write().unwrap().insert(e.id.clone(), snap);
         Ok(())
     }

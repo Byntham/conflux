@@ -48,10 +48,13 @@ pub async fn data(State(app): State<Arc<App>>, headers: HeaderMap) -> Json<Value
         .filter(|e| e.credentials().generation > 0)
         .map(|e| account_view(&app, e))
         .collect();
+    let mut history = app.usage.history();
+    history.retain(|id, _| accounts.iter().any(|a| &a.id == id));
     Json(json!({
         "hub": { "name": name, "port": app.cfg.port, "version": update::CURRENT, "state": app.hub_state.get() },
         "latest_version": app.updater.latest(),
         "accounts": accounts,
+        "usage_history": history,
         "machines": app.fleet(),
         "requests": app.requests.recent(),
         "add_machine": add_machine(&name),
