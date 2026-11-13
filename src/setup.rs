@@ -54,6 +54,10 @@ pub fn load_joined(config_dir: &Path) -> Result<Option<Joined>> {
     fsutil::read_json(&joined_path(config_dir))
 }
 
+pub fn routing(config_dir: &Path) -> Option<bool> {
+    load_joined(config_dir).ok().flatten().map(|j| j.active)
+}
+
 fn base_url(port: u16) -> String {
     format!("http://127.0.0.1:{port}")
 }

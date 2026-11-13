@@ -8,6 +8,7 @@ use conflux::accounts::Provider;
 use conflux::config::{Config, Paths, Role};
 use conflux::hubstate::HubState;
 use conflux::node::Node;
+use conflux::setup::{self, ClientPaths};
 use conflux::update::UpdateStatus;
 use futures_util::{SinkExt, StreamExt};
 use http::StatusCode;
@@ -126,13 +127,26 @@ async fn connect(hub: &Harness, n: &NodeHarness) -> tokio::task::JoinHandle<()> 
 }
 
 #[tokio::test]
-async fn a_node_is_online_while_its_control_connection_is_open() {
+async fn a_node_reports_its_routing_and_is_online_while_connected() {
     let hub = Harness::new().await;
     let n = start_node(hub.port).await;
+    let clients = ClientPaths {
+        claude_settings: n.dir.path().join("claude/settings.json"),
+        codex_config: n.dir.path().join("codex/config.toml"),
+    };
+    let node_config = Paths::under(n.dir.path()).config_dir;
+    setup::apply(&clients, &node_config, n.port).unwrap();
+    setup::restore(&clients, &node_config, n.port).unwrap();
+    setup::apply(&clients, &Paths::under(hub.dir.path()).config_dir, hub.port).unwrap();
     let control = connect(&hub, &n).await;
     let machines = hub.app.machines.list();
     assert_eq!(machines.len(), 1);
     assert_eq!(machines[0].hostname, "node-one");
+    let routing: Vec<_> = hub.app.fleet().iter().map(|m| (m.role.clone(), m.routing)).collect();
+    assert_eq!(
+        routing,
+        [("hub".to_string(), Some(true)), ("node".to_string(), Some(false))]
+    );
     control.abort();
     eventually(|| hub.app.machines.list().into_iter().find(|m| !m.online)).await;
 }

@@ -24,6 +24,8 @@ pub struct Report {
     #[serde(default)]
     pub transcript_sync: bool,
     #[serde(default)]
+    pub routing: Option<bool>,
+    #[serde(default)]
     pub update: Value,
 }
 
@@ -35,6 +37,7 @@ pub struct Machine {
     pub last_seen: DateTime<Utc>,
     pub online: bool,
     pub transcript_sync: bool,
+    pub routing: Option<bool>,
     pub update: Option<UpdateStatus>,
     pub outdated: bool,
 }
@@ -162,6 +165,7 @@ impl Machines {
                 last_seen: if e.link.is_some() { now } else { e.last_seen },
                 online: e.link.is_some(),
                 transcript_sync: e.report.transcript_sync,
+                routing: e.report.routing,
                 update: serde_json::from_value(e.report.update.clone()).unwrap_or(None),
                 outdated: false,
             })
