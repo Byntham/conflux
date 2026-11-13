@@ -1648,7 +1648,7 @@ async function installOnMachine(button) {
   } catch (e) {
     button.disabled = false;
     button.textContent = "Try again";
-    state.textContent = `${e.message}. Try again, or run this on ${button.dataset.name}:`;
+    state.textContent = `${e.message.replace(/\.$/, "")}. Try again, or run this on ${button.dataset.name}:`;
     row.querySelector(".code-block").hidden = false;
   }
 }
