@@ -12,7 +12,7 @@ use tokio::sync::{mpsc, watch};
 use crate::lifecycle::Lifecycle;
 
 pub const CURRENT: &str = env!("CARGO_PKG_VERSION");
-const CHECK_EVERY: Duration = Duration::from_secs(60 * 60);
+const CHECK_EVERY: Duration = Duration::from_secs(5 * 60);
 const CHECK_TIMEOUT: Duration = Duration::from_secs(15);
 const VERIFY_TIMEOUT: Duration = Duration::from_secs(20);
 

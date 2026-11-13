@@ -400,9 +400,28 @@ async fn a_node_updates_on_the_hubs_command_and_its_supervisor_keeps_watch() {
     })
     .await;
 
-    let asked: Value = hub
-        .http
-        .post(format!("{}/conflux/api/update", hub.base))
+    let dashboard = format!("{base}/conflux/api/dashboard");
+    let before: Value = http.get(&dashboard).send().await.unwrap().json().await.unwrap();
+    assert_eq!(before["latest_version"], Value::Null, "{before}");
+    let checked: Value = http
+        .post(format!("{base}/conflux/api/update/check"))
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(checked["latest_version"], "999.0.0", "{checked}");
+    let after: Value = http.get(&dashboard).send().await.unwrap().json().await.unwrap();
+    let listed = after["machines"].as_array().unwrap();
+    assert!(
+        listed.iter().any(|m| m["hostname"] == name && m["outdated"] == true),
+        "{after}"
+    );
+
+    let asked: Value = http
+        .post(format!("{base}/conflux/api/update"))
         .json(&json!({"machines": [name]}))
         .send()
         .await

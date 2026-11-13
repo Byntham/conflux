@@ -40,6 +40,8 @@ A hub takes an exclusive file lock on `hub.lock` in the data directory, so two h
 
 If any step fails, the old worker resumes and puts the old binary back. A node runs the same handoff with no state to send. Routing state, usage, and the request log live only in memory. An update keeps them. A plain restart loses them.
 
+The hub and a waiting machine ask the release page for the latest version when they start and every 5 minutes after. Check for updates, on the dashboard's Machines page and in the Mac menu, calls `/conflux/api/update/check` to ask at once.
+
 `conflux update` calls `/conflux/api/update` on the hub. The hub sends an update command to each outdated node over its control socket, then updates itself.
 
 ## Request flow

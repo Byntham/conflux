@@ -340,6 +340,7 @@ impl Waiting {
             .route("/conflux/api/join", post(join_hub))
             .route("/conflux/api/status", get(waiting_status))
             .route("/conflux/api/update", post(update_self))
+            .route("/conflux/api/update/check", post(check_update))
             .fallback(not_linked)
             .layer(axum::middleware::from_fn_with_state(self.clone(), guard))
             .with_state(self.clone())
@@ -435,6 +436,10 @@ async fn waiting_status(State(w): State<Arc<Waiting>>) -> Json<Value> {
         "latest_version": latest,
         "machines": [this_machine],
     }))
+}
+
+async fn check_update(State(w): State<Arc<Waiting>>) -> Result<Json<Value>, ApiError> {
+    crate::api::check_release(&w.updater).await
 }
 
 async fn update_self(State(w): State<Arc<Waiting>>, Json(req): Json<UpdateRequest>) -> Response {

@@ -85,6 +85,7 @@ final class Model: ObservableObject {
     @Published private(set) var routing: Bool?
     @Published private(set) var busy: String?
     @Published var failure: String?
+    @Published private(set) var upToDate = false
     @Published private(set) var now = Date()
 
     let bundle = Bundle.main.bundleURL
@@ -117,6 +118,7 @@ final class Model: ObservableObject {
 
     func menuClosed() {
         menuOpen = false
+        upToDate = false
     }
 
     var dashboardURL: URL {
@@ -393,6 +395,14 @@ final class Model: ObservableObject {
             throw Command.Failure(message: fields["error"] as? String ?? "conflux answered HTTP \(status).")
         }
         return fields
+    }
+
+    func checkForUpdates() {
+        perform("Checking…") {
+            _ = try await self.post("conflux/api/update/check", [:])
+            await self.refresh()
+            self.upToDate = self.latestVersion == nil
+        }
     }
 
     func updateAll() {

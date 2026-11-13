@@ -590,7 +590,7 @@
       </section>
 
       <section id="view-machines" hidden>
-        <div class="page-head"><div><h1>Machines</h1><div class="page-sub" id="machines-sub"></div></div></div>
+        <div class="page-head"><div><h1>Machines</h1><div class="page-sub" id="machines-sub"></div></div><button class="btn" id="check-updates">Check for updates</button></div>
         <div class="card table-wrap"><table id="machine-list"></table></div>
         <div class="panels">
           <div class="card panel">
@@ -1667,6 +1667,15 @@ async function startUpdate(button) {
   } catch (e) { showError(e); } finally { button.disabled = false; }
 }
 
+async function checkForUpdates(button) {
+  button.disabled = true;
+  try {
+    const r = await api("POST", "/conflux/api/update/check", {});
+    await refresh();
+    toast(latest && updatable(latest).length ? `v${r.latest_version} is available` : `Every machine is up to date. The latest release is v${r.latest_version}.`);
+  } catch (e) { showError(e); } finally { button.disabled = false; }
+}
+
 async function accountAction(button) {
   const { act, id, on, name, kind } = button.dataset;
   const path = `/conflux/api/accounts/${encodeURIComponent(id)}`;
@@ -1693,6 +1702,7 @@ function copyText(text) {
 }
 
 $("find-machines").onclick = (ev) => findMachines(ev.currentTarget);
+$("check-updates").onclick = (ev) => checkForUpdates(ev.currentTarget);
 $("install-copy").onclick = () => copyText(latest.add_machine[installKey]).then(() => toast("Copied"), showError);
 $("thread-machine").onchange = loadThreads;
 $("thread-errors").onchange = loadThreads;
