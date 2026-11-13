@@ -13,7 +13,7 @@
     --brand: #0e5f72; --accent: #0e6b80; --accent-soft: #e3f1f4; --primary: #18181b; --primary-fg: #ffffff;
     --track: #ececef; --fill: #71717a; --bubble: #ebebee; --seg-on: #ffffff; --popover: #ffffff; --row-on: #f1f1f3; --fail-mix: 7%;
     --ok: #047857; --warn: #a15c00; --warn-soft: #fdf1dd; --warn-fill: #d97f06; --bad: #c81e1e; --bad-fill: #c81e1e; --bad-soft: #fdeaea;
-    --claude: #c2653c; --codex: #5a5fd0;
+    --claude: #c2653c; --codex: #5a5fd0; --scoped: #6f2a0e; --pool-area: 15%;
     --shadow: 0 1px 2px rgb(24 24 27 / 4%);
     --shadow-pop: 0 16px 40px rgb(24 24 27 / 16%), 0 2px 6px rgb(24 24 27 / 8%);
     --backdrop: rgb(24 24 27 / 40%);
@@ -26,7 +26,7 @@
       --brand: #4fb8cc; --accent: #6cc7d9; --accent-soft: #10292f; --primary: #f4f4f5; --primary-fg: #0a0a0b;
       --track: #232326; --fill: #a1a1aa; --bubble: #242427; --seg-on: #2c2c30; --popover: #1a1a1c; --row-on: #242427; --fail-mix: 10%;
       --ok: #34d399; --warn: #fbbf24; --warn-soft: #2c2108; --warn-fill: #f59e0b; --bad: #f87171; --bad-fill: #e5484d; --bad-soft: #321414;
-      --claude: #d4764c; --codex: #8086ec;
+      --claude: #d4764c; --codex: #8086ec; --scoped: #ffd2bd; --pool-area: 20%;
       --shadow: none;
       --shadow-pop: 0 18px 44px rgb(0 0 0 / 70%);
       --backdrop: rgb(0 0 0 / 62%);
@@ -340,21 +340,73 @@
   #toast { position: fixed; z-index: 50; left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; align-items: center; gap: 7px; max-width: calc(100vw - 32px); padding: 8px 13px; border-radius: 8px; background: var(--fg); color: var(--bg); font-size: 13px; font-weight: 500; box-shadow: var(--shadow-pop); }
   #toast.bad { background: var(--bad-fill); color: #ffffff; }
 
+  .pool-board { overflow: hidden; }
+  .pool-claude { --series: var(--claude); }
+  .pool-codex { --series: var(--codex); }
+  .pool-chart { position: relative; padding: 14px 22px 0; touch-action: pan-y; }
+  .pool-chart.narrow { padding: 12px 16px 0; }
+  .pool-chart > svg { display: block; width: 100%; overflow: visible; }
+  .pool-gut { position: absolute; left: 22px; display: flex; flex-direction: column; align-items: flex-start; }
+  .pool-name { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; }
+  .pool-name i { width: 9px; height: 9px; border-radius: 2px; background: var(--series); }
+  .pool-big { margin: 2px 0 6px; font-size: 46px; line-height: 1; font-weight: 600; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
+  .pool-big span { margin-left: 5px; font-size: 13px; font-weight: 400; letter-spacing: 0; color: var(--muted); }
+  .pool-dots { display: flex; align-items: center; gap: 6px; }
+  .pool-dots i { width: 11px; height: 11px; border-radius: 50%; background: var(--series); }
+  .pool-dots i.paused { background: transparent; box-shadow: inset 0 0 0 2px var(--series); }
+  .pool-dots i.login { width: 9px; height: 9px; margin: 0 2px; border-radius: 2px; background: var(--warn-fill); transform: rotate(45deg); }
+  .pool-tag { display: none; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .pool-chip { display: inline-flex; align-items: center; gap: 6px; margin-top: 9px; padding: 3px 4px 3px 8px; border-radius: 8px; background: var(--warn-soft); font-size: 12.5px; white-space: nowrap; }
+  .pool-chip svg { color: var(--warn); width: 14px; height: 14px; }
+  .pool-chip .btn { height: 22px; padding: 0 8px; }
+  .narrow .pool-gut { left: 16px; right: 16px; flex-direction: row; align-items: center; gap: 10px; }
+  .narrow .pool-big { margin: 0; font-size: 24px; }
+  .narrow .pool-big span, .narrow .pool-chip-text { display: none; }
+  .narrow .pool-tag { display: block; }
+  .narrow .pool-chip { margin: 0 0 0 auto; }
+  .pool-chart text { font-size: 11.5px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+  .pool-chart text.strong { fill: var(--fg); font-weight: 500; }
+  .pool-chart text.mark { fill: var(--fg-2); }
+  .pool-chart text.zone { font-size: 12.5px; }
+  .pool-chart .grid { stroke: var(--line); stroke-width: 1; }
+  .pool-chart .base { stroke: var(--line-strong); stroke-width: 1; }
+  .pool-chart .sw-all { fill: var(--series); }
+  .pool-chart .sw-scope { fill: var(--scoped); }
+  .pool-chart .area { fill: color-mix(in srgb, var(--series) var(--pool-area), transparent); }
+  .pool-chart .area.scope { fill: color-mix(in srgb, var(--series) 46%, transparent); }
+  .pool-chart .area.sched { fill: color-mix(in srgb, var(--series) 5%, transparent); }
+  .pool-chart .trace { fill: none; stroke: var(--series); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .pool-chart .trace.scope { stroke: var(--scoped); stroke-width: 1.5; }
+  .pool-chart .level { fill: none; stroke: var(--series); stroke-width: 1.5; stroke-dasharray: 1 5; stroke-linecap: round; }
+  .pool-chart .level.scope { stroke: var(--scoped); stroke-width: 1.25; stroke-dasharray: 7 4; stroke-linecap: butt; }
+  .pool-chart .riser { stroke: var(--series); stroke-width: 2; stroke-linecap: round; }
+  .pool-chart .riser.scope { stroke: var(--scoped); stroke-width: 1.25; }
+  .pool-chart .nowline { stroke: var(--fg-2); stroke-width: 1; }
+  .pool-chart .now { fill: var(--series); stroke: var(--surface); stroke-width: 2; }
+  .pool-chart .now.scope { fill: var(--scoped); }
+  .pool-chart .cross { stroke: var(--fg-2); stroke-width: 1; }
+  .pool-tip { position: absolute; top: 0; z-index: 5; min-width: 170px; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--popover); box-shadow: var(--shadow-pop); font-size: 12.5px; pointer-events: none; font-variant-numeric: tabular-nums; }
+  .pool-tip b { display: block; font-weight: 500; margin-bottom: 2px; }
+  .pool-tip div { display: flex; align-items: center; gap: 7px; color: var(--fg-2); }
+  .pool-tip div i { width: 7px; height: 7px; border-radius: 2px; background: var(--series); }
+  .pool-tip div i.scope { background: var(--scoped); }
+  .pool-tip div span:last-child { margin-left: auto; padding-left: 12px; color: var(--fg); font-weight: 500; }
+  .pool-tip p { margin: 4px 0 0; color: var(--muted); max-width: 220px; }
+  .pool-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding: 10px 22px; border-top: 1px solid var(--line); font-size: 13px; color: var(--fg-2); text-decoration: none; }
+  .pool-foot:hover { color: var(--fg); background: var(--hover); }
+  .pool-foot svg { transform: scaleX(-1); }
+
   @media (min-width: 761px) {
     .note + .note::before { content: "·"; margin-right: 7px; color: var(--muted); font-weight: 400; }
-    #recent, #request-log { table-layout: fixed; min-width: 960px; }
-    #request-log { min-width: 1120px; }
-    #recent .col-machine { width: 120px; }
-    #recent .col-model { width: 210px; }
-    #recent .col-tokens { width: 104px; }
-    #recent th.when, #request-log th.when { width: 76px; }
+    #request-log { table-layout: fixed; min-width: 1120px; }
+    #request-log th.when { width: 76px; }
     .col-machine { width: 104px; }
     .col-model { width: 168px; }
     .col-via { width: 52px; }
-    #recent th.status, #request-log th.status { width: 60px; }
-    #recent th.lat, #request-log th.lat { width: 72px; }
+    #request-log th.status { width: 60px; }
+    #request-log th.lat { width: 72px; }
     .col-tokens { width: 96px; }
-    #recent td, #request-log td { overflow: hidden; text-overflow: ellipsis; }
+    #request-log td { overflow: hidden; text-overflow: ellipsis; }
   }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
   @media (max-width: 1080px) {
@@ -411,11 +463,11 @@
     th:last-child, td:last-child { padding-right: 14px; }
     th, td { padding-left: 8px; padding-right: 8px; }
     .log { max-height: none; overflow-x: auto; }
-    #recent, #request-log { table-layout: fixed; }
-    #recent .when, #request-log .when { display: none; }
-    #recent .status, #request-log .status { width: 58px; }
-    #recent .lat, #request-log .lat { width: 80px; padding-right: 14px; }
-    #recent .acct, #request-log .acct, #recent th:nth-child(3), #request-log th:nth-child(3) { padding-left: 14px; }
+    #request-log { table-layout: fixed; }
+    #request-log .when { display: none; }
+    #request-log .status { width: 58px; }
+    #request-log .lat { width: 80px; padding-right: 14px; }
+    #request-log .acct, #request-log th:nth-child(3) { padding-left: 14px; }
     td.acct { max-width: none; }
     #view-threads { display: block; height: auto; min-height: 0; }
     #view-threads:has(.viewing) .toolbar, #view-threads:has(.viewing) #sync-note { display: none; }
@@ -451,6 +503,7 @@
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="logo" viewBox="0 0 1024 1024"><path d="M431 977C405 972 384 950 378 924C376 918 376 908 376 838C376 699 370 664 333 608C316 580 302 564 252 514C207 468 203 463 191 450C138 387 110 322 104 250C102 224 103 119 106 111C116 79 139 56 172 47C183 44 257 45 268 48C299 56 322 78 332 108C336 120 336 125 336 181C336 307 351 368 399 440C415 464 455 509 460 509C463 509 456 477 444 446C427 396 423 382 417 361C409 327 405 302 402 265C400 238 400 129 402 118C409 81 440 52 476 46C488 44 549 45 557 47C589 56 612 80 622 114C624 121 625 229 623 258C619 320 609 366 586 429C571 471 561 509 565 509C567 509 584 492 594 480C648 419 676 356 687 270C688 259 688 243 689 188C690 110 689 114 698 96C711 69 734 52 762 47C772 45 835 44 846 46C885 52 915 83 921 123C923 135 922 250 920 265C907 357 875 411 775 512C696 592 672 627 658 686C650 720 650 723 649 829C648 922 648 922 646 930C638 954 617 973 594 978C584 980 441 980 431 977Z"/></symbol>
   <symbol id="i-overview" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7.5" height="7.5" rx="1.6"/><rect x="13" y="3.5" width="7.5" height="7.5" rx="1.6"/><rect x="3.5" y="13" width="7.5" height="7.5" rx="1.6"/><rect x="13" y="13" width="7.5" height="7.5" rx="1.6"/></symbol>
+  <symbol id="i-accounts" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="4"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></symbol>
   <symbol id="i-requests" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
   <symbol id="i-machines" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="1.6"/><rect x="3" y="13" width="18" height="7" rx="1.6"/><path d="M7 7.5h.01M7 16.5h.01"/></symbol>
   <symbol id="i-threads" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-12.4 7.5L3.5 20.5l1-5A8.5 8.5 0 1 1 21 12z"/></symbol>
@@ -469,7 +522,8 @@
   <aside class="sidebar">
     <div class="brand"><svg aria-hidden="true"><use href="#logo"/></svg>conflux</div>
     <nav class="nav" aria-label="Sections">
-      <a href="#overview" data-view="overview"><svg class="i" aria-hidden="true"><use href="#i-overview"/></svg>Overview<span id="nav-alert" class="alert" hidden></span></a>
+      <a href="#overview" data-view="overview"><svg class="i" aria-hidden="true"><use href="#i-overview"/></svg>Overview</a>
+      <a href="#accounts" data-view="accounts"><svg class="i" aria-hidden="true"><use href="#i-accounts"/></svg>Accounts<span id="nav-alert" class="alert" hidden></span></a>
       <a href="#requests" data-view="requests"><svg class="i" aria-hidden="true"><use href="#i-requests"/></svg>Requests</a>
       <a href="#machines" data-view="machines"><svg class="i" aria-hidden="true"><use href="#i-machines"/></svg>Machines<span id="nav-machines" class="count"></span></a>
       <a href="#threads" data-view="threads"><svg class="i" aria-hidden="true"><use href="#i-threads"/></svg>Threads</a>
@@ -500,26 +554,20 @@
           </div>
         </div>
         <div class="alerts" id="hub-alert" hidden></div>
-        <div class="alerts" id="alerts" hidden></div>
-        <div class="stats hide-first-run" id="stats"></div>
-        <div class="section">
-          <div class="section-head hide-first-run">
-            <h2>Accounts</h2>
-            <div class="section-note" id="quota-key"><span class="key"><i class="left"></i>Quota left</span><span class="key"><i class="tick"></i>Time left in window</span></div>
+        <div id="pool"></div>
+      </section>
+
+      <section id="view-accounts" hidden>
+        <div class="page-head">
+          <div><h1>Accounts</h1></div>
+          <div class="row">
+            <button class="btn" data-add="claude"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>Add Claude</button>
+            <button class="btn" data-add="codex"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>Add Codex</button>
           </div>
-          <div class="accounts" id="accounts"></div>
         </div>
-        <div class="section hide-first-run">
-            <div class="section-head">
-              <h2 id="chart-title">Requests per minute</h2>
-              <div class="section-note" id="chart-key"><span class="key"><i style="background:var(--claude)"></i>Claude</span><span class="key"><i style="background:var(--codex)"></i>Codex</span><span class="key"><i class="failed"></i>Failed</span></div>
-            </div>
-          <div id="chart"></div>
-        </div>
-        <div class="section hide-first-run">
-          <div class="section-head"><h2>Recent requests</h2><a class="link" href="#requests" id="view-all">View all</a></div>
-          <div class="card table-wrap"><table id="recent"></table></div>
-        </div>
+        <div class="alerts" id="alerts" hidden></div>
+        <div class="section-head" id="quota-key"><div class="section-note"><span class="key"><i class="left"></i>Quota left</span><span class="key"><i class="tick"></i>Time left in window</span></div></div>
+        <div class="accounts" id="accounts"></div>
       </section>
 
       <section id="view-requests" hidden>
@@ -530,7 +578,15 @@
             <button data-filter="failed" aria-pressed="false">Failed</button>
           </div>
         </div>
-        <div class="card table-wrap log"><table id="request-log"></table></div>
+        <div class="stats" id="stats"></div>
+        <div class="section">
+          <div class="section-head">
+            <h2 id="chart-title">Requests per minute</h2>
+            <div class="section-note" id="chart-key"><span class="key"><i style="background:var(--claude)"></i>Claude</span><span class="key"><i style="background:var(--codex)"></i>Codex</span><span class="key"><i class="failed"></i>Failed</span></div>
+          </div>
+          <div id="chart"></div>
+        </div>
+        <div class="section card table-wrap log"><table id="request-log"></table></div>
       </section>
 
       <section id="view-machines" hidden>
@@ -584,10 +640,9 @@
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const icon = (name) => `<svg class="i" aria-hidden="true"><use href="#i-${name}"/></svg>`;
-const VIEWS = ["overview", "requests", "machines", "threads"];
+const VIEWS = ["overview", "accounts", "requests", "machines", "threads"];
 const HOUR_MS = 3600000;
 const REQUEST_ROWS = 100;
-const RECENT_ROWS = 8;
 const STALE_USAGE_MS = 30 * 60000;
 const SETTLE_AFTER_LOAD_MS = 15000;
 const REQUEST_LOG_SIZE = 500;
@@ -877,12 +932,12 @@ function renderChart(d) {
   </div>`);
 }
 
-function requestTable(requests, full) {
-  const head = `<thead><tr><th class="when">When</th><th class="hide-sm col-machine">Machine</th><th>Account</th><th class="hide-sm col-model">Model</th>${full ? '<th class="hide-sm col-via">Via</th>' : ""}<th class="num status">Status</th><th class="num lat">Latency</th><th class="num hide-sm col-tokens">Tokens in</th><th class="num hide-sm col-tokens">Cache read</th>${full ? '<th class="num hide-sm col-tokens">Cache write</th>' : ""}<th class="num hide-sm col-tokens">Tokens out</th></tr></thead>`;
-  const span = full ? 11 : 9;
+function requestTable(requests) {
+  const head = '<thead><tr><th class="when">When</th><th class="hide-sm col-machine">Machine</th><th>Account</th><th class="hide-sm col-model">Model</th><th class="hide-sm col-via">Via</th><th class="num status">Status</th><th class="num lat">Latency</th><th class="num hide-sm col-tokens">Tokens in</th><th class="num hide-sm col-tokens">Cache read</th><th class="num hide-sm col-tokens">Cache write</th><th class="num hide-sm col-tokens">Tokens out</th></tr></thead>';
+  const span = 11;
   const rows = requests.length ? requests.map((r) => {
-    const via = full ? `<td class="hide-sm dim">${esc(r.transport)}</td>` : "";
-    const write = full ? `<td class="num hide-sm dim">${tokens(r.usage.cache_write)}</td>` : "";
+    const via = `<td class="hide-sm dim">${esc(r.transport)}</td>`;
+    const write = `<td class="num hide-sm dim">${tokens(r.usage.cache_write)}</td>`;
     const account = r.email || r.account;
     return `<tr class="${r.status < 400 ? "" : "failed"}"><td class="when">${esc(ago(r.at))}</td><td class="hide-sm dim">${esc(r.machine)}</td><td class="acct" title="${esc(account)}">${esc(account)}<div class="cell-sub show-sm">${esc([r.machine, r.model].filter(Boolean).join(" · "))}</div></td><td class="mono hide-sm dim">${esc(r.model || "")}</td>${via}<td class="num status"><span class="code ${r.status < 400 ? "ok" : "bad"}">${r.status}</span></td><td class="num lat">${seconds(r.latency_ms)}<div class="cell-sub show-sm">${esc(ago(r.at))}</div></td><td class="num hide-sm dim">${tokens(r.usage.input)}</td><td class="num hide-sm dim">${tokens(r.usage.cache_read)}</td>${write}<td class="num hide-sm dim">${tokens(r.usage.output)}</td></tr>`;
   }).join("") : `<tr><td colspan="${span}"><div class="empty"><strong>No requests yet</strong>Requests appear here once a machine sends one through the hub.</div></td></tr>`;
@@ -890,12 +945,10 @@ function requestTable(requests, full) {
 }
 
 function renderRequests(d) {
-  setHtml("recent", requestTable(d.requests.slice(0, RECENT_ROWS), false));
-  $("view-all").hidden = !d.requests.length;
   const list = requestFilter === "failed" ? d.requests.filter((r) => r.status >= 400) : d.requests;
   const shown = list.slice(0, REQUEST_ROWS);
   $("requests-sub").textContent = list.length > shown.length ? `Latest ${shown.length} of ${list.length} logged` : `${shown.length} logged`;
-  setHtml("request-log", requestTable(shown, true));
+  setHtml("request-log", requestTable(shown));
 }
 
 const UPDATE_REPORT_STALE_MS = 60000;
@@ -967,6 +1020,280 @@ function renderAccounts(d) {
     : `<div class="card empty" style="grid-column:1/-1"><strong>No accounts yet</strong>Add a subscription and conflux will start routing requests to it.<div class="row"><button class="btn" data-add="claude">Add Claude account</button><button class="btn" data-add="codex">Add Codex account</button></div></div>`);
 }
 
+const POOL_BACK_H = 72;
+const POOL_AHEAD_H = 168;
+const POOL_STEP_H = 0.001;
+let poolGeom = null;
+
+const pct = (v) => `${Math.round(v)}%`;
+
+function hourSpan(hours) {
+  const mins = Math.max(1, Math.round(hours * 60));
+  const d = Math.floor(mins / 1440), h = Math.floor((mins % 1440) / 60), m = mins % 60;
+  if (d) return h ? `${d}d ${h}h` : `${d}d`;
+  if (h) return m ? `${h}h ${m}m` : `${h}h`;
+  return `${m}m`;
+}
+
+function poolWindow(a) {
+  return a.usage.windows.filter((w) => !w.model_scope).sort((x, y) => (y.duration_secs || 0) - (x.duration_secs || 0))[0];
+}
+
+function usedAt(points, t) {
+  if (t <= points[0].t) return points[0].v;
+  for (let i = 1; i < points.length; i++) {
+    const p = points[i - 1], q = points[i];
+    if (t < q.t) return q.v < p.v || q.t === p.t ? p.v : p.v + (q.v - p.v) * (t - p.t) / (q.t - p.t);
+  }
+  return points[points.length - 1].v;
+}
+
+function buildPool(provider, d, now) {
+  const accounts = d.accounts.filter((a) => a.provider === provider);
+  const members = accounts.filter((a) => a.enabled && !a.needs_login && poolWindow(a));
+  const scopes = members.flatMap((a) => a.usage.windows.filter((w) => w.model_scope).map((w) => w.model_scope));
+  const scope = [...new Set(scopes)].sort()[0] || null;
+  const pool = { provider, accounts, size: members.length, scope, past: [], future: [], refills: [], now: 0, nowScoped: 0 };
+  if (!members.length) return pool;
+  const hoursAway = (iso) => (iso ? (new Date(iso) - now) / HOUR_MS : Infinity);
+  const usedNow = (w) => (hoursAway(w.resets_at) <= 0 ? 0 : w.used_pct);
+  const history = d.usage_history || {};
+  const series = members.map((a) => {
+    const w = poolWindow(a);
+    const sw = scope && a.usage.windows.find((x) => x.model_scope === scope);
+    const points = (win) => [...(history[a.id] || [])
+      .filter((s) => win.key in s.used)
+      .map((s) => ({ t: (new Date(s.at) - now) / HOUR_MS, v: s.used[win.key] }))
+      .filter((p) => p.t < 0), { t: 0, v: usedNow(win) }];
+    const reset = (win) => (win && hoursAway(win.resets_at) > 0 ? hoursAway(win.resets_at) : Infinity);
+    return {
+      name: a.email || a.id,
+      all: points(w),
+      scoped: sw ? points(sw) : null,
+      state: { allLeft: 100 - usedNow(w), allReset: reset(w), scopeLeft: sw ? 100 - usedNow(sw) : 100, scopeReset: reset(sw) },
+    };
+  });
+  const cap = members.length * 100;
+  const leftAt = (s, t) => {
+    const all = 100 - usedAt(s.all, t);
+    return { all, scoped: s.scoped ? Math.min(all, 100 - usedAt(s.scoped, t)) : all };
+  };
+  const sample = (t) => {
+    let all = 0, scoped = 0;
+    for (const s of series) { const l = leftAt(s, t); all += l.all; scoped += l.scoped; }
+    return { t, v: (all / cap) * 100, s: (scoped / cap) * 100 };
+  };
+  const start = Math.max(-POOL_BACK_H, ...series.map((s) => s.all[0].t));
+  const times = new Set([start, 0]);
+  for (const s of series) {
+    for (const p of [...s.all, ...(s.scoped || [])]) {
+      if (p.t <= start) continue;
+      times.add(p.t - POOL_STEP_H);
+      times.add(p.t);
+    }
+  }
+  pool.past = start < 0 ? [...times].sort((x, y) => x - y).map(sample) : [];
+  for (let i = 1; i < pool.past.length; i++) {
+    const before = pool.past[i - 1], after = pool.past[i];
+    if (after.t - before.t > POOL_STEP_H * 1.5 || after.v - before.v <= 0.5) continue;
+    const who = series.filter((s) => usedAt(s.all, before.t) - usedAt(s.all, after.t) > 0.5).map((s) => s.name);
+    pool.refills.push({ t: after.t, gain: after.v - before.v, to: after.v, who, past: true });
+  }
+  const total = (t) => {
+    let all = 0, scoped = 0;
+    for (const { state } of series) { all += state.allLeft; scoped += Math.min(state.allLeft, state.scopeLeft); }
+    return { t, v: (all / cap) * 100, s: (scoped / cap) * 100 };
+  };
+  pool.future = [total(0)];
+  pool.now = pool.future[0].v;
+  pool.nowScoped = pool.future[0].s;
+  const events = [...new Set(series.flatMap((s) => [s.state.allReset, s.state.scopeReset]))].filter((t) => t <= POOL_AHEAD_H).sort((x, y) => x - y);
+  for (const t of events) {
+    const before = total(t);
+    const who = [];
+    for (const s of series) {
+      if (s.state.allReset === t) { s.state.allLeft = 100; who.push(s.name); }
+      if (s.state.scopeReset === t) s.state.scopeLeft = 100;
+    }
+    const after = total(t);
+    pool.future.push(before, after);
+    if (after.v - before.v > 0.5) pool.refills.push({ t, gain: after.v - before.v, to: after.v, who, past: false });
+  }
+  pool.future.push(total(POOL_AHEAD_H));
+  return pool;
+}
+
+function poolDot(a) {
+  const name = esc(a.email || a.id);
+  if (a.needs_login) return `<i class="login" data-tip="${name} needs login"></i>`;
+  if (!a.enabled) return `<i class="paused" data-tip="${name} is turned off"></i>`;
+  if (a.billing_blocked) return `<i class="paused" data-tip="${name} is billing blocked"></i>`;
+  if (isReady(a)) return `<i data-tip="${name} is taking requests"></i>`;
+  const cooling = accountCooldown(a);
+  const full = a.usage.windows.filter((w) => !w.model_scope && w.used_pct >= 100 && w.resets_at).map((w) => w.resets_at).sort();
+  const back = cooling ? cooling.until : full[full.length - 1];
+  return `<i class="paused" data-tip="${name} is paused${back ? `, back in ${esc(until(back))}` : ""}"></i>`;
+}
+
+function poolGutter(l, narrow) {
+  const p = l.pool;
+  const chips = p.accounts.filter((a) => a.needs_login).map((a) => `<span class="pool-chip" data-tip="${esc(a.email || a.id)} needs login, so it is not in the pool">${icon("alert")}<span class="pool-chip-text">Needs login</span><button class="btn small" data-add="${esc(a.provider)}" data-email="${esc(a.email || "")}">Log in</button></span>`).join("");
+  const tag = p.scope && p.size ? `<span class="pool-tag">${esc(p.scope)} ${pct(p.nowScoped)}</span>` : "";
+  const ready = p.accounts.filter(isReady).length;
+  return `<div class="pool-gut pool-${esc(p.provider)}" style="top:${narrow ? l.top - 44 : l.top + 10}px">
+    <div class="pool-name"><i></i>${esc(providerName(p.provider))}</div>
+    <div class="pool-big">${p.size ? pct(p.now) : "–"}<span>left</span></div>
+    <div class="pool-dots" role="img" aria-label="${ready} of ${p.accounts.length} accounts taking requests now">${p.accounts.map(poolDot).join("")}</div>
+    ${tag}${chips}
+  </div>`;
+}
+
+function renderPools(d) {
+  if ($("view-overview").hidden) return;
+  if (!d.accounts.length) {
+    poolGeom = null;
+    return setHtml("pool", `<div class="accounts"><div class="card empty"><strong>No accounts yet</strong>Add a subscription and conflux will start routing requests to it.<div class="row"><button class="btn" data-add="claude">Add Claude account</button><button class="btn" data-add="codex">Add Codex account</button></div></div></div>`);
+  }
+  const now = Math.floor(Date.now() / 60000) * 60000;
+  const providers = [...new Set(d.accounts.map((a) => a.provider))].sort();
+  const lanes = providers.map((p) => ({ pool: buildPool(p, d, now) }));
+  const outer = $("pool").clientWidth;
+  const narrow = outer < 600;
+  const pad = narrow ? 16 : 22;
+  const width = outer - 2 - pad * 2;
+  const padL = narrow ? 38 : 204, padR = narrow ? 6 : 14;
+  const plotW = width - padL - padR;
+  let y = 22;
+  for (const l of lanes) {
+    l.top = y + (narrow ? 72 : 30);
+    l.h = (narrow ? 80 : 146) + (narrow ? 24 : 72) * Math.min(3, l.pool.size);
+    y = l.top + l.h;
+  }
+  const bottom = y;
+  const height = bottom + 22;
+  const x = (t) => padL + ((t + POOL_BACK_H) / (POOL_BACK_H + POOL_AHEAD_H)) * plotW;
+  const at = (hours) => new Date(now + hours * HOUR_MS);
+  const day = (date) => date.toLocaleDateString([], { weekday: "short" });
+  const parts = [];
+
+  const midnights = [];
+  const first = new Date(now - POOL_BACK_H * HOUR_MS);
+  first.setHours(24, 0, 0, 0);
+  for (let m = first.getTime(); (m - now) / HOUR_MS <= POOL_AHEAD_H; m += 24 * HOUR_MS) midnights.push((m - now) / HOUR_MS);
+  for (const t of midnights) parts.push(`<line class="grid" x1="${x(t)}" x2="${x(t)}" y1="${lanes[0].top}" y2="${bottom}"/>`);
+  parts.push(`<line class="nowline" x1="${x(0)}" x2="${x(0)}" y1="2" y2="${bottom + 6}"/>`);
+  parts.push(`<text class="zone" x="${x(0) - 10}" y="13" text-anchor="end">Measured</text>`);
+  parts.push(`<text class="zone" x="${x(0) + 10}" y="13">Scheduled resets</text>`);
+
+  for (const l of lanes) {
+    const p = l.pool;
+    const yv = (v) => l.top + l.h - (v / 100) * l.h;
+    const base = l.top + l.h;
+    const g = [];
+    const ticks = l.h >= 260 ? [25, 50, 75, 100] : l.h >= 130 ? [50, 100] : [100];
+    for (const v of ticks) g.push(`<line class="grid" x1="${padL}" x2="${padL + plotW}" y1="${yv(v)}" y2="${yv(v)}"/><text x="${padL - 8}" y="${yv(v) + 4}" text-anchor="end">${v}%</text>`);
+    g.push(`<text x="${padL - 8}" y="${base + 4}" text-anchor="end">0</text>`);
+    const path = (pts, k) => pts.map((pt, i) => `${i ? "L" : "M"}${x(pt.t).toFixed(1)} ${yv(pt[k]).toFixed(1)}`).join("");
+    const area = (pts, k) => `${path(pts, k)}L${x(pts[pts.length - 1].t).toFixed(1)} ${base}L${x(pts[0].t).toFixed(1)} ${base}Z`;
+    const flats = (pts, k) => pts.map((pt, i) => (i % 2 === 0 && pts[i + 1] ? `M${x(pt.t).toFixed(1)} ${yv(pt[k]).toFixed(1)}L${x(pts[i + 1].t).toFixed(1)} ${yv(pts[i + 1][k]).toFixed(1)}` : "")).join("");
+    const risers = (pts, k, cls) => pts.map((pt, i) => (i % 2 === 1 && pts[i + 1] && pts[i + 1].t === pt.t && pts[i + 1][k] - pt[k] > 0.5 ? `<line class="riser${cls}" x1="${x(pt.t).toFixed(1)}" x2="${x(pt.t).toFixed(1)}" y1="${yv(pt[k]).toFixed(1)}" y2="${yv(pts[i + 1][k]).toFixed(1)}"/>` : "")).join("");
+    if (p.size) {
+      if (p.past.length) g.push(`<path class="area" d="${area(p.past, "v")}"/>`);
+      g.push(`<path class="area sched" d="${area(p.future, "v")}"/>`);
+      if (p.scope && p.past.length) g.push(`<path class="area scope" d="${area(p.past, "s")}"/>`);
+      g.push(`<line class="base" x1="${padL}" x2="${padL + plotW}" y1="${base}" y2="${base}"/>`);
+      if (p.scope) g.push(`${p.past.length ? `<path class="trace scope" d="${path(p.past, "s")}"/>` : ""}<path class="level scope" d="${flats(p.future, "s")}"/>${risers(p.future, "s", " scope")}`);
+      g.push(`${p.past.length ? `<path class="trace" d="${path(p.past, "v")}"/>` : ""}<path class="level" d="${flats(p.future, "v")}"/>${risers(p.future, "v", "")}`);
+      for (const r of p.refills) {
+        const lx = Math.min(Math.max(x(r.t), padL + 16), padL + plotW - 16);
+        g.push(`<text class="strong" x="${lx}" y="${yv(r.to) - 8}" text-anchor="middle">+${pct(r.gain)}${r.past || narrow ? "" : ` in ${hourSpan(r.t)}`}</text>`);
+      }
+      if (p.scope) g.push(`<circle class="now scope" cx="${x(0)}" cy="${yv(p.nowScoped)}" r="4"/>`);
+      g.push(`<circle class="now" cx="${x(0)}" cy="${yv(p.now)}" r="5"/>`);
+      if (p.scope && !narrow) {
+        const ya = yv(p.now) - 9, ys = Math.min(base - 6, yv(p.nowScoped) + 17);
+        g.push(`<rect class="sw-all" x="${x(0) + 9}" y="${ya - 6}" width="8" height="3" rx="1.5"/><text class="mark" x="${x(0) + 21}" y="${ya}">All models</text>`);
+        g.push(`<rect class="sw-scope" x="${x(0) + 9}" y="${ys - 6}" width="8" height="3" rx="1.5"/><text class="mark" x="${x(0) + 21}" y="${ys}">${esc(p.scope)} models ${pct(p.nowScoped)}</text>`);
+      }
+    } else {
+      g.push(`<line class="base" x1="${padL}" x2="${padL + plotW}" y1="${base}" y2="${base}"/>`);
+    }
+    parts.push(`<g class="pool-${esc(p.provider)}">${g.join("")}</g>`);
+  }
+
+  parts.push(`<text class="strong" x="${x(0)}" y="${height - 5}" text-anchor="middle">Now</text>`);
+  let lastLabel = padL - 10;
+  for (const t of midnights) {
+    const date = at(t + 1);
+    const label = narrow ? day(date) : `${day(date)} ${date.getDate()}`;
+    const lx = x(t) + 5;
+    const w = narrow ? 24 : 40;
+    if (lx < lastLabel || lx + w > padL + plotW || (lx < x(0) + 20 && lx + w > x(0) - 20)) continue;
+    parts.push(`<text x="${lx}" y="${height - 5}">${label}</text>`);
+    lastLabel = lx + w + 8;
+  }
+  parts.push(`<line class="cross" x1="0" x2="0" y1="${lanes[0].top}" y2="${bottom}" visibility="hidden"/>`);
+
+  const summary = `Pooled quota left over the past 3 days, and the scheduled resets in the next 7 days. ${lanes.map((l) => `${providerName(l.pool.provider)} has ${l.pool.size ? pct(l.pool.now) : "no quota data"} left.`).join(" ")}`;
+  const accountCount = d.accounts.length;
+  poolGeom = { lanes, padL, plotW, width, pad, height, x, at };
+  setHtml("pool", `<div class="card pool-board"><div class="pool-chart${narrow ? " narrow" : ""}"><svg viewBox="0 0 ${width} ${height}" height="${height}" role="img" aria-label="${esc(summary)}">${parts.join("")}</svg>${lanes.map((l) => poolGutter(l, narrow)).join("")}<div class="pool-tip" hidden></div></div><a class="pool-foot" href="#accounts">${icon("back")}${accountCount} account${accountCount === 1 ? "" : "s"} in these pools</a></div>`);
+}
+
+function poolValueAt(pool, t, k) {
+  const pts = t < 0 ? pool.past : pool.future;
+  if (!pts.length) return null;
+  let prev = pts[0];
+  for (const pt of pts) {
+    if (pt.t > t) return prev.t === pt.t ? pt[k] : prev[k] + ((pt[k] - prev[k]) * (t - prev.t)) / (pt.t - prev.t);
+    prev = pt;
+  }
+  return prev[k];
+}
+
+function hidePoolTip() {
+  const chart = document.querySelector(".pool-chart");
+  if (!chart) return;
+  chart.querySelector(".pool-tip").hidden = true;
+  chart.querySelector(".cross").setAttribute("visibility", "hidden");
+}
+
+function showPoolTip(ev) {
+  const chart = ev.target.closest(".pool-chart");
+  if (!chart || !poolGeom) return hidePoolTip();
+  const { lanes, padL, plotW, width, pad, height, x, at } = poolGeom;
+  const box = chart.getBoundingClientRect();
+  const px = ev.clientX - box.left - pad;
+  if (px < padL - 30) return hidePoolTip();
+  const cx0 = Math.min(Math.max(px, padL), padL + plotW);
+  const t = ((cx0 - padL) / plotW) * (POOL_BACK_H + POOL_AHEAD_H) - POOL_BACK_H;
+  const refills = lanes.flatMap((l) => l.pool.refills.map((r) => ({ ...r, provider: l.pool.provider })));
+  const near = refills.find((r) => Math.abs(x(r.t) - cx0) < 9);
+  const tt = near ? near.t + POOL_STEP_H : t;
+  const cx = near ? x(near.t) : cx0;
+  const cross = chart.querySelector(".cross");
+  cross.setAttribute("x1", cx);
+  cross.setAttribute("x2", cx);
+  cross.setAttribute("visibility", "visible");
+  const show = (v) => (v === null ? "No data" : v < 0.5 ? "None left" : `${pct(v)} left`);
+  const rows = lanes.filter((l) => l.pool.size).map((l) => {
+    const p = l.pool;
+    const scoped = p.scope ? `<div class="pool-${esc(p.provider)}"><i class="scope"></i><span>${esc(p.scope)} models</span><span>${show(poolValueAt(p, tt, "s"))}</span></div>` : "";
+    return `<div class="pool-${esc(p.provider)}"><i></i><span>${esc(providerName(p.provider))}</span><span>${show(poolValueAt(p, tt, "v"))}</span></div>${scoped}`;
+  }).join("");
+  const note = near
+    ? `${esc(near.who.join(", ") || "An account")} ${near.past ? "reset" : "resets"}, +${pct(near.gain)} for ${esc(providerName(near.provider))}`
+    : tt < 0 ? "Measured at a usage check" : "If you use nothing more";
+  const when = at(tt);
+  const label = Math.abs(tt) < 0.6 ? "Now" : `${when.toLocaleDateString([], { weekday: "short" })} ${when.getDate()}, ${when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  const tip = chart.querySelector(".pool-tip");
+  tip.innerHTML = `<b>${esc(label)}</b>${rows}<p>${note}</p>`;
+  tip.hidden = false;
+  const tw = tip.offsetWidth;
+  tip.style.left = `${pad + Math.max(0, cx + 12 + tw > width ? cx - tw - 12 : cx + 12)}px`;
+  tip.style.top = `${Math.min(Math.max(0, ev.clientY - box.top - 30), height - tip.offsetHeight)}px`;
+}
+
 function setConnection(ok, message) {
   for (const dot of [$("hub-dot"), $("top-dot")]) dot.className = `dot ${ok ? "on" : "down"}`;
   $("hub-status").textContent = ok ? "Connected" : "Disconnected";
@@ -993,8 +1320,9 @@ function render(d) {
   document.body.classList.add("loaded");
   $("hub-line").textContent = `${d.hub.name} · v${d.hub.version}`;
   $("top-line").textContent = d.hub.name;
-  $("view-overview").classList.toggle("first-run", !d.accounts.length && !d.requests.length);
+  $("view-overview").classList.toggle("first-run", !d.accounts.length);
   renderAlerts(d);
+  renderPools(d);
   renderStats(d);
   renderAccounts(d);
   renderChart(d);
@@ -1035,6 +1363,7 @@ function showView() {
   closeMenu();
   window.scrollTo(0, 0);
   if (name === "threads" && latest) loadThreads();
+  if (name === "overview" && latest) renderPools(latest);
 }
 
 function threadRow(t) {
@@ -1341,7 +1670,10 @@ $("thread-search").addEventListener("search", searchThreads);
 $("modal").addEventListener("close", () => clearInterval(loginTimer));
 $("modal").addEventListener("click", (ev) => { if (ev.target === $("modal")) closeModal(); });
 window.addEventListener("hashchange", showView);
-window.addEventListener("resize", () => { closeMenu(); if (latest) renderChart(latest); });
+window.addEventListener("resize", () => { closeMenu(); if (latest) { renderChart(latest); renderPools(latest); } });
+$("pool").addEventListener("pointermove", showPoolTip);
+$("pool").addEventListener("pointerdown", showPoolTip);
+$("pool").addEventListener("pointerleave", hidePoolTip);
 window.addEventListener("scroll", closeMenu, { passive: true });
 
 $("menu").addEventListener("keydown", (ev) => {
