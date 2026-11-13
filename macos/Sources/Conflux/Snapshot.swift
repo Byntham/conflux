@@ -20,6 +20,7 @@ enum Snapshot {
 
     @MainActor private static func write(to file: URL) async throws {
         let model = Model()
+        model.menuOpened()
         await model.refresh()
         let sides = [NSAppearance.Name.aqua, .darkAqua].map { name in
             let menu = MenuView()

@@ -63,11 +63,18 @@ struct MenuView: View {
                 Button("Start conflux") { model.start() }.glassButton(prominent: true)
             }
         case .waiting:
-            Notice(
-                title: "Waiting to be linked",
-                detail: "On your hub's dashboard, open Machines and click Find machines."
-            ) {
-                Button("Make this the hub") { model.setUp(asHub: true) }.glassButton()
+            Notice(title: "Waiting to be linked", detail: waitingDetail) {
+                let buttons = Group {
+                    ForEach(model.hubs) { hub in
+                        Button("Link to \(hub.name)") { model.link(to: hub) }.glassButton(prominent: true)
+                    }
+                    Button("Make this the hub") { model.setUp(asHub: true) }.glassButton()
+                }
+                if model.hubs.count > 1 {
+                    VStack(alignment: .leading, spacing: 8) { buttons }
+                } else {
+                    buttons
+                }
             }
             UpdateBanner()
         case let .problem(message):
@@ -80,6 +87,16 @@ struct MenuView: View {
         case .ready:
             Accounts()
             UpdateBanner()
+        }
+    }
+}
+
+extension MenuView {
+    private var waitingDetail: String {
+        switch model.hubs.count {
+        case 0: return "On your hub's dashboard, open Machines and click Find machines."
+        case 1: return "Found your hub, \(model.hubs[0].name), on your tailnet. Linking sends Claude Code and Codex on this Mac through it."
+        default: return "Found \(model.hubs.count) hubs on your tailnet. Pick the one to link this Mac to."
         }
     }
 }

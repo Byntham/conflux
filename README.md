@@ -81,11 +81,14 @@ Windows, in PowerShell:
 irm https://raw.githubusercontent.com/Byntham/conflux/main/install.ps1 | iex
 ```
 
-The machine now waits to be linked. On the hub's dashboard, open Machines, click "Find machines", and click "Link" next to it. conflux then points Claude Code and Codex at the hub.
+The machine now waits to be linked. Link it from either side. conflux then points Claude Code and Codex at the hub.
 
-Find machines lists only machines that are online and owned by the same Tailscale user as the hub.
+- On the new machine, run `conflux join`. conflux finds the hub on your tailnet and links to it. On a Mac, the menu bar app shows a "Link to" button with the hub's name instead.
+- On the hub's dashboard, open Machines, click "Find machines", and click "Link" next to the machine.
 
-To skip linking, or for a machine that isn't listed, end the install command with the hub's name: `sh -s -- <hub>` instead of `sh`. On Windows, run `conflux join <hub>` after the installer. The "Add a machine" panel on the same page shows these commands with your hub's name filled in.
+Both ways find only machines that are online and owned by the same Tailscale user.
+
+To skip linking, or for a machine that isn't found, end the install command with the hub's name: `sh -s -- <hub>` instead of `sh`. On Windows, run `conflux join <hub>` after the installer. The "Add a machine" panel on the same page shows these commands with your hub's name filled in.
 
 ### 4. Restart and check
 

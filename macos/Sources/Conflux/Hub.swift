@@ -17,6 +17,17 @@ struct WaitingStatus: Decodable {
     let machines: [Machine]
 }
 
+struct FoundHubs: Decodable {
+    let hubs: [FoundHub]
+}
+
+struct FoundHub: Decodable, Identifiable {
+    let name: String
+    let address: String
+
+    var id: String { address }
+}
+
 struct Account: Decodable, Identifiable {
     let id: String
     let provider: String

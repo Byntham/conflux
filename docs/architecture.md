@@ -11,13 +11,13 @@ conflux is one Rust binary. One machine, the hub, holds the Claude and Codex sub
 
 - A hub runs `app::serve` (`src/app.rs`). It holds the accounts, routes requests, and serves the dashboard. It listens on `127.0.0.1:<port>` and on each tailnet IP it finds. The default port is 8317.
 - A node runs `node::serve` (`src/node.rs`). It listens only on loopback and forwards requests to `<hub>`.
-- A waiting machine runs `link::serve` (`src/link.rs`). It listens on loopback and the tailnet, and only accepts a link from a hub.
+- A waiting machine runs `link::serve` (`src/link.rs`). It listens on loopback and the tailnet. It accepts a link from a hub, or finds a hub and links to it when asked on loopback.
 
 A machine gets its role in one of these ways:
 
 - `conflux join <hub>` sets the role to node. If `<hub>` names this machine, it sets the role to hub instead.
 - `conflux wait` sets the role to waiting. It leaves the role alone if the machine has already joined or holds accounts.
-- A hub links a waiting machine, which then becomes a node. See "Linking waiting machines".
+- A hub links a waiting machine, or a waiting machine links itself to a hub. It then becomes a node. See "Linking waiting machines".
 - `conflux hub take-over` makes the new machine a hub. See "Hub move".
 - With no `config.toml`, the role defaults to hub.
 
@@ -112,6 +112,11 @@ The hub state lives in `hub-state.json` (`src/hubstate.rs`), so a restart in the
 2. Link calls `/conflux/api/link`. The hub sends `POST /conflux/link` to the peer.
 3. The waiting machine checks with Tailscale that the caller belongs to the same user. It then points its clients at conflux and saves its role as node, with the caller's address as the hub.
 4. The worker loop reads the new config and starts the node server.
+
+A waiting machine can also start the link itself. `conflux join` with no name and the Mac menu bar app both use these two routes, which answer only on loopback.
+
+1. `GET /conflux/api/hubs` lists peers owned by the same Tailscale user and probes `GET /conflux/api/status` on each one. A peer that answers with the hub role is a hub. Nodes listen only on loopback, so they never answer.
+2. `POST /conflux/api/join` takes a hub's address. The waiting machine checks again that the address belongs to the same user and answers as a hub. It then becomes a node the same way as in step 3 above. It saves the hub's tailnet name if that name resolves to the address, and the address otherwise.
 
 ## Control channel
 
