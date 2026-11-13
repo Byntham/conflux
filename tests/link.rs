@@ -94,7 +94,7 @@ async fn the_hub_finds_a_waiting_machine_and_links_it_as_a_node() {
         },
     });
     let tailscale = fake_tailscale(Arc::new(Mutex::new(status)), Arc::default());
-    let hub = Harness::on_tailnet(hub_listener, tailscale, "ssh").await;
+    let hub = Harness::on_tailnet(hub_listener, tailscale, "false").await;
     let machine = waiting_machine(tokio::net::TcpListener::bind(("::1", port)).await.unwrap()).await;
 
     let found = discover(&hub).await;
@@ -178,6 +178,9 @@ async fn the_hub_installs_conflux_over_ssh_and_links_the_machine_once_it_starts(
     let (status, body) = install_on(&refused, "::1").await;
     assert_eq!(status, 502);
     assert!(body["error"].as_str().unwrap().contains("bare over ssh"), "{body}");
+    let waits = waiting_machine(tokio::net::TcpListener::bind(("::1", refused.port)).await.unwrap()).await;
+    assert_eq!(install_on(&refused, "::1").await.0, 200);
+    assert_eq!(Config::load(&waits.paths).unwrap().role, Role::Node);
 
     let hub = Harness::on_tailnet(listener().await.unwrap(), tailscale(), "true").await;
     let found = discover(&hub).await;
@@ -198,6 +201,7 @@ async fn the_hub_installs_conflux_over_ssh_and_links_the_machine_once_it_starts(
     });
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(!installing.is_finished());
+    assert_eq!(install_on(&hub, "::1").await.0, 409);
     let machine = waiting_machine(tokio::net::TcpListener::bind(("::1", hub.port)).await.unwrap()).await;
     let r = installing.await.unwrap();
     assert_eq!(r.status(), 200, "{}", r.text().await.unwrap());

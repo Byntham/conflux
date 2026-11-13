@@ -154,11 +154,11 @@ conflux add studio laptop
 What happens to a named machine depends on its state:
 
 - It waits to be linked. The hub links it.
-- conflux is not running on it, and it runs macOS or Linux. The hub logs in over ssh, runs the installer, waits for conflux to start, and links it.
+- conflux is not running on it, and it runs macOS or Linux. The hub logs in over ssh, runs the installer, waits for conflux to start, and links it. If conflux already runs there, for example as a node that lost its hub, the hub leaves it alone.
 - conflux is not running on it, and it runs Windows. `add` prints the install command to run there.
 - It runs conflux but does not wait to be linked. `add` refuses. Run [`conflux join <hub>`](#conflux-join-hub) there.
 
-The ssh login runs as the user that runs the hub's service, without a terminal. It works when that user can run `ssh <machine>` with no password or passphrase prompt, for example with Tailscale SSH or a key in an agent. If the login fails, `add` prints the install command to run on the machine.
+The ssh login runs as the user that runs the hub's service, without a terminal. The hub runs `ssh <machine>` with the machine's tailnet name, so a `Host` entry for that name in `~/.ssh/config` applies. The login must need no password, passphrase, or browser approval. Tailscale SSH works, and so does a key without a passphrase. A Mac must have its user logged in at the desktop. The hub and the machine must both use the default port. If the login fails, `add` prints the install command to run on the machine.
 
 The dashboard does the same from Machines, with "Find machines", then "Install" or "Link".
 

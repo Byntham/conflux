@@ -56,6 +56,7 @@ pub struct App {
     pub updater: Arc<Updater>,
     pub tailscale: Tailscale,
     pub ssh: String,
+    pub installing: Mutex<HashSet<IpAddr>>,
 }
 
 pub fn proxy_client() -> reqwest::Client {
@@ -132,6 +133,7 @@ impl App {
             updater,
             tailscale,
             ssh: std::env::var("CONFLUX_SSH").unwrap_or_else(|_| "ssh".into()),
+            installing: Mutex::default(),
         }))
     }
 

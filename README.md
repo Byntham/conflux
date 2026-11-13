@@ -67,7 +67,7 @@ Your accounts now show on the dashboard. Its address is the "Dashboard:" line th
 
 ### 3. Add your other machines
 
-If the hub's user can ssh to a Mac or Linux machine without a password prompt, add it from the hub. On the hub's dashboard, open Machines, click "Find machines", and click "Install" next to the machine. Or run `conflux add` on the hub to list the machines it finds, then `conflux add <machine>`. The hub installs conflux there over ssh and links the machine.
+If the hub's user can ssh to a Mac or Linux machine without a password or passphrase prompt, add it from the hub. On the hub's dashboard, open Machines, click "Find machines", and click "Install" next to the machine. Or run `conflux add` on the hub to list the machines it finds, then `conflux add <machine>`. The hub installs conflux there over ssh and links the machine.
 
 Otherwise, install conflux on the machine yourself.
 

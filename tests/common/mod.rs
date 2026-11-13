@@ -238,7 +238,7 @@ impl Harness {
     }
 
     pub async fn on(listener: tokio::net::TcpListener) -> Self {
-        Self::on_tailnet(listener, conflux::tailnet::system_tailscale(), "ssh").await
+        Self::on_tailnet(listener, conflux::tailnet::system_tailscale(), "false").await
     }
 
     pub async fn on_tailnet(
