@@ -411,6 +411,23 @@ fn build_conflux() -> Result<PathBuf> {
     Ok(profile_dir.join(format!("conflux{}", std::env::consts::EXE_SUFFIX)))
 }
 
+fn build_mac_app(conflux: &Path) -> Result<PathBuf> {
+    if !cfg!(target_os = "macos") {
+        bail!("--app needs macOS");
+    }
+    let out = conflux.parent().context("find the target directory")?.join("dev-app");
+    let built = std::process::Command::new(Path::new(env!("CARGO_MANIFEST_DIR")).join("macos/build-app.sh"))
+        .arg(conflux)
+        .arg(&out)
+        .env("CONFLUX_BUNDLE_ID", "dev.conflux.app.dev")
+        .status()
+        .context("run macos/build-app.sh")?;
+    if !built.success() {
+        bail!("could not build the Mac app");
+    }
+    Ok(out.join("Conflux.app/Contents/MacOS/Conflux"))
+}
+
 fn free_port() -> Result<u16> {
     Ok(std::net::TcpListener::bind("127.0.0.1:0")?.local_addr()?.port())
 }
@@ -509,6 +526,10 @@ async fn stop_requested() {
 async fn main() -> Result<()> {
     let real = std::env::args().any(|a| a == "--real");
     let conflux = build_conflux()?;
+    let mac_app = std::env::args()
+        .any(|a| a == "--app")
+        .then(|| build_mac_app(&conflux))
+        .transpose()?;
     let dir = tempfile::tempdir()?;
     let hub_home = dir.path().join("hub");
     let node_home = dir.path().join("node");
@@ -561,9 +582,23 @@ async fn main() -> Result<()> {
     }
     .start(&env)?;
     wait_until_up(&mut node, node_port, "the dev node").await?;
+    let menu_bar = mac_app
+        .as_ref()
+        .map(|app| {
+            Command::new(app)
+                .env("CONFLUX_HOME", &node_home)
+                .env("CLAUDE_CONFIG_DIR", dir.path().join("claude"))
+                .env("CODEX_HOME", dir.path().join("codex"))
+                .stdin(Stdio::null())
+                .kill_on_drop(true)
+                .spawn()
+                .context("start the Mac app")
+        })
+        .transpose()?;
 
     let conflux = conflux.display();
     let hub_home = hub_home.display();
+    let node_home = node_home.display();
     let claude_dir = dir.path().join("claude");
     let codex_dir = dir.path().join("codex");
     println!();
@@ -595,6 +630,10 @@ async fn main() -> Result<()> {
             println!("  CONFLUX_HOME={hub_home} {conflux} login codex");
         }
     }
+    if let Some(app) = &mac_app {
+        println!("The Mac app is in the menu bar and shows the node. Draw its menu to a picture:");
+        println!("  CONFLUX_HOME={node_home} {} --snapshot menu.png", app.display());
+    }
     println!();
     println!("Press Ctrl-C to stop. The files are removed on exit.");
     println!();
@@ -604,6 +643,9 @@ async fn main() -> Result<()> {
         status = hub.wait() => Some(format!("the dev hub stopped ({})", status?)),
         status = node.wait() => Some(format!("the dev node stopped ({})", status?)),
     };
+    if let Some(mut menu_bar) = menu_bar {
+        let _ = menu_bar.kill().await;
+    }
     let _ = hub.kill().await;
     let _ = node.kill().await;
     match stopped {

@@ -75,4 +75,6 @@ Only the hub reads the endpoint variables, because a node sends everything to th
 
 `CONFLUX_HOME` does not isolate everything. `join`, `on`, `off`, `leave`, `wait`, and `hub take-over` still edit the real Claude Code and Codex settings and the real background service.
 
+The Mac menu bar app reads `CONFLUX_HOME` too. With it set, the app leaves the real background service alone. It hides Restart and refuses Set up.
+
 conflux sets `CONFLUX_HANDOFF` itself when it hands over to a new version. Don't set it.

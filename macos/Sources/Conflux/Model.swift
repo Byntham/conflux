@@ -127,7 +127,7 @@ final class Model: ObservableObject {
         var waitingNow: WaitingStatus?
         defer { waiting = waitingNow }
         relaunchIfReplaced()
-        if !inApplications && !local.serviceInstalled {
+        if !local.devCopy && !inApplications && !local.serviceInstalled {
             phase = .outsideApplications
             return
         }
@@ -337,6 +337,9 @@ final class Model: ObservableObject {
 
     func setUp(asHub: Bool) {
         perform("Setting up…") {
+            guard !self.local.devCopy else {
+                throw Command.Failure(message: "This is a dev copy. It has no background service to set up.")
+            }
             guard self.inApplications else {
                 throw Command.Failure(message: "Move Conflux to the Applications folder in your home folder first.")
             }
