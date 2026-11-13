@@ -108,9 +108,9 @@ private struct CapsuleButtonBody: View {
             .frame(height: 26)
             .background {
                 Capsule()
-                    .fill(prominent ? Color.white : Color.primary)
-                    .opacity(lit && !pressed ? (prominent ? 0.16 : 0.09) : 0)
-                Capsule().fill(Color.black).opacity(pressed ? 0.2 : 0)
+                    .fill(prominent ? Color.white.opacity(0.16) : Color.primary.opacity(0.09))
+                    .opacity(lit && !pressed ? 1 : 0)
+                Capsule().fill(Color.black.opacity(0.2)).opacity(pressed ? 1 : 0)
             }
             .contentShape(Capsule())
         Group {
