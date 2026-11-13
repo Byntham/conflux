@@ -319,12 +319,11 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, path: S
                     let _ = up_tx.send(UpstreamMsg::Close(None)).await;
                     break;
                 };
-                let was_idle = turns.idle();
                 turns.client_sent(&msg);
-                if was_idle && !turns.idle() {
+                let closing = matches!(msg, ClientMsg::Close(_));
+                if matches!(msg, ClientMsg::Text(_)) {
                     turn.started.set(Instant::now());
                 }
-                let closing = matches!(msg, ClientMsg::Close(_));
                 if up_tx.send(to_upstream(msg)).await.is_err() || closing {
                     break;
                 }

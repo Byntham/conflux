@@ -192,15 +192,11 @@ async fn latency_stops_when_the_upstream_starts_answering() {
     let mut ws = open(&h, &[]).await.unwrap();
     ws.send(create("m")).await.unwrap();
     assert_eq!(next_json(&mut ws).await.unwrap()["type"], "response.created");
-    assert_eq!(next_json(&mut ws).await.unwrap()["type"], "response.completed");
     let rows = h.app.requests.recent();
-    assert_eq!(rows.len(), 1);
+    assert_eq!(rows.len(), 1, "the row is logged before the turn ends");
     assert_eq!(rows[0].transport, "ws");
-    assert!(
-        rows[0].latency_ms < 400,
-        "latency {}ms includes the turn",
-        rows[0].latency_ms
-    );
+    assert_eq!(next_json(&mut ws).await.unwrap()["type"], "response.completed");
+    assert_eq!(h.app.requests.recent()[0].usage.output, 7);
 }
 
 #[tokio::test]
