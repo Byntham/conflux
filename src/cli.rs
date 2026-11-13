@@ -638,11 +638,15 @@ fn print_joined(cfg: &Config) {
 }
 
 async fn join_found_hub(cfg: Config, paths: Paths, daemon: &Daemon) -> Result<()> {
-    if cfg.role != Role::Waiting {
-        bail!(
+    match (cfg.role, &cfg.hub) {
+        (Role::Waiting, _) => {}
+        (Role::Node, Some(hub)) => bail!(
+            "this machine is already linked to {hub}. To link it to another hub, run `conflux join <hub>` with that hub's name."
+        ),
+        _ => bail!(
             "conflux only looks for a hub while this machine waits to be linked. \
              Run `conflux wait` first, or run `conflux join <hub>` with the hub's name."
-        );
+        ),
     }
     let found = daemon.get("/conflux/api/hubs").await?;
     let hubs = found["hubs"].as_array().cloned().unwrap_or_default();
