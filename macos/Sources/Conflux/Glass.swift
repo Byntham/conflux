@@ -106,7 +106,12 @@ private struct CapsuleButtonBody: View {
             .foregroundStyle(prominent ? Color.white : Color.primary)
             .padding(.horizontal, 12)
             .frame(height: 26)
-            .background(highlight(pressed: pressed, lit: lit), in: Capsule())
+            .background {
+                Capsule()
+                    .fill(prominent ? Color.white : Color.primary)
+                    .opacity(lit && !pressed ? (prominent ? 0.16 : 0.09) : 0)
+                Capsule().fill(Color.black).opacity(pressed ? 0.2 : 0)
+            }
             .contentShape(Capsule())
         Group {
             if #available(macOS 26, *) {
@@ -120,12 +125,6 @@ private struct CapsuleButtonBody: View {
         .animation(.easeOut(duration: 0.15), value: lit)
         .animation(.spring(response: 0.2, dampingFraction: 0.7), value: pressed)
         .onHover { hovered = $0 }
-    }
-
-    private func highlight(pressed: Bool, lit: Bool) -> Color {
-        if pressed { return prominent ? Color.black.opacity(0.18) : Color.primary.opacity(0.16) }
-        if lit { return prominent ? Color.white.opacity(0.16) : Color.primary.opacity(0.09) }
-        return .clear
     }
 }
 
