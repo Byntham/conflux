@@ -68,9 +68,13 @@ transcript_sync = false
 | `CONFLUX_CHATGPT_BACKEND` | The ChatGPT backend that conflux reads usage from. |
 | `CONFLUX_OPENAI_AUTH` | The OpenAI login server. |
 | `CONFLUX_RELEASES` | Where `conflux update` looks for releases. |
+| `CONFLUX_HUB_PORT` | The port a node finds its hub on. Default is the node's own `port`. It lets a hub and a node run on one machine. |
+| `CONFLUX_HOSTNAME` | The name this machine reports, in place of its hostname. |
 
 Only the hub reads the endpoint variables, because a node sends everything to the hub. The exception is `CONFLUX_RELEASES`, which every machine reads when it updates.
 
 `CONFLUX_HOME` does not isolate everything. `join`, `on`, `off`, `leave`, `wait`, and `hub take-over` still edit the real Claude Code and Codex settings and the real background service.
+
+The Mac menu bar app reads `CONFLUX_HOME` too. With it set, the app leaves the real background service alone. It hides Restart and refuses Set up.
 
 conflux sets `CONFLUX_HANDOFF` itself when it hands over to a new version. Don't set it.

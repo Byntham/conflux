@@ -7,6 +7,10 @@ enum Main {
     @MainActor static var controller: StatusController?
 
     @MainActor static func main() {
+        let arguments = CommandLine.arguments
+        if let flag = arguments.firstIndex(of: "--snapshot"), flag + 1 < arguments.count {
+            Snapshot.run(to: URL(fileURLWithPath: arguments[flag + 1]))
+        }
         let others = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
             .filter { $0.processIdentifier != getpid() }
         if !others.isEmpty { exit(0) }

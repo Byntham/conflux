@@ -9,6 +9,7 @@ fi
 here=$(cd "$(dirname "$0")" && pwd)
 conflux=$1
 out=$(mkdir -p "$2" && cd "$2" && pwd)
+bundle_id=${CONFLUX_BUNDLE_ID:-dev.conflux.app}
 version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$here/../Cargo.toml" | head -1)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -26,7 +27,7 @@ cp "$menu_bar" "$app/Contents/MacOS/Conflux"
 cp "$conflux" "$app/Contents/Helpers/conflux"
 cp "$here/../assets/icon.svg" "$app/Contents/Resources/icon.svg"
 iconutil -c icns "$work/AppIcon.iconset" -o "$app/Contents/Resources/AppIcon.icns"
-sed "s/@VERSION@/$version/g" "$here/Info.plist" > "$app/Contents/Info.plist"
+sed "s/@VERSION@/$version/g; s/@BUNDLE_ID@/$bundle_id/g" "$here/Info.plist" > "$app/Contents/Info.plist"
 
 codesign --force --sign - "$app/Contents/Helpers/conflux"
 codesign --force --sign - "$app"

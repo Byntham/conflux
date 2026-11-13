@@ -91,6 +91,7 @@ struct Local {
     let configDir: URL
     let launchAgents: URL
     let cli: URL
+    let devCopy: Bool
 
     static func fromEnvironment(bundle: URL) -> Local {
         let env = ProcessInfo.processInfo.environment
@@ -105,7 +106,8 @@ struct Local {
         return Local(
             configDir: configDir,
             launchAgents: home.appendingPathComponent("Library/LaunchAgents"),
-            cli: bundle.appendingPathComponent("Contents/Helpers/conflux")
+            cli: bundle.appendingPathComponent("Contents/Helpers/conflux"),
+            devCopy: env["CONFLUX_HOME"] != nil
         )
     }
 
@@ -130,7 +132,7 @@ struct Local {
     }
 
     var serviceInstalled: Bool {
-        FileManager.default.fileExists(atPath: servicePlist.path)
+        !devCopy && FileManager.default.fileExists(atPath: servicePlist.path)
     }
 
     var servicePlist: URL {

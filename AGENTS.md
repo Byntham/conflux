@@ -14,6 +14,17 @@ Rust proxy that pools Claude Code and Codex subscription accounts on one hub mac
 - Never run `conflux on`, `off`, `join` or `service` for real. `CONFLUX_HOME` does not isolate them. They rewrite `~/.claude/settings.json` and `~/.codex/config.toml` and restart the user's conflux service, which can cut off the agent running the command. Test that code through `ClientPaths` with temp paths, as `src/setup.rs` does.
 - Never kill conflux by name, for example with `pkill -f conflux`. The developer's hub may be serving their agent sessions, including yours. Kill only a PID you started.
 
+## Try a change in the running app
+
+`cargo run --example dev` starts a throwaway copy of conflux next to the real install. It builds the binary, then runs a hub, a node, and a pretend Claude and OpenAI on free ports in a temp folder. It prints the commands that run Claude Code, Codex, and the CLI against the copy, and the commands that force an account out of quota.
+
+- Pass `-- --real` to use the real providers. The copy starts with no accounts. Run the `conflux login` command it prints and ask the developer to approve it.
+- On a Mac, pass `-- --app` to build the menu bar app and start it against the copy. The dev build has its own bundle ID, so it runs next to the installed app. It hides Restart and refuses Set up, because the copy has no background service.
+- To see the Mac app's menu, run the `--snapshot` command that `--app` prints. It draws the menu to a PNG, with light and dark side by side. It needs no screen recording permission, so it works over ssh.
+- Point Claude Code at the copy with `CLAUDE_CONFIG_DIR`, as the command prints. Setting `ANTHROPIC_BASE_URL` in the shell does not work. `~/.claude/settings.json` wins, and the request goes to the real hub.
+- Stop it with Ctrl-C or the `kill` command it prints. It then stops the hub, node, and Mac app it started and removes the temp folder. Killing the PID of `cargo run` leaves them running.
+- To test on another operating system from inside T3 Code, push the branch, list the linked environments, and delegate the test to an agent on a machine that runs that system. The rules in "Don't break the developer's setup" apply on that machine too.
+
 ## Hit every path
 
 A fix that works on one path is often missing from the others. Before calling a change done, check each of these that applies:

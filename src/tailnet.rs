@@ -168,6 +168,9 @@ pub async fn resolves_to_tailnet(host: &str, port: u16) -> bool {
 }
 
 pub fn hostname() -> String {
+    if let Ok(name) = std::env::var("CONFLUX_HOSTNAME") {
+        return name;
+    }
     Command::new("hostname")
         .output()
         .ok()
