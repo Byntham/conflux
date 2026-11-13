@@ -73,6 +73,7 @@ impl Machines {
                 link: Some(Link { id, commands, address }),
             },
         );
+        self.reported.notify_waiters();
         (id, receiver)
     }
 

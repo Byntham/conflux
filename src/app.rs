@@ -59,6 +59,7 @@ pub struct App {
     pub ssh: String,
     pub installing: Mutex<HashSet<IpAddr>>,
     pub clients: ClientPaths,
+    pub routing_change: Mutex<()>,
 }
 
 pub fn proxy_client() -> reqwest::Client {
@@ -137,6 +138,7 @@ impl App {
             ssh: std::env::var("CONFLUX_SSH").unwrap_or_else(|_| "ssh".into()),
             installing: Mutex::default(),
             clients: ClientPaths::from_env()?,
+            routing_change: Mutex::default(),
         }))
     }
 

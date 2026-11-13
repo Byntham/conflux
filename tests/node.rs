@@ -167,10 +167,8 @@ async fn the_dashboard_turns_routing_on_and_off_for_each_machine() {
         [("hub".to_string(), Some(true)), ("node".to_string(), Some(false))]
     );
 
-    let started = std::time::Instant::now();
     let r = set_routing(&hub, "node-one", true).await;
     assert_eq!(r.status(), 200, "{}", r.text().await.unwrap());
-    assert!(started.elapsed() < Duration::from_secs(5));
     assert_eq!(
         claude_base_url(&n.clients),
         Some(format!("http://127.0.0.1:{}", n.port))

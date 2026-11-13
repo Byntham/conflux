@@ -1701,7 +1701,6 @@ async function setRouting(button) {
   const machine = button.dataset.routing;
   const on = button.dataset.on === "true";
   closeMenu();
-  toast(`Turning routing ${on ? "on" : "off"} on ${machine}...`);
   try {
     await api("PATCH", `/conflux/api/machines/${encodeURIComponent(machine)}`, { routing: on });
     await refresh();
