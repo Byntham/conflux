@@ -1633,14 +1633,15 @@ async function findMachines(button) {
   } finally { button.disabled = false; }
 }
 
-function foundRowDone(row) {
+async function foundRowDone(row) {
+  await refresh();
   row.remove();
   if (!$("found-machines").children.length) $("found-machines").hidden = true;
-  return refresh();
 }
 
 async function linkMachine(button) {
   button.disabled = true;
+  button.textContent = "Linking...";
   try {
     const r = await api("POST", "/conflux/api/link", { address: button.dataset.link });
     toast(`Linked ${r.linked}`);
@@ -1648,6 +1649,7 @@ async function linkMachine(button) {
   } catch (e) {
     showError(e);
     button.disabled = false;
+    button.textContent = "Link";
   }
 }
 

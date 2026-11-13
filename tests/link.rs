@@ -60,6 +60,44 @@ async fn waiting_machine(listener: tokio::net::TcpListener) -> Machine {
     }
 }
 
+async fn connects_as_a_node(hub: &Harness, machine: &mut Machine, name: &str) {
+    tokio::time::timeout(Duration::from_secs(5), &mut machine.running)
+        .await
+        .unwrap()
+        .unwrap();
+    let cfg = Config::load(&machine.paths).unwrap();
+    assert_eq!(cfg.role, Role::Node);
+    let hub_on_tailnet = tokio::net::TcpListener::bind(("::1", hub.port)).await.unwrap();
+    let routes = hub.app.routes().into_make_service_with_connect_info::<SocketAddr>();
+    tokio::spawn(async move { axum::serve(hub_on_tailnet, routes).await.unwrap() });
+    let node_port = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let node = Node::named(
+        name.into(),
+        cfg.hub.unwrap(),
+        hub.port,
+        node_port,
+        machine.paths.clone(),
+    );
+    tokio::spawn(node.run_control());
+}
+
+fn post_in_background(hub: &Harness, action: &str, address: &str) -> tokio::task::JoinHandle<reqwest::Response> {
+    let request = hub
+        .http
+        .post(format!("{}/conflux/api/{action}", hub.base))
+        .json(&json!({ "address": address }));
+    tokio::spawn(async move { request.send().await.unwrap() })
+}
+
+fn online(hub: &Harness, name: &str) -> bool {
+    hub.app.fleet().iter().any(|m| m.hostname == name && m.online)
+}
+
 fn peer(name: &str, os: &str, user: u64, ip: &str) -> Value {
     json!({ "HostName": name, "DNSName": format!("{name}.example.ts.net."), "OS": os, "UserID": user, "Online": true, "TailscaleIPs": [ip] })
 }
@@ -95,7 +133,7 @@ async fn the_hub_finds_a_waiting_machine_and_links_it_as_a_node() {
     });
     let tailscale = fake_tailscale(Arc::new(Mutex::new(status)), Arc::default());
     let hub = Harness::on_tailnet(hub_listener, tailscale, "false").await;
-    let machine = waiting_machine(tokio::net::TcpListener::bind(("::1", port)).await.unwrap()).await;
+    let mut machine = waiting_machine(tokio::net::TcpListener::bind(("::1", port)).await.unwrap()).await;
 
     let found = discover(&hub).await;
     assert_eq!(named(&found, "fresh").unwrap()["state"], "waiting");
@@ -111,43 +149,14 @@ async fn the_hub_finds_a_waiting_machine_and_links_it_as_a_node() {
         .await
         .unwrap();
 
-    let r = hub
-        .http
-        .post(format!("{}/conflux/api/link", hub.base))
-        .json(&json!({ "address": "::1" }))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(r.status(), 200, "{}", r.text().await.unwrap());
-    tokio::time::timeout(Duration::from_secs(5), machine.running)
-        .await
-        .unwrap()
-        .unwrap();
-    let cfg = Config::load(&machine.paths).unwrap();
-    assert_eq!(cfg.role, Role::Node);
-    assert_eq!(cfg.hub.as_deref(), Some("[::1]"));
+    let linking = post_in_background(&hub, "link", "::1");
+    connects_as_a_node(&hub, &mut machine, "fresh").await;
+    assert_eq!(Config::load(&machine.paths).unwrap().hub.as_deref(), Some("[::1]"));
     let claude = std::fs::read_to_string(&machine.clients.claude_settings).unwrap();
     assert!(claude.contains(&format!("http://127.0.0.1:{port}")));
-
-    let hub_on_tailnet = tokio::net::TcpListener::bind(("::1", port)).await.unwrap();
-    let routes = hub.app.routes().into_make_service_with_connect_info::<SocketAddr>();
-    tokio::spawn(async move { axum::serve(hub_on_tailnet, routes).await.unwrap() });
-
-    let node_port = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
-    let node = Node::named("fresh".into(), cfg.hub.unwrap(), port, node_port, machine.paths.clone());
-    tokio::spawn(node.run_control());
-    for _ in 0..200 {
-        if hub.app.fleet().iter().any(|m| m.hostname == "fresh" && m.online) {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-    assert!(hub.app.fleet().iter().any(|m| m.hostname == "fresh" && m.online));
+    let r = linking.await.unwrap();
+    assert_eq!(r.status(), 200, "{}", r.text().await.unwrap());
+    assert!(online(&hub, "fresh"));
     assert!(named(&discover(&hub).await, "fresh").is_none());
 }
 
@@ -179,9 +188,11 @@ async fn the_hub_installs_conflux_over_ssh_and_links_the_machine_once_it_starts(
     let (status, body) = install_on(&refused, "::1").await;
     assert_eq!(status, 502);
     assert!(body["error"].as_str().unwrap().contains("bare over ssh"), "{body}");
-    let waits = waiting_machine(tokio::net::TcpListener::bind(("::1", refused.port)).await.unwrap()).await;
-    assert_eq!(install_on(&refused, "::1").await.0, 200);
-    assert_eq!(Config::load(&waits.paths).unwrap().role, Role::Node);
+    let mut waits = waiting_machine(tokio::net::TcpListener::bind(("::1", refused.port)).await.unwrap()).await;
+    let installing = post_in_background(&refused, "install", "::1");
+    connects_as_a_node(&refused, &mut waits, "bare").await;
+    assert_eq!(installing.await.unwrap().status(), 200);
+    assert!(online(&refused, "bare"));
 
     let hub = Harness::on_tailnet(listener().await.unwrap(), tailscale(), "true").await;
     let found = discover(&hub).await;
@@ -190,27 +201,15 @@ async fn the_hub_installs_conflux_over_ssh_and_links_the_machine_once_it_starts(
     assert_eq!(install_on(&hub, "192.0.2.1").await.0, 400);
     assert_eq!(install_on(&hub, "192.0.2.2").await.0, 404);
 
-    let installing = tokio::spawn({
-        let (http, base) = (hub.http.clone(), hub.base.clone());
-        async move {
-            http.post(format!("{base}/conflux/api/install"))
-                .json(&json!({ "address": "::1" }))
-                .send()
-                .await
-                .unwrap()
-        }
-    });
+    let installing = post_in_background(&hub, "install", "::1");
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(!installing.is_finished());
     assert_eq!(install_on(&hub, "::1").await.0, 409);
-    let machine = waiting_machine(tokio::net::TcpListener::bind(("::1", hub.port)).await.unwrap()).await;
+    let mut machine = waiting_machine(tokio::net::TcpListener::bind(("::1", hub.port)).await.unwrap()).await;
+    connects_as_a_node(&hub, &mut machine, "bare").await;
     let r = installing.await.unwrap();
     assert_eq!(r.status(), 200, "{}", r.text().await.unwrap());
-    tokio::time::timeout(Duration::from_secs(5), machine.running)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(Config::load(&machine.paths).unwrap().role, Role::Node);
+    assert!(online(&hub, "bare"));
 }
 
 async fn ask_to_link(machine: &Machine) -> reqwest::StatusCode {
