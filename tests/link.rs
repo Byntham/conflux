@@ -151,6 +151,7 @@ async fn the_hub_finds_a_waiting_machine_and_links_it_as_a_node() {
     assert!(named(&discover(&hub).await, "fresh").is_none());
 }
 
+#[cfg(unix)]
 async fn install_on(hub: &Harness, address: &str) -> (reqwest::StatusCode, Value) {
     let r = hub
         .http
