@@ -40,6 +40,8 @@ const SSH_OPTIONS: &[&str] = &[
     "ConnectTimeout=10",
     "-o",
     "LogLevel=ERROR",
+    "-o",
+    "ControlPath=none",
 ];
 const LOCAL_ONLY: &str = "run this on the machine itself";
 const RESCAN_TAILNET: Duration = Duration::from_secs(30);
