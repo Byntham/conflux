@@ -59,6 +59,7 @@
   .update-all { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 28px; height: 28px; padding: 0; border-radius: 50%; border: 1.5px solid var(--fg); background: transparent; color: var(--fg); cursor: pointer; }
   .update-all:hover { background: var(--hover); }
   .update-all:disabled { opacity: .45; cursor: default; }
+  .update-all.check { border-color: var(--line-strong); color: var(--fg-2); }
   .hub-state { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 500; }
   .dot.on + #hub-status { color: var(--fg-2); font-weight: 400; }
   .hub-meta { margin-top: 2px; font-size: 12px; color: var(--muted); }
@@ -590,7 +591,7 @@
       </section>
 
       <section id="view-machines" hidden>
-        <div class="page-head"><div><h1>Machines</h1><div class="page-sub" id="machines-sub"></div></div><button class="btn" id="check-updates">Check for updates</button></div>
+        <div class="page-head"><div><h1>Machines</h1><div class="page-sub" id="machines-sub"></div></div></div>
         <div class="card table-wrap"><table id="machine-list"></table></div>
         <div class="panels">
           <div class="card panel">
@@ -968,7 +969,9 @@ function updatable(d) {
 
 function renderUpdateAll(d) {
   const label = `Update all machines to v${esc(d.latest_version)}`;
-  const button = updatable(d).length ? `<button class="update-all" data-update-all data-tip="${label}" aria-label="${label}">${icon("up")}</button>` : "";
+  const button = updatable(d).length
+    ? `<button class="update-all" data-update-all data-tip="${label}" aria-label="${label}">${icon("up")}</button>`
+    : `<button class="update-all check" data-check-updates data-tip="Check for updates" aria-label="Check for updates">${icon("refresh")}</button>`;
   setHtml("update-all", button);
   setHtml("top-update-all", button);
 }
@@ -1669,11 +1672,12 @@ async function startUpdate(button) {
 
 async function checkForUpdates(button) {
   button.disabled = true;
+  button.classList.add("spin");
   try {
     const r = await api("POST", "/conflux/api/update/check", {});
     await refresh();
     toast(latest && latest.machines.some((m) => m.outdated) ? `v${r.latest_version} is available` : `Every machine is up to date. The latest release is v${r.latest_version}.`);
-  } catch (e) { showError(e); } finally { button.disabled = false; }
+  } catch (e) { showError(e); } finally { button.disabled = false; button.classList.remove("spin"); }
 }
 
 async function accountAction(button) {
@@ -1702,7 +1706,6 @@ function copyText(text) {
 }
 
 $("find-machines").onclick = (ev) => findMachines(ev.currentTarget);
-$("check-updates").onclick = (ev) => checkForUpdates(ev.currentTarget);
 $("install-copy").onclick = () => copyText(latest.add_machine[installKey]).then(() => toast("Copied"), showError);
 $("thread-machine").onchange = loadThreads;
 $("thread-errors").onchange = loadThreads;
@@ -1778,6 +1781,8 @@ document.addEventListener("click", (ev) => {
   if (installButton) return installOnMachine(installButton);
   const linkButton = ev.target.closest("[data-link]");
   if (linkButton) return linkMachine(linkButton);
+  const check = ev.target.closest("[data-check-updates]");
+  if (check) return checkForUpdates(check);
   const update = ev.target.closest("[data-update], [data-update-all]");
   if (update) return startUpdate(update);
 });
