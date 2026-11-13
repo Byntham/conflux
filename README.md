@@ -67,7 +67,9 @@ Your accounts now show on the dashboard. Its address is the "Dashboard:" line th
 
 ### 3. Add your other machines
 
-On each machine, install conflux.
+If the hub's user can ssh to a Mac or Linux machine without a password prompt, add it from the hub. On the hub's dashboard, open Machines, click "Find machines", and click "Install" next to the machine. Or run `conflux add` on the hub to list the machines it finds, then `conflux add <machine>`. The hub installs conflux there over ssh and links the machine.
+
+Otherwise, install conflux on the machine yourself.
 
 macOS and Linux:
 
@@ -84,7 +86,7 @@ irm https://raw.githubusercontent.com/Byntham/conflux/main/install.ps1 | iex
 The machine now waits to be linked. Link it from either side. conflux then points Claude Code and Codex at the hub.
 
 - On the new machine, run `conflux join`. conflux finds the hub on your tailnet and links to it. On a Mac, the menu bar app shows a "Link to" button with the hub's name instead.
-- On the hub's dashboard, open Machines, click "Find machines", and click "Link" next to the machine.
+- On the hub's dashboard, open Machines, click "Find machines", and click "Link" next to the machine. Or run `conflux add <machine>` on the hub.
 
 Both ways find only machines that are online and owned by the same Tailscale user.
 

@@ -238,10 +238,14 @@ impl Harness {
     }
 
     pub async fn on(listener: tokio::net::TcpListener) -> Self {
-        Self::on_tailnet(listener, conflux::tailnet::system_tailscale()).await
+        Self::on_tailnet(listener, conflux::tailnet::system_tailscale(), "ssh").await
     }
 
-    pub async fn on_tailnet(listener: tokio::net::TcpListener, tailscale: conflux::tailnet::Tailscale) -> Self {
+    pub async fn on_tailnet(
+        listener: tokio::net::TcpListener,
+        tailscale: conflux::tailnet::Tailscale,
+        ssh: &str,
+    ) -> Self {
         let fake = Arc::new(Fake::default());
         let fake_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let fake_addr = fake_listener.local_addr().unwrap();
@@ -262,7 +266,9 @@ impl Harness {
             tailscale,
         )
         .unwrap();
-        Arc::get_mut(&mut app).unwrap().hostname = "hub-under-test".into();
+        let hub = Arc::get_mut(&mut app).unwrap();
+        hub.hostname = "hub-under-test".into();
+        hub.ssh = ssh.into();
         let routes = app
             .routes()
             .into_make_service_with_connect_info::<std::net::SocketAddr>();

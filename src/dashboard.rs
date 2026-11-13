@@ -27,6 +27,10 @@ pub fn hub_name(app: &App, request_host: Option<&str>) -> String {
     requested.to_string()
 }
 
+pub fn install_and_wait() -> String {
+    format!("curl -fsSL {INSTALL_BASE}/install.sh | sh")
+}
+
 pub fn add_machine(hub: &str) -> Value {
     let command = format!("curl -fsSL {INSTALL_BASE}/install.sh | sh -s -- {hub}");
     let windows_command = format!("irm {INSTALL_BASE}/install.ps1 | iex\nconflux join {hub}");

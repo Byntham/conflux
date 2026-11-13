@@ -571,6 +571,10 @@ async fn main() -> Result<()> {
         env = endpoint_env(&ep);
     }
 
+    env.push((
+        "CONFLUX_SSH",
+        std::env::var("CONFLUX_SSH").unwrap_or_else(|_| "false".into()),
+    ));
     let mut hub = Machine {
         conflux: &conflux,
         home: &hub_home,

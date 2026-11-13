@@ -10,7 +10,7 @@ An account ID looks like `claude-1a2b3c4d5e6f` or `codex-1a2b3c4d5e6f`. `conflux
 
 - [Accounts](#accounts): `status`, `login`, `usage`, `enable`, `disable`, `overage`, `remove`
 - [This machine](#this-machine): `join`, `wait`, `off`, `on`, `leave`, `sync`, `serve`
-- [Every machine](#every-machine): `update`
+- [Every machine](#every-machine): `add`, `update`
 - [Moving the hub](#moving-the-hub): `hub move-code`, `hub take-over`, `hub resume`
 - [Other](#other): `t3-key`
 
@@ -104,7 +104,7 @@ Installs and starts the background service, then waits for a hub to link this ma
 Link a waiting machine from either side:
 
 - On the waiting machine, run [`conflux join`](#conflux-join-hub) with no name, or click "Link to" in the Mac menu bar app.
-- On the hub's dashboard, open Machines, click "Find machines", and click "Link" next to it.
+- On the hub's dashboard, open Machines, click "Find machines", and click "Link" next to it. Or run [`conflux add <machine>`](#conflux-add-machine) on the hub.
 
 The machine links only to a hub owned by the same Tailscale user. When linked, it edits Claude Code's and Codex's settings the same way `join` does.
 
@@ -141,6 +141,26 @@ The hub keeps the copies in `~/conflux/transcripts`. The dashboard's Threads tab
 Runs conflux in the foreground until you stop it. The background service runs this command for you. Run it yourself after `conflux join <hub> --no-service`, or to watch logs while you debug. To watch logs, stop the background service first. See [Troubleshooting](troubleshooting.md#logs-and-the-background-service). Set `CONFLUX_LOG` to change the log level. See [Configuration](configuration.md).
 
 ## Every machine
+
+### `conflux add [machine...]`
+
+Adds machines on your tailnet to the hub. With no names, it lists the machines it finds that are not linked yet. They must be online and owned by the same Tailscale user as the hub.
+
+```sh
+conflux add
+conflux add studio laptop
+```
+
+What happens to a named machine depends on its state:
+
+- It waits to be linked. The hub links it.
+- conflux is not running on it, and it runs macOS or Linux. The hub logs in over ssh, runs the installer, waits for conflux to start, and links it.
+- conflux is not running on it, and it runs Windows. `add` prints the install command to run there.
+- It runs conflux but does not wait to be linked. `add` refuses. Run [`conflux join <hub>`](#conflux-join-hub) there.
+
+The ssh login runs as the user that runs the hub's service, without a terminal. It works when that user can run `ssh <machine>` with no password or passphrase prompt, for example with Tailscale SSH or a key in an agent. If the login fails, `add` prints the install command to run on the machine.
+
+The dashboard does the same from Machines, with "Find machines", then "Install" or "Link".
 
 ### `conflux update [machine...]`
 

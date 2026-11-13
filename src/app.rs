@@ -55,6 +55,7 @@ pub struct App {
     pub lifecycle: Arc<Lifecycle>,
     pub updater: Arc<Updater>,
     pub tailscale: Tailscale,
+    pub ssh: String,
 }
 
 pub fn proxy_client() -> reqwest::Client {
@@ -130,6 +131,7 @@ impl App {
             lifecycle,
             updater,
             tailscale,
+            ssh: std::env::var("CONFLUX_SSH").unwrap_or_else(|_| "ssh".into()),
         }))
     }
 
@@ -279,6 +281,7 @@ impl App {
             .route("/conflux/api/update", post(api::update))
             .route("/conflux/api/discover", get(link::discover))
             .route("/conflux/api/link", post(link::link))
+            .route("/conflux/api/install", post(link::install))
             .route("/conflux/api/status", get(api::status))
             .route("/conflux/api/login/claude/start", post(api::claude_start))
             .route("/conflux/api/login/claude/finish", post(api::claude_finish))

@@ -1596,10 +1596,11 @@ function confirmRemove(id, name, kind) {
 const OS_NAMES = { linux: "Linux", macOS: "macOS", windows: "Windows" };
 
 function foundRow(m, i) {
-  const what = { waiting: "Waiting to be linked", busy: "Not waiting to be linked", missing: "conflux is not running. Run this there:" }[m.state];
-  const link = m.state === "waiting" ? `<button class="btn small primary" data-link="${esc(m.address)}">Link</button>` : "";
-  const install = m.install ? `<div class="code-block"><span class="code-text" id="found-${i}">${commandHtml(m.install)}</span><button class="icon-btn" data-copy="found-${i}" title="Copy" aria-label="Copy">${icon("copy")}</button></div>` : "";
-  return `<div class="found-row"><div class="found-text"><span class="machine-name">${esc(m.name)}</span><div class="cell-sub">${esc(OS_NAMES[m.os] || m.os)} · ${esc(what)}</div></div>${link}${install}</div>`;
+  const what = { waiting: "Waiting to be linked", busy: "Not waiting to be linked", missing: m.can_install ? "conflux is not running" : "conflux is not running. Run this there:" }[m.state];
+  const address = esc(m.address);
+  const action = m.state === "waiting" ? `<button class="btn small primary" data-link="${address}">Link</button>` : m.can_install ? `<button class="btn small primary" data-install-on="${address}" data-name="${esc(m.name)}">Install</button>` : "";
+  const install = m.install ? `<div class="code-block"${m.can_install ? " hidden" : ""}><span class="code-text" id="found-${i}">${commandHtml(m.install)}</span><button class="icon-btn" data-copy="found-${i}" title="Copy" aria-label="Copy">${icon("copy")}</button></div>` : "";
+  return `<div class="found-row"><div class="found-text"><span class="machine-name">${esc(m.name)}</span><div class="cell-sub">${esc(OS_NAMES[m.os] || m.os)} · <span class="found-state">${esc(what)}</span></div></div>${action}${install}</div>`;
 }
 
 async function findMachines(button) {
@@ -1616,17 +1617,39 @@ async function findMachines(button) {
   } finally { button.disabled = false; }
 }
 
+function foundRowDone(row) {
+  row.remove();
+  if (!$("found-machines").children.length) $("found-machines").hidden = true;
+  return refresh();
+}
+
 async function linkMachine(button) {
   button.disabled = true;
   try {
     const r = await api("POST", "/conflux/api/link", { address: button.dataset.link });
     toast(`Linked ${r.linked}`);
-    button.closest(".found-row").remove();
-    if (!$("found-machines").children.length) $("found-machines").hidden = true;
-    await refresh();
+    await foundRowDone(button.closest(".found-row"));
   } catch (e) {
     showError(e);
     button.disabled = false;
+  }
+}
+
+async function installOnMachine(button) {
+  const row = button.closest(".found-row");
+  const state = row.querySelector(".found-state");
+  button.disabled = true;
+  button.textContent = "Installing...";
+  state.textContent = "The hub is installing conflux over ssh. This can take a minute.";
+  try {
+    const r = await api("POST", "/conflux/api/install", { address: button.dataset.installOn });
+    toast(`Installed conflux on ${r.linked} and linked it`);
+    await foundRowDone(row);
+  } catch (e) {
+    button.disabled = false;
+    button.textContent = "Try again";
+    state.textContent = `${e.message}. Try again, or run this on ${button.dataset.name}:`;
+    row.querySelector(".code-block").hidden = false;
   }
 }
 
@@ -1740,6 +1763,8 @@ document.addEventListener("click", (ev) => {
   if (thread) return openThread(thread.dataset.thread);
   const action = ev.target.closest("[data-act]");
   if (action) return accountAction(action);
+  const installButton = ev.target.closest("[data-install-on]");
+  if (installButton) return installOnMachine(installButton);
   const linkButton = ev.target.closest("[data-link]");
   if (linkButton) return linkMachine(linkButton);
   const update = ev.target.closest("[data-update], [data-update-all]");

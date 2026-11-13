@@ -113,6 +113,8 @@ The hub state lives in `hub-state.json` (`src/hubstate.rs`), so a restart in the
 3. The waiting machine checks with Tailscale that the caller belongs to the same user. It then points its clients at conflux and saves its role as node, with the caller's address as the hub.
 4. The worker loop reads the new config and starts the node server.
 
+The hub can also install conflux first. `POST /conflux/api/install` takes a peer's address. If nothing answers on the peer, the hub runs `ssh <address>` with the install command, as the user that runs the hub's service and without prompts. The installer ends with `conflux wait`, so it never changes a machine that already has a role. The hub then probes the peer until it answers, and links it as in step 2. The dashboard's Install button and `conflux add` both call this route.
+
 A waiting machine can also start the link itself. `conflux join` with no name and the Mac menu bar app both use these two routes, which answer only on loopback.
 
 1. `GET /conflux/api/hubs` lists peers owned by the same Tailscale user and probes `GET /conflux/api/status` on each one. A peer that answers with the hub role is a hub. Nodes listen only on loopback, so they never answer.

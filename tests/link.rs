@@ -94,7 +94,7 @@ async fn the_hub_finds_a_waiting_machine_and_links_it_as_a_node() {
         },
     });
     let tailscale = fake_tailscale(Arc::new(Mutex::new(status)), Arc::default());
-    let hub = Harness::on_tailnet(hub_listener, tailscale).await;
+    let hub = Harness::on_tailnet(hub_listener, tailscale, "ssh").await;
     let machine = waiting_machine(tokio::net::TcpListener::bind(("::1", port)).await.unwrap()).await;
 
     let found = discover(&hub).await;
@@ -149,6 +149,63 @@ async fn the_hub_finds_a_waiting_machine_and_links_it_as_a_node() {
     }
     assert!(hub.app.fleet().iter().any(|m| m.hostname == "fresh" && m.online));
     assert!(named(&discover(&hub).await, "fresh").is_none());
+}
+
+async fn install_on(hub: &Harness, address: &str) -> (reqwest::StatusCode, Value) {
+    let r = hub
+        .http
+        .post(format!("{}/conflux/api/install", hub.base))
+        .json(&json!({ "address": address }))
+        .send()
+        .await
+        .unwrap();
+    (r.status(), r.json().await.unwrap())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn the_hub_installs_conflux_over_ssh_and_links_the_machine_once_it_starts() {
+    let tailscale = || {
+        let status = json!({
+            "Self": { "UserID": 1 },
+            "Peer": { "a": peer("bare", "linux", 1, "::1"), "b": peer("pc", "windows", 1, "192.0.2.1") },
+        });
+        fake_tailscale(Arc::new(Mutex::new(status)), Arc::default())
+    };
+    let listener = || tokio::net::TcpListener::bind("127.0.0.1:0");
+
+    let refused = Harness::on_tailnet(listener().await.unwrap(), tailscale(), "false").await;
+    let (status, body) = install_on(&refused, "::1").await;
+    assert_eq!(status, 502);
+    assert!(body["error"].as_str().unwrap().contains("bare over ssh"), "{body}");
+
+    let hub = Harness::on_tailnet(listener().await.unwrap(), tailscale(), "true").await;
+    let found = discover(&hub).await;
+    assert_eq!(named(&found, "bare").unwrap()["can_install"], true);
+    assert_eq!(named(&found, "pc").unwrap()["can_install"], false);
+    assert_eq!(install_on(&hub, "192.0.2.1").await.0, 400);
+    assert_eq!(install_on(&hub, "192.0.2.2").await.0, 404);
+
+    let installing = tokio::spawn({
+        let (http, base) = (hub.http.clone(), hub.base.clone());
+        async move {
+            http.post(format!("{base}/conflux/api/install"))
+                .json(&json!({ "address": "::1" }))
+                .send()
+                .await
+                .unwrap()
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!installing.is_finished());
+    let machine = waiting_machine(tokio::net::TcpListener::bind(("::1", hub.port)).await.unwrap()).await;
+    let r = installing.await.unwrap();
+    assert_eq!(r.status(), 200, "{}", r.text().await.unwrap());
+    tokio::time::timeout(Duration::from_secs(5), machine.running)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(Config::load(&machine.paths).unwrap().role, Role::Node);
 }
 
 async fn ask_to_link(machine: &Machine) -> reqwest::StatusCode {
