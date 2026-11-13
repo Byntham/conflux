@@ -146,6 +146,7 @@ impl Node {
             "hostname": self.hostname,
             "version": update::CURRENT,
             "transcript_sync": Config::load(&self.paths).map(|c| c.transcript_sync).unwrap_or(false),
+            "routing": crate::setup::routing(&self.paths.config_dir),
             "update": self.updater.status(),
         });
         Message::Text(report.to_string().into())

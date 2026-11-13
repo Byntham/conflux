@@ -216,6 +216,7 @@ impl App {
             last_seen: chrono::Utc::now(),
             online: true,
             transcript_sync: Config::load(&self.paths).map(|c| c.transcript_sync).unwrap_or(false),
+            routing: crate::setup::routing(&self.paths.config_dir),
             update: self.updater.status(),
             outdated: false,
         };

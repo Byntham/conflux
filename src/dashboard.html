@@ -993,12 +993,14 @@ function updateCell(m, version) {
   return `${failed}<button class="btn small" data-update="${esc(m.hostname)}">${failed ? "Retry" : sized(`Update to v${esc(version)}`, "Update")}</button>`;
 }
 
+const ROUTING_OFF = '<span class="pill warn" data-tip="Claude Code and Codex on this machine use their own logins. Run conflux on there to send them through conflux.">Routing off</span>';
+
 function renderMachines(d) {
   const online = d.machines.filter((m) => m.online).length;
   $("nav-machines").textContent = `${online}/${d.machines.length}`;
   $("machines-sub").textContent = `${online} of ${d.machines.length} online`;
   setHtml("machine-list", `<thead><tr><th>Machine</th><th>Status</th><th class="hide-sm">Version</th><th class="hide-sm">Transcript sync</th><th class="num hide-sm">Last seen</th><th class="num">Update</th></tr></thead><tbody>${d.machines.map((m) =>
-    `<tr class="${m.online ? "" : "offline"}"><td><span class="machine-name">${esc(m.hostname)}${m.role === "hub" ? '<span class="badge">Hub</span>' : ""}</span><div class="cell-sub show-sm">v${esc(m.version)} · sync ${m.transcript_sync ? "on" : "off"}</div></td><td class="${m.online ? "" : "muted"}"><span class="status-cell"><span class="dot ${m.online ? "on" : ""}"></span>${m.online ? "Online" : "Offline"}</span></td><td class="mono hide-sm">${esc(m.version)}</td><td class="hide-sm ${m.transcript_sync ? "" : "muted"}">${m.transcript_sync ? "On" : "Off"}</td><td class="num when hide-sm">${esc(ago(m.last_seen))}</td><td class="num"><span class="update-cell">${updateCell(m, d.latest_version)}</span></td></tr>`
+    `<tr class="${m.online ? "" : "offline"}"><td><span class="machine-name">${esc(m.hostname)}${m.role === "hub" ? '<span class="badge">Hub</span>' : ""}</span><div class="cell-sub show-sm">v${esc(m.version)} · sync ${m.transcript_sync ? "on" : "off"}</div></td><td class="${m.online ? "" : "muted"}"><span class="status-cell"><span class="dot ${m.online ? "on" : ""}"></span>${m.online ? "Online" : "Offline"}${m.online && m.routing === false ? ROUTING_OFF : ""}</span></td><td class="mono hide-sm">${esc(m.version)}</td><td class="hide-sm ${m.transcript_sync ? "" : "muted"}">${m.transcript_sync ? "On" : "Off"}</td><td class="num when hide-sm">${esc(ago(m.last_seen))}</td><td class="num"><span class="update-cell">${updateCell(m, d.latest_version)}</span></td></tr>`
   ).join("")}</tbody>`);
   setHtml("fleet", d.machines.map((m) =>
     `<li class="${m.online ? "" : "offline"}" title="${esc(m.hostname)}"><span class="dot ${m.online ? "on" : ""}"></span><span class="truncate">${esc(m.hostname)}</span>${m.role === "hub" ? '<span class="badge">Hub</span>' : ""}</li>`
