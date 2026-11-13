@@ -84,9 +84,21 @@ enum Palette {
 
 struct CapsuleButton: ButtonStyle {
     let prominent: Bool
-    @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
+        CapsuleButtonBody(configuration: configuration, prominent: prominent)
+    }
+}
+
+private struct CapsuleButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    let prominent: Bool
+    @State private var hovered = false
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        let pressed = configuration.isPressed && isEnabled
+        let lit = hovered && isEnabled
         let label = configuration.label
             .font(.system(size: 13, weight: .medium))
             .lineLimit(1)
@@ -94,18 +106,44 @@ struct CapsuleButton: ButtonStyle {
             .foregroundStyle(prominent ? Color.white : Color.primary)
             .padding(.horizontal, 12)
             .frame(height: 26)
+            .background {
+                Capsule()
+                    .fill(prominent ? Color.white.opacity(0.16) : Color.primary.opacity(0.09))
+                    .opacity(lit && !pressed ? 1 : 0)
+                Capsule().fill(Color.black.opacity(0.2)).opacity(pressed ? 1 : 0)
+            }
             .contentShape(Capsule())
-            .opacity(configuration.isPressed ? 0.75 : 1)
         Group {
             if #available(macOS 26, *) {
-                label.glassEffect(
-                    prominent ? .regular.tint(.accentColor).interactive() : .regular.interactive(),
-                    in: Capsule()
-                )
+                label.glassEffect(prominent ? .regular.tint(.accentColor) : .regular, in: Capsule())
             } else {
                 label.background(prominent ? Color.accentColor : Color.primary.opacity(0.1), in: Capsule())
             }
         }
+        .scaleEffect(pressed ? 0.96 : 1)
         .opacity(isEnabled ? 1 : 0.5)
+        .animation(.easeOut(duration: 0.15), value: lit)
+        .animation(.spring(response: 0.2, dampingFraction: 0.7), value: pressed)
+        .onHover { hovered = $0 }
+    }
+}
+
+struct LinkButton: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        LinkButtonBody(configuration: configuration)
+    }
+}
+
+private struct LinkButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    @State private var hovered = false
+
+    var body: some View {
+        configuration.label
+            .foregroundStyle(Palette.link)
+            .underline(hovered)
+            .opacity(configuration.isPressed ? 0.6 : 1)
+            .contentShape(Rectangle())
+            .onHover { hovered = $0 }
     }
 }

@@ -254,8 +254,7 @@ struct AccountRow: View {
             let windows = account.sharedWindows
             if account.needsLogin != nil {
                 Button("Log in again in the dashboard", action: openDashboard)
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Palette.link)
+                    .buttonStyle(LinkButton())
                     .font(.system(size: 13))
             } else if windows.isEmpty {
                 Text("No usage data yet")
