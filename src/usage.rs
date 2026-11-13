@@ -12,7 +12,7 @@ use crate::accounts::{AccountEntry, Provider, Store};
 use crate::config::Endpoints;
 
 pub const STALE_AFTER: chrono::Duration = chrono::Duration::minutes(30);
-pub const HISTORY_KEPT: chrono::Duration = chrono::Duration::days(3);
+const HISTORY_KEPT: chrono::Duration = chrono::Duration::days(3);
 const HISTORY_STEP: chrono::Duration = chrono::Duration::minutes(15);
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -264,19 +264,26 @@ impl Usage {
         self.history.read().unwrap().clone()
     }
 
-    fn record(&self, id: &str, s: &Snapshot, now: DateTime<Utc>) {
-        if s.windows.is_empty() {
+    fn record<'a>(&self, id: &str, windows: impl Iterator<Item = &'a Window>, now: DateTime<Utc>) {
+        let used: BTreeMap<String, f64> = windows.map(|w| (w.key.clone(), w.used_pct)).collect();
+        if used.is_empty() {
             return;
         }
         let mut history = self.history.write().unwrap();
-        let samples = history.entry(id.to_string()).or_default();
-        if samples.last().is_some_and(|last| now - last.at < HISTORY_STEP) {
+        if history
+            .get(id)
+            .and_then(|samples| samples.last())
+            .is_some_and(|last| now - last.at < HISTORY_STEP)
+        {
             return;
         }
-        samples.retain(|x| now - x.at < HISTORY_KEPT);
-        samples.push(Sample {
-            at: now,
-            used: s.windows.iter().map(|w| (w.key.clone(), w.used_pct)).collect(),
+        history
+            .entry(id.to_string())
+            .or_default()
+            .push(Sample { at: now, used });
+        history.retain(|_, samples| {
+            samples.retain(|x| now - x.at < HISTORY_KEPT);
+            !samples.is_empty()
         });
     }
 
@@ -309,7 +316,7 @@ impl Usage {
         let s = s.clone();
         drop(snaps);
         if touched {
-            self.record(id, &s, now);
+            self.record(id, s.shared_windows(), now);
         }
     }
 
@@ -352,7 +359,7 @@ impl Usage {
         if let Some(old) = self.snaps.read().unwrap().get(&e.id) {
             snap.overage_in_use = old.overage_in_use && snap.exhausted(now);
         }
-        self.record(&e.id, &snap, now);
+        self.record(&e.id, snap.windows.iter(), now);
         self.snaps.write().unwrap().insert(e.id.clone(), snap);
         Ok(())
     }

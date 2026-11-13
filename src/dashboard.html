@@ -1076,28 +1076,34 @@ function buildPool(provider, d, now) {
   const cap = members.length * 100;
   const leftAt = (s, t) => {
     const all = 100 - usedAt(s.all, t);
-    return { all, scoped: s.scoped ? Math.min(all, 100 - usedAt(s.scoped, t)) : all };
+    return { all, scoped: s.scoped && t >= s.scoped[0].t ? Math.min(all, 100 - usedAt(s.scoped, t)) : all };
   };
   const sample = (t) => {
-    let all = 0, scoped = 0;
-    for (const s of series) { const l = leftAt(s, t); all += l.all; scoped += l.scoped; }
-    return { t, v: (all / cap) * 100, s: (scoped / cap) * 100 };
+    let all = 0, scoped = 0, counted = 0;
+    for (const s of series) {
+      if (t < s.all[0].t) continue;
+      const l = leftAt(s, t);
+      all += l.all;
+      scoped += l.scoped;
+      counted++;
+    }
+    return { t, v: all / counted, s: scoped / counted };
   };
-  const start = Math.max(-POOL_BACK_H, ...series.map((s) => s.all[0].t));
+  const start = Math.max(-POOL_BACK_H, Math.min(...series.map((s) => s.all[0].t)));
   const times = new Set([start, 0]);
   for (const s of series) {
     for (const p of [...s.all, ...(s.scoped || [])]) {
       if (p.t <= start) continue;
-      times.add(p.t - POOL_STEP_H);
+      times.add(Math.max(start, p.t - POOL_STEP_H));
       times.add(p.t);
     }
   }
   pool.past = start < 0 ? [...times].sort((x, y) => x - y).map(sample) : [];
   for (let i = 1; i < pool.past.length; i++) {
     const before = pool.past[i - 1], after = pool.past[i];
-    if (after.t - before.t > POOL_STEP_H * 1.5 || after.v - before.v <= 0.5) continue;
-    const who = series.filter((s) => usedAt(s.all, before.t) - usedAt(s.all, after.t) > 0.5).map((s) => s.name);
-    pool.refills.push({ t: after.t, gain: after.v - before.v, to: after.v, who, past: true });
+    if (after.t - before.t > POOL_STEP_H * 1.5 || after.v - before.v < 2) continue;
+    const who = series.filter((s) => before.t >= s.all[0].t && usedAt(s.all, before.t) - usedAt(s.all, after.t) >= 2).map((s) => s.name);
+    if (who.length) pool.refills.push({ t: after.t, gain: after.v - before.v, to: after.v, who, past: true });
   }
   const total = (t) => {
     let all = 0, scoped = 0;
@@ -1242,7 +1248,7 @@ function renderPools(d) {
 
 function poolValueAt(pool, t, k) {
   const pts = t < 0 ? pool.past : pool.future;
-  if (!pts.length) return null;
+  if (!pts.length || t < pts[0].t) return null;
   let prev = pts[0];
   for (const pt of pts) {
     if (pt.t > t) return prev.t === pt.t ? pt[k] : prev[k] + ((pt[k] - prev[k]) * (t - prev.t)) / (pt.t - prev.t);
