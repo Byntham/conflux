@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::net::{IpAddr, SocketAddr};
+use std::process::Stdio;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -27,6 +28,21 @@ use crate::{dashboard, node, update};
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 const LINK_TIMEOUT: Duration = Duration::from_secs(15);
+const INSTALL_TIMEOUT: Duration = Duration::from_secs(300);
+const START_TIMEOUT: Duration = Duration::from_secs(20);
+const START_POLL: Duration = Duration::from_millis(500);
+const SSH_OPTIONS: &[&str] = &[
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "StrictHostKeyChecking=accept-new",
+    "-o",
+    "ConnectTimeout=10",
+    "-o",
+    "LogLevel=ERROR",
+    "-o",
+    "ControlPath=none",
+];
 const LOCAL_ONLY: &str = "run this on the machine itself";
 const RESCAN_TAILNET: Duration = Duration::from_secs(30);
 const SHUTDOWN_LIMIT: Duration = Duration::from_secs(2);
@@ -38,6 +54,7 @@ struct Found {
     os: String,
     state: &'static str,
     install: Option<String>,
+    can_install: bool,
 }
 
 #[derive(Serialize)]
@@ -113,6 +130,7 @@ pub async fn discover(State(app): State<Arc<App>>, headers: HeaderMap) -> Result
                 name: peer_name(&peer, address),
                 address,
                 install: (state == "missing").then(|| install[key].as_str().unwrap_or_default().to_string()),
+                can_install: state == "missing" && installs_over_ssh(&peer.os),
                 os: peer.os,
                 state,
             }
@@ -123,19 +141,21 @@ pub async fn discover(State(app): State<Arc<App>>, headers: HeaderMap) -> Result
     Ok(Json(json!({ "machines": found })))
 }
 
-pub async fn link(State(app): State<Arc<App>>, Json(req): Json<LinkRequest>) -> Result<Json<Value>, ApiError> {
-    let status = tailnet_status(&app).await?;
-    let peer = tailnet::same_user_peers(&status)
+async fn find_peer(app: &App, address: IpAddr) -> Result<Peer, ApiError> {
+    let status = tailnet_status(app).await?;
+    tailnet::same_user_peers(&status)
         .into_iter()
-        .find(|p| p.machine.ips.contains(&req.address))
+        .find(|p| p.machine.ips.contains(&address))
         .ok_or_else(|| {
             ApiError(
                 StatusCode::NOT_FOUND,
                 "that machine is not one of yours on the tailnet".into(),
             )
-        })?;
-    let name = peer_name(&peer, req.address);
-    let url = format!("http://{}/conflux/link", SocketAddr::new(req.address, app.cfg.port));
+        })
+}
+
+async fn link_peer(app: &App, address: IpAddr, name: &str) -> Result<(), ApiError> {
+    let url = format!("http://{}/conflux/link", SocketAddr::new(address, app.cfg.port));
     let resp = app
         .proxy_http
         .post(url)
@@ -149,6 +169,116 @@ pub async fn link(State(app): State<Arc<App>>, Json(req): Json<LinkRequest>) -> 
         let reason = v["error"].as_str().unwrap_or("it did not accept the link");
         return Err(ApiError(StatusCode::BAD_GATEWAY, format!("{name}: {reason}")));
     }
+    Ok(())
+}
+
+pub async fn link(State(app): State<Arc<App>>, Json(req): Json<LinkRequest>) -> Result<Json<Value>, ApiError> {
+    let peer = find_peer(&app, req.address).await?;
+    let name = peer_name(&peer, req.address);
+    link_peer(&app, req.address, &name).await?;
+    Ok(Json(json!({ "linked": name })))
+}
+
+fn installs_over_ssh(os: &str) -> bool {
+    os != "windows"
+}
+
+fn ssh_host(peer: &Peer, address: IpAddr) -> String {
+    let label = peer.machine.dns_name.as_deref().and_then(|name| name.split('.').next());
+    label
+        .filter(|label| !label.is_empty() && !label.starts_with('-'))
+        .map_or_else(|| address.to_string(), str::to_string)
+}
+
+async fn run_installer(app: &App, peer: &Peer, address: IpAddr) -> Result<(), String> {
+    let installer = tokio::process::Command::new(&app.ssh)
+        .args(SSH_OPTIONS)
+        .args(["-o", &format!("HostName={address}")])
+        .arg(ssh_host(peer, address))
+        .arg(dashboard::install_unless_running(app.cfg.port))
+        .stdin(Stdio::null())
+        .kill_on_drop(true)
+        .output();
+    let out = match tokio::time::timeout(INSTALL_TIMEOUT, installer).await {
+        Err(_) => return Err("the install did not finish in 5 minutes".into()),
+        Ok(Err(e)) => return Err(format!("the hub could not run ssh: {e}")),
+        Ok(Ok(out)) => out,
+    };
+    if out.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let mut said: Vec<&str> = stderr.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let last_lines = said.split_off(said.len().saturating_sub(2)).join(" ");
+    Err(if last_lines.is_empty() {
+        format!("ssh ended with {}", out.status)
+    } else {
+        last_lines
+    })
+}
+
+async fn state_once_started(app: &App, address: IpAddr) -> &'static str {
+    let deadline = tokio::time::Instant::now() + START_TIMEOUT;
+    loop {
+        let state = probe(app, address).await;
+        if state != "missing" || tokio::time::Instant::now() >= deadline {
+            return state;
+        }
+        tokio::time::sleep(START_POLL).await;
+    }
+}
+
+async fn install_and_link(app: &App, peer: &Peer, address: IpAddr, name: &str) -> Result<(), ApiError> {
+    let mut state = probe(app, address).await;
+    if state == "missing" {
+        if !installs_over_ssh(&peer.os) {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                format!("the hub cannot install conflux on {name}, because it runs Windows"),
+            ));
+        }
+        run_installer(app, peer, address).await.map_err(|e| {
+            ApiError(
+                StatusCode::BAD_GATEWAY,
+                format!("could not install conflux on {name} over ssh: {e}"),
+            )
+        })?;
+        state = state_once_started(app, address).await;
+    }
+    match state {
+        "waiting" => link_peer(app, address, name).await,
+        "busy" => Err(ApiError(
+            StatusCode::CONFLICT,
+            format!("{name} already runs conflux and is not waiting to be linked"),
+        )),
+        _ => Err(ApiError(
+            StatusCode::BAD_GATEWAY,
+            format!("conflux is installed on {name}, but it did not start"),
+        )),
+    }
+}
+
+pub async fn install(State(app): State<Arc<App>>, Json(req): Json<LinkRequest>) -> Result<Json<Value>, ApiError> {
+    let peer = find_peer(&app, req.address).await?;
+    let name = peer_name(&peer, req.address);
+    let machine = address(&peer).unwrap_or(req.address);
+    if !app.installing.lock().unwrap().insert(machine) {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            format!("the hub is already installing conflux on {name}"),
+        ));
+    }
+    let installed = tokio::spawn({
+        let (app, name) = (app.clone(), name.clone());
+        async move {
+            let result = install_and_link(&app, &peer, req.address, &name).await;
+            app.installing.lock().unwrap().remove(&machine);
+            result
+        }
+    });
+    installed
+        .await
+        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("the install stopped: {e}")))??;
     Ok(Json(json!({ "linked": name })))
 }
 

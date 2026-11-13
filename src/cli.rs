@@ -119,6 +119,19 @@ pub enum Command {
     )]
     Wait,
     #[command(
+        about = "Add machines on your tailnet to the hub",
+        long_about = "Add machines on your tailnet to the hub.\n\n\
+                      Pass nothing to list the machines conflux finds. Pass names to add those machines. \
+                      A machine that waits to be linked is linked. On a Mac or Linux machine without \
+                      conflux, the hub installs it over ssh first. That needs the hub's user to reach \
+                      the machine with ssh without a password prompt. On Windows, run the install \
+                      command that `conflux add` prints."
+    )]
+    Add {
+        #[arg(help = "Machine names as `conflux add` lists them. Leave empty to list them")]
+        machines: Vec<String>,
+    },
+    #[command(
         about = "Point Claude Code and Codex back at this machine's own logins",
         long_about = "Point Claude Code and Codex back at this machine's own logins.\n\n\
                       Use it when the hub is down. The service keeps running. Restart open \
@@ -228,7 +241,7 @@ pub enum OnOff {
 
 const UPDATE_WAIT: Duration = Duration::from_secs(300);
 const HOW_TO_LINK: &str = "To link it, run `conflux join` here. conflux finds the hub on your tailnet. \
-                           Or on the hub's dashboard, open Machines and click Find machines.";
+                           Or run `conflux add` on the hub, or open Machines on its dashboard and click Find machines.";
 
 struct Daemon {
     base: String,
@@ -350,6 +363,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             force,
         } => join(cfg, paths, &hub, no_service, force).await,
         Command::Join { hub: None, .. } => join_found_hub(cfg, paths, &daemon).await,
+        Command::Add { machines } => add_machines(&daemon, machines).await,
         Command::Sync { setting } => {
             let mut cfg = cfg;
             match setting {
@@ -668,6 +682,67 @@ async fn join_found_hub(cfg: Config, paths: Paths, daemon: &Daemon) -> Result<()
         .await?;
     println!("Found the hub {}.", name(hub));
     print_joined(&Config::load(&paths)?);
+    Ok(())
+}
+
+fn found_state(machine: &Value) -> &'static str {
+    match (machine["state"].as_str(), machine["can_install"] == true) {
+        (Some("waiting"), _) => "waiting to be linked",
+        (Some("missing"), true) => "conflux is not running. The hub can install it",
+        (Some("missing"), false) => "conflux is not running. Install it there",
+        _ => "runs conflux, but is not waiting to be linked",
+    }
+}
+
+async fn add_machines(daemon: &Daemon, names: Vec<String>) -> Result<()> {
+    let found = daemon.get("/conflux/api/discover").await?;
+    let found = found["machines"].as_array().cloned().unwrap_or_default();
+    let name = |machine: &Value| machine["name"].as_str().unwrap_or("?").to_string();
+    if names.is_empty() {
+        if found.is_empty() {
+            println!("No other machines of yours are online on the tailnet.");
+            return Ok(());
+        }
+        println!("{:<24} {:<8} STATE", "MACHINE", "OS");
+        for machine in &found {
+            println!(
+                "{:<24} {:<8} {}",
+                name(machine),
+                machine["os"].as_str().unwrap_or("?"),
+                found_state(machine)
+            );
+        }
+        println!("\nAdd machines with `conflux add <machine>...`.");
+        return Ok(());
+    }
+    let mut failed = false;
+    for asked in &names {
+        let Some(machine) = found.iter().find(|m| name(m).eq_ignore_ascii_case(asked)) else {
+            println!("{asked}: not found. It must be online on your tailnet and not linked yet.");
+            failed = true;
+            continue;
+        };
+        let name = name(machine);
+        if machine["can_install"] == true {
+            println!("{name}: installing conflux over ssh. This can take a minute.");
+        }
+        match daemon
+            .post("/conflux/api/install", json!({ "address": machine["address"] }))
+            .await
+        {
+            Ok(_) => println!("{name}: linked to the hub."),
+            Err(e) => {
+                println!("{name}: {e}");
+                if let Some(command) = machine["install"].as_str() {
+                    println!("Run this on {name} instead:\n\n{command}\n");
+                }
+                failed = true;
+            }
+        }
+    }
+    if failed {
+        bail!("not every machine was added");
+    }
     Ok(())
 }
 

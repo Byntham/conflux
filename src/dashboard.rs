@@ -27,6 +27,15 @@ pub fn hub_name(app: &App, request_host: Option<&str>) -> String {
     requested.to_string()
 }
 
+pub fn install_unless_running(port: u16) -> String {
+    format!(
+        "sh -c 'if curl -s -m 3 --noproxy \"*\" -o /dev/null http://127.0.0.1:{port}/; then \
+         echo \"conflux already runs there, so the hub left it alone\" >&2; exit 1; fi; \
+         installer=$(curl -fsSL {INSTALL_BASE}/install.sh) || exit 1; \
+         printf \"%s\\n\" \"$installer\" | sh'"
+    )
+}
+
 pub fn add_machine(hub: &str) -> Value {
     let command = format!("curl -fsSL {INSTALL_BASE}/install.sh | sh -s -- {hub}");
     let windows_command = format!("irm {INSTALL_BASE}/install.ps1 | iex\nconflux join {hub}");
