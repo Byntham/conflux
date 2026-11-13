@@ -185,6 +185,25 @@ async fn a_draining_hub_closes_the_socket_only_after_the_turn_ends() {
 }
 
 #[tokio::test]
+async fn latency_stops_when_the_upstream_starts_answering() {
+    let h = Harness::new().await;
+    h.add(Provider::Codex, "c").await;
+    h.ws_script("at-c", WsScript::SlowTurn);
+    let mut ws = open(&h, &[]).await.unwrap();
+    ws.send(create("m")).await.unwrap();
+    assert_eq!(next_json(&mut ws).await.unwrap()["type"], "response.created");
+    assert_eq!(next_json(&mut ws).await.unwrap()["type"], "response.completed");
+    let rows = h.app.requests.recent();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].transport, "ws");
+    assert!(
+        rows[0].latency_ms < 400,
+        "latency {}ms includes the turn",
+        rows[0].latency_ms
+    );
+}
+
+#[tokio::test]
 async fn no_accounts_sends_an_error_frame() {
     let h = Harness::new().await;
     let mut ws = open(&h, &[]).await.unwrap();
