@@ -222,11 +222,13 @@ impl Node {
                 }
             },
             (Some("update"), _, Some(version)) => {
-                let update = self
-                    .updater
-                    .clone()
-                    .run(version.to_string(), self.lifecycle.clone(), self.clone());
-                tokio::spawn(update);
+                if self.updater.claim(version) {
+                    let update =
+                        self.updater
+                            .clone()
+                            .run_claimed(version.to_string(), self.lifecycle.clone(), self.clone());
+                    tokio::spawn(update);
+                }
                 false
             }
             _ => false,
