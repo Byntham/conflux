@@ -70,14 +70,15 @@ Deletes the account, its tokens, and its settings from the hub. To add it back, 
 
 These commands change only the machine you run them on.
 
-### `conflux join <hub>`
+### `conflux join [hub]`
 
 Makes this machine the hub, or a node of a hub.
 
 - `conflux join self` makes this machine the hub. `localhost`, `127.0.0.1`, and this machine's own name also work.
 - `conflux join <hub>` makes this machine a node. `<hub>` is the hub's name in `tailscale status`. conflux checks that it can reach the hub and warns you if it can't.
+- `conflux join` with no name finds the hub for you. It works on a machine that is waiting to be linked. conflux asks each online machine owned by the same Tailscale user whether it is a hub, then links to the one it finds. If it finds none, or more than one, it tells you, and you name the hub yourself. The background service is already running, so `--no-service` and `--force` do not apply.
 
-`join` then does three things:
+`join` with a name then does three things:
 
 1. It installs conflux as a background service and starts it. See [Logs and the background service](troubleshooting.md#logs-and-the-background-service) for what it installs on each system.
 2. It points Claude Code at conflux. It sets `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` under `env` in `~/.claude/settings.json`.
@@ -100,7 +101,12 @@ Options:
 
 Installs and starts the background service, then waits for a hub to link this machine. The installer runs it when you don't name a hub.
 
-To link a waiting machine, open Machines on the hub's dashboard, click "Find machines", and click "Link" next to it. The machine accepts a link only from a machine owned by the same Tailscale user. When linked, it edits Claude Code's and Codex's settings the same way `join` does.
+Link a waiting machine from either side:
+
+- On the waiting machine, run [`conflux join`](#conflux-join-hub) with no name, or click "Link to" in the Mac menu bar app.
+- On the hub's dashboard, open Machines, click "Find machines", and click "Link" next to it.
+
+The machine links only to a hub owned by the same Tailscale user. When linked, it edits Claude Code's and Codex's settings the same way `join` does.
 
 If this machine has already joined a hub or holds accounts, `wait` changes nothing. It only restarts the service if one is installed.
 

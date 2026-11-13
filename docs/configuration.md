@@ -54,7 +54,7 @@ transcript_sync = false
 | `CLAUDE_CONFIG_DIR` | Where conflux finds Claude Code's `settings.json`. |
 | `CODEX_HOME` | Where conflux finds Codex's `config.toml`. |
 
-`conflux join` warns you if your shell sets `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `CODEX_HOME`, or `OPENAI_BASE_URL`. These can make Claude Code or Codex skip the settings conflux wrote.
+`conflux join` warns you if your shell sets `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, or `OPENAI_BASE_URL`. These can make Claude Code or Codex skip the settings conflux wrote.
 
 ### For development and tests
 
@@ -68,7 +68,7 @@ transcript_sync = false
 | `CONFLUX_CHATGPT_BACKEND` | The ChatGPT backend that conflux reads usage from. |
 | `CONFLUX_OPENAI_AUTH` | The OpenAI login server. |
 | `CONFLUX_RELEASES` | Where `conflux update` looks for releases. |
-| `CONFLUX_HUB_PORT` | The port a node finds its hub on. Default is the node's own `port`. It lets a hub and a node run on one machine. |
+| `CONFLUX_HUB_PORT` | The port a node finds its hub on, and a waiting machine looks for one on. Default is the machine's own `port`. It lets a hub and a node run on one machine. |
 | `CONFLUX_HOSTNAME` | The name this machine reports, in place of its hostname. |
 
 Only the hub reads the endpoint variables, because a node sends everything to the hub. The exception is `CONFLUX_RELEASES`, which every machine reads when it updates.

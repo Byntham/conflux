@@ -229,6 +229,7 @@ pub fn env_warnings() -> Vec<String> {
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_BASE_URL",
         "ANTHROPIC_AUTH_TOKEN",
+        "CLAUDE_CONFIG_DIR",
         "CODEX_HOME",
         "OPENAI_BASE_URL",
     ]

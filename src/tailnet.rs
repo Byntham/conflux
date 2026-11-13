@@ -49,6 +49,7 @@ pub fn same_user_peers(status: &Value) -> Vec<Peer> {
         .into_iter()
         .flat_map(|peers| peers.values())
         .filter(|p| p["UserID"] == *me && p["Online"] == true)
+        .filter(|p| p["Tags"].as_array().is_none_or(|tags| tags.is_empty()))
         .filter_map(|p| {
             let os = p["OS"].as_str().filter(|os| INSTALLABLE_OS.contains(os))?;
             Some(Peer {

@@ -23,10 +23,11 @@ use crate::lifecycle::Lifecycle;
 use crate::setup::{self, ClientPaths};
 use crate::tailnet::{self, Peer, TailnetSelf, Tailscale};
 use crate::update::{UpdateStatus, Updater};
-use crate::{dashboard, update};
+use crate::{dashboard, node, update};
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 const LINK_TIMEOUT: Duration = Duration::from_secs(15);
+const LOCAL_ONLY: &str = "run this on the machine itself";
 const RESCAN_TAILNET: Duration = Duration::from_secs(30);
 const SHUTDOWN_LIMIT: Duration = Duration::from_secs(2);
 
@@ -37,6 +38,12 @@ struct Found {
     os: String,
     state: &'static str,
     install: Option<String>,
+}
+
+#[derive(Serialize)]
+struct FoundHub {
+    name: String,
+    address: IpAddr,
 }
 
 #[derive(Deserialize)]
@@ -161,9 +168,11 @@ pub fn become_waiting(paths: &Paths) -> Result<Option<Role>> {
 
 pub struct Waiting {
     port: u16,
+    hub_port: u16,
     paths: Paths,
     clients: ClientPaths,
     tailscale: Tailscale,
+    http: reqwest::Client,
     hostname: String,
     allowed_hosts: RwLock<Vec<String>>,
     accepting: tokio::sync::Mutex<()>,
@@ -180,9 +189,11 @@ impl Waiting {
     pub fn new(port: u16, paths: Paths, clients: ClientPaths, tailscale: Tailscale) -> Arc<Self> {
         Arc::new(Self {
             port,
+            hub_port: node::hub_port(port),
             paths,
             clients,
             tailscale,
+            http: crate::app::proxy_client(),
             hostname: tailnet::hostname(),
             allowed_hosts: RwLock::new(access::local_hosts(port)),
             accepting: tokio::sync::Mutex::new(()),
@@ -195,6 +206,8 @@ impl Waiting {
     pub fn routes(self: &Arc<Self>) -> axum::Router {
         axum::Router::new()
             .route("/conflux/link", get(offer).post(accept))
+            .route("/conflux/api/hubs", get(find_hubs))
+            .route("/conflux/api/join", post(join_hub))
             .route("/conflux/api/status", get(waiting_status))
             .route("/conflux/api/update", post(update_self))
             .fallback(not_linked)
@@ -345,7 +358,7 @@ async fn update_self(State(w): State<Arc<Waiting>>, Json(req): Json<UpdateReques
 async fn not_linked() -> Response {
     refuse(
         StatusCode::CONFLICT,
-        "this machine is waiting to be linked to a hub. On the hub's dashboard, open Machines and click Find machines, or run `conflux join <hub>` here.",
+        "this machine is waiting to be linked to a hub. Run `conflux join` here to find the hub, or on the hub's dashboard, open Machines and click Find machines.",
     )
 }
 
@@ -361,18 +374,62 @@ async fn accept(State(w): State<Arc<Waiting>>, ConnectInfo(from): ConnectInfo<So
             "the hub must belong to the same Tailscale user as this machine",
         );
     }
-    let _one_at_a_time = w.accepting.lock().await;
-    if w.updater.status().as_ref().is_some_and(UpdateStatus::in_progress) {
-        return refuse(
-            StatusCode::CONFLICT,
-            "this machine is updating conflux. Try again in a minute.",
-        );
+    w.link_to(&url_host(caller), json!({ "hostname": w.hostname })).await
+}
+
+async fn find_hubs(State(w): State<Arc<Waiting>>, ConnectInfo(from): ConnectInfo<SocketAddr>) -> Response {
+    if !from.ip().is_loopback() {
+        return refuse(StatusCode::FORBIDDEN, LOCAL_ONLY);
     }
-    match w.become_node(&url_host(caller)) {
-        Ok(None) => Json(json!({ "hostname": w.hostname })).into_response(),
-        Ok(Some(reason)) => refuse(StatusCode::CONFLICT, reason),
-        Err(e) => refuse(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
+    let Some(peers) = w.same_user_peers().await else {
+        return no_tailscale();
+    };
+    let probes = peers.iter().filter_map(|peer| {
+        let address = address(peer)?;
+        let w = &w;
+        Some(async move {
+            w.is_hub(&url_host(address)).await.then(|| FoundHub {
+                name: peer_name(peer, address),
+                address,
+            })
+        })
+    });
+    let mut hubs: Vec<FoundHub> = futures_util::future::join_all(probes)
+        .await
+        .into_iter()
+        .flatten()
+        .collect();
+    hubs.sort_by(|a, b| a.name.cmp(&b.name));
+    Json(json!({ "hubs": hubs })).into_response()
+}
+
+async fn join_hub(
+    State(w): State<Arc<Waiting>>,
+    ConnectInfo(from): ConnectInfo<SocketAddr>,
+    Json(req): Json<LinkRequest>,
+) -> Response {
+    if !from.ip().is_loopback() {
+        return refuse(StatusCode::FORBIDDEN, LOCAL_ONLY);
     }
+    let Some(peers) = w.same_user_peers().await else {
+        return no_tailscale();
+    };
+    let Some(peer) = peers.iter().find(|p| p.machine.ips.contains(&req.address)) else {
+        return refuse(StatusCode::NOT_FOUND, "that machine is not one of yours on the tailnet");
+    };
+    let name = peer_name(peer, req.address);
+    let by_address = url_host(req.address);
+    if !w.is_hub(&by_address).await {
+        return refuse(StatusCode::BAD_GATEWAY, format!("{name} is not running a conflux hub"));
+    }
+    w.link_to(&by_address, json!({ "hub": name })).await
+}
+
+fn no_tailscale() -> Response {
+    refuse(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Tailscale is not running on this machine",
+    )
 }
 
 impl Waiting {
@@ -386,6 +443,37 @@ impl Waiting {
                 abort.abort();
             }
             finished.await;
+        }
+    }
+
+    async fn same_user_peers(&self) -> Option<Vec<Peer>> {
+        let tailscale = self.tailscale.clone();
+        let status = tokio::task::spawn_blocking(move || tailnet::status(&tailscale))
+            .await
+            .ok()??;
+        Some(tailnet::same_user_peers(&status))
+    }
+
+    async fn is_hub(&self, host: &str) -> bool {
+        let url = format!("http://{host}:{}/conflux/api/status", self.hub_port);
+        let Ok(resp) = self.http.get(url).timeout(PROBE_TIMEOUT).send().await else {
+            return false;
+        };
+        resp.json::<Value>().await.is_ok_and(|v| v["role"] == "hub")
+    }
+
+    async fn link_to(&self, hub: &str, linked: Value) -> Response {
+        let _one_at_a_time = self.accepting.lock().await;
+        if self.updater.status().as_ref().is_some_and(UpdateStatus::in_progress) {
+            return refuse(
+                StatusCode::CONFLICT,
+                "this machine is updating conflux. Try again in a minute.",
+            );
+        }
+        match self.become_node(hub) {
+            Ok(None) => Json(linked).into_response(),
+            Ok(Some(reason)) => refuse(StatusCode::CONFLICT, reason),
+            Err(e) => refuse(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
         }
     }
 

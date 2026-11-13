@@ -80,6 +80,7 @@ final class Model: ObservableObject {
     @Published private(set) var phase: Phase = .loading
     @Published private(set) var dashboard: Dashboard?
     @Published private(set) var waiting: WaitingStatus?
+    @Published private(set) var hubs: [FoundHub]?
     @Published private(set) var node: NodeInfo?
     @Published private(set) var routing: Bool?
     @Published private(set) var busy: String?
@@ -125,7 +126,10 @@ final class Model: ObservableObject {
     func refresh() async {
         now = Date()
         var waitingNow: WaitingStatus?
-        defer { waiting = waitingNow }
+        defer {
+            waiting = waitingNow
+            if phase != .waiting { hubs = nil }
+        }
         relaunchIfReplaced()
         if !local.devCopy && !inApplications && !local.serviceInstalled {
             phase = .outsideApplications
@@ -160,6 +164,14 @@ final class Model: ObservableObject {
             phase = .waiting
             if case let .answered(200, body) = await fetch(base.appendingPathComponent("conflux/api/status")) {
                 waitingNow = try? JSON.decoder.decode(WaitingStatus.self, from: body)
+            }
+            if menuOpen {
+                let found = await fetch(base.appendingPathComponent("conflux/api/hubs"))
+                if case let .answered(200, body) = found {
+                    hubs = (try? JSON.decoder.decode(FoundHubs.self, from: body))?.hubs ?? []
+                } else {
+                    hubs = []
+                }
             }
         case let .answered(status, body):
             dashboard = nil
@@ -368,27 +380,44 @@ final class Model: ObservableObject {
         }
     }
 
+    private func post(_ path: String, _ body: [String: Any]) async throws -> [String: Any] {
+        var request = URLRequest(url: local.base(port: local.port).appendingPathComponent(path))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (answer, response) = try await URLSession.shared.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        let fields = (try? JSONSerialization.jsonObject(with: answer)) as? [String: Any] ?? [:]
+        guard status == 200 else {
+            throw Command.Failure(message: fields["error"] as? String ?? "conflux answered HTTP \(status).")
+        }
+        return fields
+    }
+
     func updateAll() {
         perform("Starting update…") {
-            var request = URLRequest(url: self.local.base(port: self.local.port).appendingPathComponent("conflux/api/update"))
-            request.httpMethod = "POST"
-            request.timeoutInterval = 30
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             let machines = self.outdatedMachines.map(\.hostname)
             guard !machines.isEmpty else { throw Command.Failure(message: "Nothing to update right now.") }
-            request.httpBody = try JSONSerialization.data(withJSONObject: ["machines": machines])
-            let (body, response) = try await URLSession.shared.data(for: request)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            let answer = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
-            guard status == 200 else {
-                throw Command.Failure(message: answer["error"] as? String ?? "The hub answered HTTP \(status).")
-            }
+            let answer = try await self.post("conflux/api/update", ["machines": machines])
             let started = answer["started"] as? [String] ?? []
             let skipped = answer["skipped"] as? [[String: Any]] ?? []
             if started.isEmpty, let first = skipped.first {
                 let machine = first["machine"] as? String ?? "A machine"
                 throw Command.Failure(message: "\(machine) was skipped: \(first["reason"] as? String ?? "no reason given")")
             }
+        }
+    }
+
+    func link(to hub: FoundHub) {
+        perform("Linking…") {
+            _ = try await self.post("conflux/api/join", ["address": hub.address])
+            let node = self.local.base(port: self.local.port).appendingPathComponent("conflux/node")
+            for _ in 0..<20 {
+                if case .answered(200, _) = await self.fetch(node) { break }
+                try? await Task.sleep(nanoseconds: 250_000_000)
+            }
+            await self.refresh()
         }
     }
 

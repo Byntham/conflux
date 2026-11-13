@@ -87,23 +87,33 @@ pub enum Command {
         about = "Make this machine the hub, or connect it to one",
         long_about = "Make this machine the hub, or connect it to one.\n\n\
                       Pass `self` to make this machine the hub. Pass another machine's tailnet \
-                      name to make this machine a node of that hub.\n\n\
+                      name to make this machine a node of that hub. On a machine that is waiting \
+                      to be linked, pass nothing, and conflux finds the hub on your tailnet.\n\n\
                       join installs conflux as a background service and points Claude Code \
                       (~/.claude/settings.json) and Codex (~/.codex/config.toml) at it. It saves \
                       the values it replaces, so `conflux off` and `conflux leave` can put them back."
     )]
     Join {
-        #[arg(help = "`self` to make this machine the hub, or the hub's tailnet name")]
-        hub: String,
-        #[arg(long, help = "Do not install the background service. Run `conflux serve` yourself")]
+        #[arg(help = "`self` to make this machine the hub, or the hub's tailnet name. Leave empty to find the hub")]
+        hub: Option<String>,
+        #[arg(
+            long,
+            requires = "hub",
+            help = "Do not install the background service. Run `conflux serve` yourself"
+        )]
         no_service: bool,
-        #[arg(long, help = "Join another hub even though this machine holds accounts")]
+        #[arg(
+            long,
+            requires = "hub",
+            help = "Join another hub even though this machine holds accounts"
+        )]
         force: bool,
     },
     #[command(
-        about = "Start conflux and wait to be linked from a hub's dashboard",
+        about = "Start conflux and wait to be linked to a hub",
         long_about = "Install conflux as a background service and wait to be linked to a hub.\n\n\
-                      On the hub's dashboard, open Machines and click Find machines, then Link. \
+                      Run `conflux join` here to find the hub and link to it. Or on the hub's \
+                      dashboard, open Machines and click Find machines, then Link. \
                       If this machine has already joined a hub or holds accounts, wait changes \
                       nothing. It only restarts the service if one is installed."
     )]
@@ -217,6 +227,8 @@ pub enum OnOff {
 }
 
 const UPDATE_WAIT: Duration = Duration::from_secs(300);
+const HOW_TO_LINK: &str = "To link it, run `conflux join` here. conflux finds the hub on your tailnet. \
+                           Or on the hub's dashboard, open Machines and click Find machines.";
 
 struct Daemon {
     base: String,
@@ -328,11 +340,16 @@ pub async fn run(cli: Cli) -> Result<()> {
             None => {
                 println!("Installed {}.", service::install()?);
                 println!("conflux is running and waiting to be linked to a hub.");
-                println!("On the hub's dashboard, open Machines and click Find machines.");
+                println!("{HOW_TO_LINK}");
                 Ok(())
             }
         },
-        Command::Join { hub, no_service, force } => join(cfg, paths, &hub, no_service, force).await,
+        Command::Join {
+            hub: Some(hub),
+            no_service,
+            force,
+        } => join(cfg, paths, &hub, no_service, force).await,
+        Command::Join { hub: None, .. } => join_found_hub(cfg, paths, &daemon).await,
         Command::Sync { setting } => {
             let mut cfg = cfg;
             match setting {
@@ -600,18 +617,56 @@ async fn join(mut cfg: Config, paths: Paths, hub: &str, no_service: bool, force:
     }
 
     setup::apply(&ClientPaths::from_env()?, &paths.config_dir, cfg.port)?;
+    print_joined(&cfg);
+    Ok(())
+}
+
+fn print_joined(cfg: &Config) {
     for warning in setup::env_warnings() {
         println!("Warning: {warning}");
     }
-    if becoming_hub {
-        println!("This machine is now the hub. Add accounts with `conflux login claude` and `conflux login codex`.");
-    } else {
-        println!("Claude Code and Codex on this machine now go through {hub}.");
+    match &cfg.hub {
+        None => {
+            println!("This machine is now the hub. Add accounts with `conflux login claude` and `conflux login codex`.")
+        }
+        Some(hub) => println!("Claude Code and Codex on this machine now go through {hub}."),
     }
     println!("New or restarted Claude Code and Codex sessions pick this up. Running ones keep their old settings.");
-    if let Some(url) = dashboard_url(&cfg) {
+    if let Some(url) = dashboard_url(cfg) {
         println!("\nDashboard: {url}");
     }
+}
+
+async fn join_found_hub(cfg: Config, paths: Paths, daemon: &Daemon) -> Result<()> {
+    match (cfg.role, &cfg.hub) {
+        (Role::Waiting, _) => {}
+        (Role::Node, Some(hub)) => bail!(
+            "this machine is already linked to {hub}. To link it to another hub, run `conflux join <hub>` with that hub's name."
+        ),
+        _ => bail!(
+            "conflux only looks for a hub while this machine waits to be linked. \
+             Run `conflux wait` first, or run `conflux join <hub>` with the hub's name."
+        ),
+    }
+    let found = daemon.get("/conflux/api/hubs").await?;
+    let hubs = found["hubs"].as_array().cloned().unwrap_or_default();
+    let name = |hub: &Value| hub["name"].as_str().unwrap_or("?").to_string();
+    let hub = match hubs.as_slice() {
+        [hub] => hub,
+        [] => bail!(
+            "found no hub on your tailnet. The hub must be on, and signed in to Tailscale as the same user \
+             as this machine. To name it yourself, run `conflux join <hub>`."
+        ),
+        _ => bail!(
+            "found more than one hub: {}. Pick one with `conflux join <hub>`.",
+            hubs.iter().map(name).collect::<Vec<_>>().join(", ")
+        ),
+    };
+    daemon
+        .post("/conflux/api/join", json!({ "address": hub["address"] }))
+        .await?;
+    println!("Found the hub {}.", name(hub));
+    print_joined(&Config::load(&paths)?);
     Ok(())
 }
 
@@ -754,7 +809,7 @@ fn pct(v: &Value) -> String {
 fn print_status(v: &Value) -> Result<()> {
     if v["role"] == "waiting" {
         println!("This machine is waiting to be linked to a hub.");
-        println!("On the hub's dashboard, open Machines and click Find machines. Or run `conflux join <hub>` here.");
+        println!("{HOW_TO_LINK}");
         return Ok(());
     }
     let accounts = v["accounts"].as_array().cloned().unwrap_or_default();
