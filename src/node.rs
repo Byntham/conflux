@@ -83,7 +83,11 @@ fn copy_headers(src: &HeaderMap, skip: &[&[&str]]) -> HeaderMap {
 
 impl Node {
     pub fn new(hub: String, port: u16, paths: Paths) -> Arc<Self> {
-        Self::named(tailnet::hostname(), hub, port, port, paths)
+        let hub_port = std::env::var("CONFLUX_HUB_PORT")
+            .ok()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(port);
+        Self::named(tailnet::hostname(), hub, hub_port, port, paths)
     }
 
     pub fn named(hostname: String, hub: String, hub_port: u16, port: u16, paths: Paths) -> Arc<Self> {
