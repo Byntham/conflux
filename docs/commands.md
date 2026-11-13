@@ -81,7 +81,7 @@ Makes this machine the hub, or a node of a hub.
 `join` with a name then does three things:
 
 1. It installs conflux as a background service and starts it. See [Logs and the background service](troubleshooting.md#logs-and-the-background-service) for what it installs on each system.
-2. It points Claude Code at conflux. It sets `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` under `env` in `~/.claude/settings.json`.
+2. It points Claude Code at conflux. It sets `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` under `env` in `~/.claude/settings.json`. It also sets `CLAUDE_CODE_PROMPT_CACHE_TTL` to `1h`, unless you already set it. Claude Code treats the token as an API key, so without it the main conversation caches for 5 minutes instead of a subscription's 1 hour.
 3. It points Codex at conflux. It sets `model_provider = "conflux"` and adds a `[model_providers.conflux]` table in `~/.codex/config.toml`.
 
 Before it changes either file, conflux saves the values it replaces. `conflux off` and `conflux leave` put them back. If `CLAUDE_CONFIG_DIR` or `CODEX_HOME` is set, conflux edits the files there instead.
