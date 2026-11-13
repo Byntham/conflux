@@ -113,7 +113,6 @@
   .alerts { display: grid; margin-bottom: 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
   .alerts.urgent { border-color: color-mix(in srgb, var(--bad) 35%, var(--line)); }
   #hub-alert { border-color: color-mix(in srgb, var(--warn) 35%, var(--line)); margin-bottom: 12px; }
-  #hub-alert + #alerts[hidden] { margin: 0; }
   .alert-row { display: flex; align-items: center; gap: 11px; min-height: 44px; padding: 7px 12px 7px 14px; border-top: 1px solid var(--line); }
   .alert-row:first-child { border-top: 0; }
   .alert-row > svg { color: var(--bad); }
@@ -490,7 +489,6 @@
     .viewer-back { display: inline-flex; margin: -6px 0 0 -10px; }
     .viewer-meta .meta-path { flex-basis: 100%; }
     .viewer-meta .meta-path + .sep { display: none; }
-    #quota-key { flex-basis: 100%; font-size: 12.5px; }
     .search { flex-basis: 100%; }
     .toolbar .select { flex: 1 1 110px; }
     .toolbar .select select { width: 100%; }
@@ -558,7 +556,7 @@
         <div class="alerts" id="alerts" hidden></div>
         <div id="pool"></div>
         <div class="section hide-first-run">
-          <div class="section-head" id="quota-key"><h2>Accounts</h2><div class="section-note"><span class="key"><i class="left"></i>Quota left</span><span class="key"><i class="tick"></i>Time left in window</span></div></div>
+          <div class="section-head"><h2>Accounts</h2><div class="section-note"><span class="key"><i class="left"></i>Quota left</span><span class="key"><i class="tick"></i>Time left in window</span></div></div>
           <div class="accounts" id="accounts"></div>
         </div>
       </section>
@@ -1155,7 +1153,7 @@ function renderPools(d) {
   if ($("view-overview").hidden) return;
   if (!d.accounts.length) {
     poolGeom = null;
-    return setHtml("pool", `<div class="accounts"><div class="card empty"><strong>No accounts yet</strong>Add a subscription and conflux will start routing requests to it.<div class="row"><button class="btn" data-add="claude">Add Claude account</button><button class="btn" data-add="codex">Add Codex account</button></div></div></div>`);
+    return setHtml("pool", `<div class="accounts"><div class="card empty" style="grid-column:1/-1"><strong>No accounts yet</strong>Add a subscription and conflux will start routing requests to it.<div class="row"><button class="btn" data-add="claude">Add Claude account</button><button class="btn" data-add="codex">Add Codex account</button></div></div></div>`);
   }
   const now = Math.floor(Date.now() / 60000) * 60000;
   const providers = [...new Set(d.accounts.map((a) => a.provider))].sort();
