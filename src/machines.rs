@@ -10,7 +10,7 @@ use axum::response::Response;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tokio::sync::mpsc;
+use tokio::sync::{Notify, mpsc};
 
 use crate::app::App;
 use crate::update::UpdateStatus;
@@ -58,6 +58,7 @@ struct Entry {
 pub struct Machines {
     map: Mutex<BTreeMap<String, Entry>>,
     next_link: AtomicU64,
+    reported: Notify,
 }
 
 impl Machines {
@@ -85,6 +86,22 @@ impl Machines {
                 ..report
             };
             entry.last_seen = Utc::now();
+            self.reported.notify_waiters();
+        }
+    }
+
+    pub async fn wait_for(&self, hostname: &str, limit: Duration, done: impl Fn(&Machine) -> bool) -> bool {
+        let deadline = tokio::time::Instant::now() + limit;
+        loop {
+            let reported = self.reported.notified();
+            tokio::pin!(reported);
+            reported.as_mut().enable();
+            if self.list().iter().any(|m| m.hostname == hostname && done(m)) {
+                return true;
+            }
+            if tokio::time::timeout_at(deadline, reported).await.is_err() {
+                return false;
+            }
         }
     }
 
@@ -175,6 +192,10 @@ impl Machines {
 
 pub fn hub_moved(hub: &str) -> Value {
     json!({ "type": "hub", "hub": hub })
+}
+
+pub fn set_routing(on: bool) -> Value {
+    json!({ "type": "routing", "on": on })
 }
 
 pub async fn control(

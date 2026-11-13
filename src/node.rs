@@ -20,6 +20,7 @@ use tokio_tungstenite::tungstenite::{self, Message, client::IntoClientRequest};
 use crate::access::{self, Verdict};
 use crate::config::{Config, Endpoints, Paths};
 use crate::lifecycle::{InFlight, Lifecycle};
+use crate::setup::{self, ClientPaths};
 use crate::transcript_sync::TranscriptSync;
 use crate::update::{self, Updater};
 use crate::ws::TurnTracker;
@@ -47,6 +48,7 @@ pub struct Node {
     hostname: String,
     allowed_hosts: Vec<String>,
     hub_link: Mutex<HubLink>,
+    clients: ClientPaths,
     pub lifecycle: Arc<Lifecycle>,
     pub updater: Arc<Updater>,
 }
@@ -89,11 +91,18 @@ pub fn hub_port(port: u16) -> u16 {
 }
 
 impl Node {
-    pub fn new(hub: String, port: u16, paths: Paths) -> Arc<Self> {
-        Self::named(tailnet::hostname(), hub, hub_port(port), port, paths)
+    pub fn new(hub: String, port: u16, paths: Paths, clients: ClientPaths) -> Arc<Self> {
+        Self::named(tailnet::hostname(), hub, hub_port(port), port, paths, clients)
     }
 
-    pub fn named(hostname: String, hub: String, hub_port: u16, port: u16, paths: Paths) -> Arc<Self> {
+    pub fn named(
+        hostname: String,
+        hub: String,
+        hub_port: u16,
+        port: u16,
+        paths: Paths,
+        clients: ClientPaths,
+    ) -> Arc<Self> {
         Arc::new(Self {
             port,
             hub_port,
@@ -103,6 +112,7 @@ impl Node {
             hostname,
             allowed_hosts: access::local_hosts(port),
             hub_link: Mutex::default(),
+            clients,
             lifecycle: Arc::default(),
             updater: Updater::new(&Endpoints::from_env().releases),
         })
@@ -146,7 +156,7 @@ impl Node {
             "hostname": self.hostname,
             "version": update::CURRENT,
             "transcript_sync": Config::load(&self.paths).map(|c| c.transcript_sync).unwrap_or(false),
-            "routing": crate::setup::routing(&self.paths.config_dir),
+            "routing": setup::routing(&self.paths.config_dir),
             "update": self.updater.status(),
         });
         Message::Text(report.to_string().into())
@@ -175,6 +185,14 @@ impl Node {
             command["hub"].as_str(),
             command["version"].as_str(),
         ) {
+            (Some("routing"), _, _) => {
+                if let Some(on) = command["on"].as_bool()
+                    && let Err(e) = setup::set_routing(&self.clients, &self.paths.config_dir, self.port, on)
+                {
+                    tracing::warn!("could not turn routing {}: {e:#}", if on { "on" } else { "off" });
+                }
+                false
+            }
             (Some("hub"), Some(hub), _) => match self.follow_redirect(hub).await {
                 Ok(moved) => moved,
                 Err(e) => {
@@ -226,6 +244,7 @@ impl Node {
                         if self.obey(command.as_str()).await {
                             return Ok(());
                         }
+                        hub.send(self.report()).await?;
                     }
                     Some(Ok(Message::Close(_))) | None => bail!("the hub closed the connection"),
                     Some(Err(e)) => return Err(e.into()),
@@ -409,7 +428,7 @@ pub async fn serve(cfg: Config, paths: Paths) -> Result<()> {
         .hub
         .clone()
         .context("this machine is a node but has no hub set; run `conflux join <hub>`")?;
-    let node = Node::new(hub.clone(), cfg.port, paths);
+    let node = Node::new(hub.clone(), cfg.port, paths, ClientPaths::from_env()?);
     let takeover = node.lifecycle.take_over().await?;
     let exe = update::running_exe()?;
     node.updater.replaces(exe.clone());
@@ -417,7 +436,7 @@ pub async fn serve(cfg: Config, paths: Paths) -> Result<()> {
     let sync = TranscriptSync::new(
         node.hostname.clone(),
         node.paths.clone(),
-        &crate::setup::ClientPaths::from_env()?,
+        &node.clients,
         Arc::new(move || for_sync.hub_base("http")),
     );
     let addr = SocketAddr::from(([127, 0, 0, 1], cfg.port));

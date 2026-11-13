@@ -231,6 +231,7 @@
   .status-cell { display: inline-flex; align-items: center; gap: 8px; }
   .status-cell .dot { box-shadow: none; }
   .update-cell { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; }
+  td.row-actions { width: 1px; padding-top: 0; padding-bottom: 0; padding-left: 0; vertical-align: middle; }
   .badge { padding: 0 6px; border-radius: 5px; font-size: 11.5px; font-weight: 500; background: var(--hover); color: var(--fg-2); }
 
   .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -345,6 +346,8 @@
   #menu button:hover, #menu button:focus-visible { background: var(--hover); outline: 0; }
   #menu button.danger { color: var(--bad); }
   #menu hr { margin: 4px 0; border: 0; border-top: 1px solid var(--line); }
+  #menu button:disabled { color: var(--muted); }
+  .menu-note { max-width: 220px; padding: 2px 10px 6px; font-size: 12px; color: var(--muted); white-space: normal; }
   #toast { position: fixed; z-index: 50; left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; align-items: center; gap: 7px; max-width: calc(100vw - 32px); padding: 8px 13px; border-radius: 8px; background: var(--fg); color: var(--bg); font-size: 13px; font-weight: 500; box-shadow: var(--shadow-pop); }
   #toast.bad { background: var(--bad-fill); color: #ffffff; }
 
@@ -980,14 +983,19 @@ function updateCell(m, version) {
   return `${failed}<button class="btn small" data-update="${esc(m.hostname)}">${failed ? "Retry" : sized(`Update to v${esc(version)}`, "Update")}</button>`;
 }
 
-const ROUTING_OFF = '<span class="pill warn" data-tip="Uses its own logins. Run `conflux on` on this machine.">Routing off</span>';
+const ROUTING_OFF = '<span class="pill warn" data-tip="Uses its own logins">Routing off</span>';
+
+function machineMenuButton(m) {
+  if (!m.online) return "";
+  return `<button class="icon-btn" data-menu data-machine="${esc(m.hostname)}" title="More actions" aria-label="More actions for ${esc(m.hostname)}" aria-haspopup="menu">${icon("more")}</button>`;
+}
 
 function renderMachines(d) {
   const online = d.machines.filter((m) => m.online).length;
   $("nav-machines").textContent = `${online}/${d.machines.length}`;
   $("machines-sub").textContent = `${online} of ${d.machines.length} online`;
-  setHtml("machine-list", `<thead><tr><th>Machine</th><th>Status</th><th class="hide-sm">Version</th><th class="hide-sm">Transcript sync</th><th class="num hide-sm">Last seen</th><th class="num">Update</th></tr></thead><tbody>${d.machines.map((m) =>
-    `<tr class="${m.online ? "" : "offline"}"><td><span class="machine-name">${esc(m.hostname)}${m.role === "hub" ? '<span class="badge">Hub</span>' : ""}</span><div class="cell-sub show-sm">v${esc(m.version)} · sync ${m.transcript_sync ? "on" : "off"}</div></td><td class="${m.online ? "" : "muted"}"><span class="status-cell"><span class="dot ${m.online ? "on" : ""}"></span>${m.online ? "Online" : "Offline"}${m.online && m.routing === false ? ROUTING_OFF : ""}</span></td><td class="mono hide-sm">${esc(m.version)}</td><td class="hide-sm ${m.transcript_sync ? "" : "muted"}">${m.transcript_sync ? "On" : "Off"}</td><td class="num when hide-sm">${esc(ago(m.last_seen))}</td><td class="num"><span class="update-cell">${updateCell(m, d.latest_version)}</span></td></tr>`
+  setHtml("machine-list", `<thead><tr><th>Machine</th><th>Status</th><th class="hide-sm">Version</th><th class="hide-sm">Transcript sync</th><th class="num hide-sm">Last seen</th><th class="num">Update</th><th aria-label="Actions"></th></tr></thead><tbody>${d.machines.map((m) =>
+    `<tr class="${m.online ? "" : "offline"}"><td><span class="machine-name">${esc(m.hostname)}${m.role === "hub" ? '<span class="badge">Hub</span>' : ""}</span><div class="cell-sub show-sm">v${esc(m.version)} · sync ${m.transcript_sync ? "on" : "off"}</div></td><td class="${m.online ? "" : "muted"}"><span class="status-cell"><span class="dot ${m.online ? "on" : ""}"></span>${m.online ? "Online" : "Offline"}${m.online && m.routing === false ? ROUTING_OFF : ""}</span></td><td class="mono hide-sm">${esc(m.version)}</td><td class="hide-sm ${m.transcript_sync ? "" : "muted"}">${m.transcript_sync ? "On" : "Off"}</td><td class="num when hide-sm">${esc(ago(m.last_seen))}</td><td class="num"><span class="update-cell">${updateCell(m, d.latest_version)}</span></td><td class="row-actions">${machineMenuButton(m)}</td></tr>`
   ).join("")}</tbody>`);
   setHtml("fleet", d.machines.map((m) =>
     `<li class="${m.online ? "" : "offline"}" title="${esc(m.hostname)}${m.online && m.routing === false ? " · routing off" : ""}"><span class="dot ${m.online ? "on" : ""} ${m.online && m.routing === false ? "routing-off" : ""}"></span><span class="truncate">${esc(m.hostname)}</span>${m.role === "hub" ? '<span class="badge">Hub</span>' : ""}</li>`
@@ -1562,15 +1570,28 @@ function closeMenu() {
   menuAnchor = null;
 }
 
-function openMenu(button) {
-  const a = latest.accounts.find((x) => x.id === button.dataset.menu);
-  if (!a) return;
-  const menu = $("menu");
+function accountMenu(a) {
   const id = esc(a.id);
   const overage = a.provider === "claude"
     ? `<button role="menuitem" data-act="overage" data-id="${id}" data-on="${!a.allow_overage}">${a.allow_overage ? "Block extra usage" : "Allow extra usage"}</button>`
     : "";
-  menu.innerHTML = `${overage}<button role="menuitem" data-act="toggle" data-id="${id}" data-on="${!a.enabled}">${a.enabled ? "Disable account" : "Enable account"}</button><hr><button role="menuitem" class="danger" data-act="remove" data-id="${id}" data-name="${esc(a.email || a.id)}" data-kind="${esc(accountKind(a))}">Remove account</button>`;
+  return `${overage}<button role="menuitem" data-act="toggle" data-id="${id}" data-on="${!a.enabled}">${a.enabled ? "Disable account" : "Enable account"}</button><hr><button role="menuitem" class="danger" data-act="remove" data-id="${id}" data-name="${esc(a.email || a.id)}" data-kind="${esc(accountKind(a))}">Remove account</button>`;
+}
+
+function machineMenu(m) {
+  const on = m.routing !== false;
+  const item = `<button role="menuitem" data-routing="${esc(m.hostname)}" data-on="${!on}" ${m.routing === null ? "disabled" : ""}>${on ? "Turn routing off" : "Turn routing on"}</button>`;
+  return m.routing === null ? `${item}<div class="menu-note">Update ${esc(m.hostname)} to change its routing from here.</div>` : item;
+}
+
+function openMenu(button) {
+  const machine = button.dataset.machine;
+  const target = machine === undefined
+    ? latest.accounts.find((x) => x.id === button.dataset.menu)
+    : latest.machines.find((m) => m.hostname === machine);
+  if (!target) return;
+  const menu = $("menu");
+  menu.innerHTML = machine === undefined ? accountMenu(target) : machineMenu(target);
   menu.hidden = false;
   const rect = button.getBoundingClientRect();
   const left = Math.max(8, Math.min(rect.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - 8));
@@ -1676,6 +1697,18 @@ async function checkForUpdates(button) {
   } catch (e) { showError(e); } finally { button.disabled = false; button.classList.remove("spin"); }
 }
 
+async function setRouting(button) {
+  const machine = button.dataset.routing;
+  const on = button.dataset.on === "true";
+  closeMenu();
+  toast(`Turning routing ${on ? "on" : "off"} on ${machine}...`);
+  try {
+    await api("PATCH", `/conflux/api/machines/${encodeURIComponent(machine)}`, { routing: on });
+    await refresh();
+    toast(on ? `New sessions on ${machine} go through conflux` : `New sessions on ${machine} use its own logins`);
+  } catch (e) { showError(e); }
+}
+
 async function accountAction(button) {
   const { act, id, on, name, kind } = button.dataset;
   const path = `/conflux/api/accounts/${encodeURIComponent(id)}`;
@@ -1771,6 +1804,8 @@ document.addEventListener("click", (ev) => {
   if (add) return add.dataset.add === "claude" ? loginClaude(add.dataset.email) : loginCodex(add.dataset.email);
   const thread = ev.target.closest("[data-thread]");
   if (thread) return openThread(thread.dataset.thread);
+  const routing = ev.target.closest("[data-routing]");
+  if (routing) return setRouting(routing);
   const action = ev.target.closest("[data-act]");
   if (action) return accountAction(action);
   const installButton = ev.target.closest("[data-install-on]");

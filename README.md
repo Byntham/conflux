@@ -166,6 +166,8 @@ Requests already running finish on the old version. A machine that is off stays 
 
 If the hub is down, run `conflux off` on the machine you're using and restart your tool. If you've never logged in to Claude Code or Codex on that machine, log in directly first.
 
+To turn routing on or off for another machine, open Machines on the dashboard, click the ⋯ button on that machine's row, and pick Turn routing off or Turn routing on. New sessions on that machine pick up the change. The dashboard edits the default folders, so if you set `CLAUDE_CONFIG_DIR` or `CODEX_HOME` there, run `conflux on` or `conflux off` on that machine instead.
+
 ## Move the hub
 
 Your logins move with the hub, and your other machines follow on their own. The new machine needs conflux installed.
