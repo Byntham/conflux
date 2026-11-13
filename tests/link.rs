@@ -236,7 +236,7 @@ async fn a_waiting_machine_finds_its_hub_and_links_itself_to_it() {
         .unwrap();
     let cfg = Config::load(&machine.paths).unwrap();
     assert_eq!(cfg.role, Role::Node);
-    assert_eq!(cfg.hub.as_deref(), Some("localhost"));
+    assert_eq!(cfg.hub.as_deref(), Some("127.0.0.1"));
     let claude = std::fs::read_to_string(&machine.clients.claude_settings).unwrap();
     assert!(claude.contains(&format!("http://127.0.0.1:{}", hub.port)));
 }

@@ -116,7 +116,7 @@ The hub state lives in `hub-state.json` (`src/hubstate.rs`), so a restart in the
 A waiting machine can also start the link itself. `conflux join` with no name and the Mac menu bar app both use these two routes, which answer only on loopback.
 
 1. `GET /conflux/api/hubs` lists peers owned by the same Tailscale user and probes `GET /conflux/api/status` on each one. A peer that answers with the hub role is a hub. Nodes listen only on loopback, so they never answer.
-2. `POST /conflux/api/join` takes a hub's address. The waiting machine checks again that the address belongs to the same user and answers as a hub. It then becomes a node the same way as in step 3 above. It saves the hub's tailnet name if that name resolves to the address, and the address otherwise.
+2. `POST /conflux/api/join` takes a hub's address. The waiting machine checks again that the address belongs to the same user and answers as a hub. It then becomes a node the same way as in step 3 above, with that address as the hub.
 
 ## Control channel
 

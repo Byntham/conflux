@@ -54,7 +54,7 @@ transcript_sync = false
 | `CLAUDE_CONFIG_DIR` | Where conflux finds Claude Code's `settings.json`. |
 | `CODEX_HOME` | Where conflux finds Codex's `config.toml`. |
 
-`conflux join` warns you if your shell sets `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `CODEX_HOME`, or `OPENAI_BASE_URL`. These can make Claude Code or Codex skip the settings conflux wrote.
+`conflux join` warns you if your shell sets `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, or `OPENAI_BASE_URL`. These can make Claude Code or Codex skip the settings conflux wrote.
 
 ### For development and tests
 

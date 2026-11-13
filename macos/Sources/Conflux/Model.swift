@@ -165,8 +165,13 @@ final class Model: ObservableObject {
             if case let .answered(200, body) = await fetch(base.appendingPathComponent("conflux/api/status")) {
                 waitingNow = try? JSON.decoder.decode(WaitingStatus.self, from: body)
             }
-            if menuOpen, case let .answered(200, body) = await fetch(base.appendingPathComponent("conflux/api/hubs")) {
-                hubs = (try? JSON.decoder.decode(FoundHubs.self, from: body))?.hubs ?? []
+            if menuOpen {
+                let found = await fetch(base.appendingPathComponent("conflux/api/hubs"))
+                if case let .answered(200, body) = found {
+                    hubs = (try? JSON.decoder.decode(FoundHubs.self, from: body))?.hubs ?? []
+                } else {
+                    hubs = []
+                }
             }
         case let .answered(status, body):
             dashboard = nil

@@ -646,7 +646,7 @@ async fn join_found_hub(cfg: Config, paths: Paths, daemon: &Daemon) -> Result<()
     }
     let found = daemon.get("/conflux/api/hubs").await?;
     let hubs = found["hubs"].as_array().cloned().unwrap_or_default();
-    let names: Vec<&str> = hubs.iter().filter_map(|h| h["name"].as_str()).collect();
+    let name = |hub: &Value| hub["name"].as_str().unwrap_or("?").to_string();
     let hub = match hubs.as_slice() {
         [hub] => hub,
         [] => bail!(
@@ -655,13 +655,13 @@ async fn join_found_hub(cfg: Config, paths: Paths, daemon: &Daemon) -> Result<()
         ),
         _ => bail!(
             "found more than one hub: {}. Pick one with `conflux join <hub>`.",
-            names.join(", ")
+            hubs.iter().map(name).collect::<Vec<_>>().join(", ")
         ),
     };
     daemon
         .post("/conflux/api/join", json!({ "address": hub["address"] }))
         .await?;
-    println!("Found the hub at {}.", names[0]);
+    println!("Found the hub {}.", name(hub));
     print_joined(&Config::load(&paths)?);
     Ok(())
 }

@@ -64,16 +64,11 @@ struct MenuView: View {
             }
         case .waiting:
             Notice(title: "Waiting to be linked", detail: waitingDetail) {
-                let buttons = Group {
+                VStack(alignment: .leading, spacing: 8) {
                     ForEach(model.hubs) { hub in
                         Button("Link to \(hub.name)") { model.link(to: hub) }.glassButton(prominent: true)
                     }
                     Button("Make this the hub") { model.setUp(asHub: true) }.glassButton()
-                }
-                if model.hubs.count > 1 {
-                    VStack(alignment: .leading, spacing: 8) { buttons }
-                } else {
-                    buttons
                 }
             }
             UpdateBanner()

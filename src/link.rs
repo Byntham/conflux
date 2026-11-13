@@ -422,18 +422,7 @@ async fn join_hub(
     if !w.is_hub(&by_address).await {
         return refuse(StatusCode::BAD_GATEWAY, format!("{name} is not running a conflux hub"));
     }
-    let hub = if resolves_to(&name, req.address).await {
-        &name
-    } else {
-        &by_address
-    };
-    w.link_to(hub, json!({ "hub": hub, "name": name })).await
-}
-
-async fn resolves_to(name: &str, address: IpAddr) -> bool {
-    tokio::net::lookup_host((name, 0))
-        .await
-        .is_ok_and(|mut found| found.any(|a| a.ip() == address))
+    w.link_to(&by_address, json!({ "hub": name })).await
 }
 
 fn no_tailscale() -> Response {
