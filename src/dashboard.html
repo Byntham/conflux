@@ -1053,7 +1053,7 @@ function buildPool(provider, d, now) {
   const members = accounts.filter((a) => a.enabled && !a.needs_login && poolWindow(a));
   const scopes = members.flatMap((a) => a.usage.windows.filter((w) => w.model_scope).map((w) => w.model_scope));
   const scope = [...new Set(scopes)].sort()[0] || null;
-  const pool = { provider, accounts, size: members.length, scope, past: [], future: [], refills: [], now: 0, nowScoped: 0 };
+  const pool = { provider, accounts, size: members.length, scope, past: [], scopedPast: [], future: [], refills: [], now: 0, nowScoped: 0 };
   if (!members.length) return pool;
   const hoursAway = (iso) => (iso ? (new Date(iso) - now) / HOUR_MS : Infinity);
   const usedNow = (w) => (hoursAway(w.resets_at) <= 0 ? 0 : w.used_pct);
@@ -1079,15 +1079,16 @@ function buildPool(provider, d, now) {
     return { all, scoped: s.scoped && t >= s.scoped[0].t ? Math.min(all, 100 - usedAt(s.scoped, t)) : all };
   };
   const sample = (t) => {
-    let all = 0, scoped = 0, counted = 0;
+    let all = 0, scoped = 0, counted = 0, known = true;
     for (const s of series) {
       if (t < s.all[0].t) continue;
+      if (s.scoped && t < s.scoped[0].t) known = false;
       const l = leftAt(s, t);
       all += l.all;
       scoped += l.scoped;
       counted++;
     }
-    return { t, v: all / counted, s: scoped / counted };
+    return { t, v: all / counted, s: known ? scoped / counted : null };
   };
   const start = Math.max(-POOL_BACK_H, Math.min(...series.map((s) => s.all[0].t)));
   const times = new Set([start, 0]);
@@ -1099,6 +1100,7 @@ function buildPool(provider, d, now) {
     }
   }
   pool.past = start < 0 ? [...times].sort((x, y) => x - y).map(sample) : [];
+  pool.scopedPast = pool.past.slice(pool.past.findLastIndex((p) => p.s === null) + 1);
   for (let i = 1; i < pool.past.length; i++) {
     const before = pool.past[i - 1], after = pool.past[i];
     if (after.t - before.t > POOL_STEP_H * 1.5 || after.v - before.v < 2) continue;
@@ -1206,9 +1208,9 @@ function renderPools(d) {
     if (p.size) {
       if (p.past.length) g.push(`<path class="area" d="${area(p.past, "v")}"/>`);
       g.push(`<path class="area sched" d="${area(p.future, "v")}"/>`);
-      if (p.scope && p.past.length) g.push(`<path class="area scope" d="${area(p.past, "s")}"/>`);
+      if (p.scope && p.scopedPast.length > 1) g.push(`<path class="area scope" d="${area(p.scopedPast, "s")}"/>`);
       g.push(`<line class="base" x1="${padL}" x2="${padL + plotW}" y1="${base}" y2="${base}"/>`);
-      if (p.scope) g.push(`${p.past.length ? `<path class="trace scope" d="${path(p.past, "s")}"/>` : ""}<path class="level scope" d="${flats(p.future, "s")}"/>${risers(p.future, "s", " scope")}`);
+      if (p.scope) g.push(`${p.scopedPast.length > 1 ? `<path class="trace scope" d="${path(p.scopedPast, "s")}"/>` : ""}<path class="level scope" d="${flats(p.future, "s")}"/>${risers(p.future, "s", " scope")}`);
       g.push(`${p.past.length ? `<path class="trace" d="${path(p.past, "v")}"/>` : ""}<path class="level" d="${flats(p.future, "v")}"/>${risers(p.future, "v", "")}`);
       for (const r of p.refills) {
         const lx = Math.min(Math.max(x(r.t), padL + 16), padL + plotW - 16);
@@ -1247,7 +1249,7 @@ function renderPools(d) {
 }
 
 function poolValueAt(pool, t, k) {
-  const pts = t < 0 ? pool.past : pool.future;
+  const pts = t >= 0 ? pool.future : k === "s" ? pool.scopedPast : pool.past;
   if (!pts.length || t < pts[0].t) return null;
   let prev = pts[0];
   for (const pt of pts) {
