@@ -291,12 +291,27 @@ fn codex_events(name: &str, turn: u64, q: &Quota) -> Vec<Value> {
     ]
 }
 
+fn codex_out_of_quota(q: &Quota) -> Value {
+    json!({"error": {
+        "type": "usage_limit_reached",
+        "message": "This dev account is out of quota.",
+        "resets_in_seconds": (q.short_resets - Utc::now()).num_seconds().max(60)
+    }})
+}
+
 async fn codex_socket(pretend: Arc<Pretend>, name: String, mut socket: WebSocket) {
     while let Some(Ok(message)) = socket.recv().await {
         let Message::Text(_) = message else { continue };
         let Some(quota) = pretend.quotas.lock().unwrap().get(&name).cloned() else {
             return;
         };
+        if quota.exhausted {
+            println!("provider: {name} refused a Codex turn over WebSocket, out of quota");
+            let mut refusal = codex_out_of_quota(&quota);
+            refusal["type"] = "error".into();
+            let _ = socket.send(Message::Text(refusal.to_string().into())).await;
+            return;
+        }
         println!("provider: {name} answered a Codex turn over WebSocket");
         for event in codex_events(&name, pretend.next_turn(), &quota) {
             if socket.send(Message::Text(event.to_string().into())).await.is_err() {
@@ -316,16 +331,7 @@ async fn codex_responses(
     };
     if quota.exhausted {
         println!("provider: {name} refused a Codex request, out of quota");
-        let resets_in = (quota.short_resets - Utc::now()).num_seconds().max(60);
-        return json_reply(
-            StatusCode::TOO_MANY_REQUESTS,
-            vec![],
-            json!({"error": {
-                "type": "usage_limit_reached",
-                "message": "This dev account is out of quota.",
-                "resets_in_seconds": resets_in
-            }}),
-        );
+        return json_reply(StatusCode::TOO_MANY_REQUESTS, vec![], codex_out_of_quota(&quota));
     }
     match upgrade {
         Ok(upgrade) => upgrade.on_upgrade(move |socket| codex_socket(pretend, name, socket)),
@@ -635,7 +641,10 @@ async fn main() -> Result<()> {
         println!("  CONFLUX_HOME={node_home} {} --snapshot menu.png", app.display());
     }
     println!();
-    println!("Press Ctrl-C to stop. The files are removed on exit.");
+    println!(
+        "Press Ctrl-C or run `kill {}` to stop. The files are removed on exit.",
+        std::process::id()
+    );
     println!();
 
     let stopped = tokio::select! {

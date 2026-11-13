@@ -22,7 +22,7 @@ Rust proxy that pools Claude Code and Codex subscription accounts on one hub mac
 - On a Mac, pass `-- --app` to build the menu bar app and start it against the copy. The dev build has its own bundle ID, so it runs next to the installed app. It hides Restart and refuses Set up, because the copy has no background service.
 - To see the Mac app's menu, run the `--snapshot` command that `--app` prints. It draws the menu to a PNG, with light and dark side by side. It needs no screen recording permission, so it works over ssh.
 - Point Claude Code at the copy with `CLAUDE_CONFIG_DIR`, as the command prints. Setting `ANTHROPIC_BASE_URL` in the shell does not work. `~/.claude/settings.json` wins, and the request goes to the real hub.
-- Stop it with Ctrl-C or by killing its PID. It stops the hub, node, and Mac app it started and removes the temp folder.
+- Stop it with Ctrl-C or the `kill` command it prints. It then stops the hub, node, and Mac app it started and removes the temp folder. Killing the PID of `cargo run` leaves them running.
 - To test on another operating system from inside T3 Code, push the branch, list the linked environments, and delegate the test to an agent on a machine that runs that system. The rules in "Don't break the developer's setup" apply on that machine too.
 
 ## Hit every path
