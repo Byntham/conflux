@@ -127,7 +127,7 @@ async fn connect(hub: &Harness, n: &NodeHarness) -> tokio::task::JoinHandle<()> 
 }
 
 #[tokio::test]
-async fn a_node_is_online_while_its_control_connection_is_open() {
+async fn a_node_reports_its_routing_and_is_online_while_connected() {
     let hub = Harness::new().await;
     let n = start_node(hub.port).await;
     let clients = ClientPaths {

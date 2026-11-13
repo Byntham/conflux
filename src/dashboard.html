@@ -428,6 +428,7 @@
     .topbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 16px; background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 10; }
     .sidebar { position: fixed; top: auto; bottom: 0; left: 0; right: 0; z-index: 20; height: auto; flex-direction: row; padding: 5px 8px calc(5px + env(safe-area-inset-bottom)); border-right: 0; border-top: 1px solid var(--line); }
     .sidebar .brand, .sidebar .hub-card { display: none; }
+    .status-cell { flex-wrap: wrap; row-gap: 4px; }
     .update-all { width: 34px; height: 34px; margin-left: 4px; }
     .nav { flex: 1; flex-direction: row; justify-content: space-around; }
     .nav a { position: relative; flex: 1; flex-direction: column; gap: 1px; padding: 5px 2px; font-size: 11.5px; }
@@ -993,7 +994,7 @@ function updateCell(m, version) {
   return `${failed}<button class="btn small" data-update="${esc(m.hostname)}">${failed ? "Retry" : sized(`Update to v${esc(version)}`, "Update")}</button>`;
 }
 
-const ROUTING_OFF = '<span class="pill warn" data-tip="Claude Code and Codex on this machine use their own logins. Run conflux on there to send them through conflux.">Routing off</span>';
+const ROUTING_OFF = '<span class="pill warn" data-tip="Uses its own logins. Run `conflux on` on this machine.">Routing off</span>';
 
 function renderMachines(d) {
   const online = d.machines.filter((m) => m.online).length;
