@@ -185,7 +185,7 @@ async fn a_draining_hub_closes_the_socket_only_after_the_turn_ends() {
 }
 
 #[tokio::test]
-async fn latency_stops_when_the_upstream_starts_answering() {
+async fn the_row_is_logged_when_the_upstream_starts_answering() {
     let h = Harness::new().await;
     h.add(Provider::Codex, "c").await;
     h.ws_script("at-c", WsScript::SlowTurn);
