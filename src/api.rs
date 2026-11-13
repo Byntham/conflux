@@ -259,7 +259,9 @@ pub async fn update_machine(
     {
         return Err(ApiError(
             StatusCode::GATEWAY_TIMEOUT,
-            format!("{hostname} did not confirm the change. Its conflux log has the reason."),
+            format!(
+                "{hostname} did not confirm the change. Update it if it runs an older conflux, or check its conflux log."
+            ),
         ));
     }
     Ok(Json(done))
