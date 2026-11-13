@@ -183,6 +183,7 @@ impl Node {
         if crate::service::running_as_service() {
             crate::service::uninstall()?;
         }
+        tracing::info!("left the hub; Claude Code and Codex use this machine's own logins again");
         self.lifecycle.begin_drain();
         Ok(())
     }
@@ -476,7 +477,7 @@ pub async fn serve(cfg: Config, paths: Paths) -> Result<()> {
     }
     update::remove_old_binaries(&exe);
     node.lifecycle.drain_started().await;
-    tracing::info!("a newer conflux took over; finishing the requests already running");
+    tracing::info!("stopping; finishing the requests already running");
     for task in background {
         task.abort();
     }
