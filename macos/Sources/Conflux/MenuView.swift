@@ -65,11 +65,12 @@ struct MenuView: View {
         case .waiting:
             Notice(title: "Waiting to be linked", detail: waitingDetail) {
                 VStack(alignment: .leading, spacing: 8) {
-                    ForEach(model.hubs) { hub in
+                    ForEach(model.hubs ?? []) { hub in
                         Button("Link to \(hub.name)") { model.link(to: hub) }.glassButton(prominent: true)
                     }
                     Button("Make this the hub") { model.setUp(asHub: true) }.glassButton()
                 }
+                .disabled(model.busy != nil)
             }
             UpdateBanner()
         case let .problem(message):
@@ -88,10 +89,11 @@ struct MenuView: View {
 
 extension MenuView {
     private var waitingDetail: String {
-        switch model.hubs.count {
-        case 0: return "On your hub's dashboard, open Machines and click Find machines."
-        case 1: return "Found your hub, \(model.hubs[0].name), on your tailnet. Linking sends Claude Code and Codex on this Mac through it."
-        default: return "Found \(model.hubs.count) hubs on your tailnet. Pick the one to link this Mac to."
+        guard let hubs = model.hubs else { return "Looking for your hub on the tailnet…" }
+        switch hubs.count {
+        case 0: return "No hub found on your tailnet. On your hub's dashboard, open Machines and click Find machines."
+        case 1: return "Found your hub, \(hubs[0].name), on your tailnet. Linking sends Claude Code and Codex on this Mac through it."
+        default: return "Found \(hubs.count) hubs on your tailnet. Pick the one to link this Mac to."
         }
     }
 }

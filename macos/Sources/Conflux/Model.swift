@@ -80,7 +80,7 @@ final class Model: ObservableObject {
     @Published private(set) var phase: Phase = .loading
     @Published private(set) var dashboard: Dashboard?
     @Published private(set) var waiting: WaitingStatus?
-    @Published private(set) var hubs: [FoundHub] = []
+    @Published private(set) var hubs: [FoundHub]?
     @Published private(set) var node: NodeInfo?
     @Published private(set) var routing: Bool?
     @Published private(set) var busy: String?
@@ -128,7 +128,7 @@ final class Model: ObservableObject {
         var waitingNow: WaitingStatus?
         defer {
             waiting = waitingNow
-            if phase != .waiting { hubs = [] }
+            if phase != .waiting { hubs = nil }
         }
         relaunchIfReplaced()
         if !local.devCopy && !inApplications && !local.serviceInstalled {
@@ -414,9 +414,10 @@ final class Model: ObservableObject {
             _ = try await self.post("conflux/api/join", ["address": hub.address])
             let node = self.local.base(port: self.local.port).appendingPathComponent("conflux/node")
             for _ in 0..<20 {
-                if case .answered(200, _) = await self.fetch(node) { return }
+                if case .answered(200, _) = await self.fetch(node) { break }
                 try? await Task.sleep(nanoseconds: 250_000_000)
             }
+            await self.refresh()
         }
     }
 
