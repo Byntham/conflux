@@ -1631,7 +1631,7 @@ function confirmLeave(machine) {
 async function forgetMachine(machine) {
   closeMenu();
   try {
-    await api("DELETE", `/conflux/api/machines/${encodeURIComponent(machine)}`);
+    await api("DELETE", `/conflux/api/machines/${encodeURIComponent(machine)}?forget=true`);
     await refresh();
     toast(`Removed ${machine} from the list`);
   } catch (e) { showError(e); }

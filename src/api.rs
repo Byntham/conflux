@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
@@ -270,7 +270,17 @@ pub async fn update_machine(
     Ok(Json(done))
 }
 
-pub async fn remove_machine(State(app): State<Arc<App>>, Path(hostname): Path<String>) -> ApiResult<Json<Value>> {
+#[derive(Deserialize)]
+pub struct RemoveQuery {
+    #[serde(default)]
+    forget: bool,
+}
+
+pub async fn remove_machine(
+    State(app): State<Arc<App>>,
+    Path(hostname): Path<String>,
+    Query(query): Query<RemoveQuery>,
+) -> ApiResult<Json<Value>> {
     if hostname == app.hostname {
         return Err(ApiError(
             StatusCode::CONFLICT,
@@ -283,6 +293,9 @@ pub async fn remove_machine(State(app): State<Arc<App>>, Path(hostname): Path<St
         .into_iter()
         .find(|m| m.hostname == hostname)
         .ok_or_else(|| not_found("machine"))?;
+    if machine.online && query.forget {
+        return Err(ApiError(StatusCode::CONFLICT, format!("{hostname} came back online")));
+    }
     if machine.online {
         if machine.routing.is_none() {
             return Err(ApiError(

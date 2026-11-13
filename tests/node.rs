@@ -157,6 +157,15 @@ async fn remove(hub: &Harness, machine: &str) -> reqwest::Response {
         .unwrap()
 }
 
+async fn forget(hub: &Harness, machine: &str) -> reqwest::Response {
+    hub.http
+        .delete(format!("{}/conflux/api/machines/{machine}?forget=true", hub.base))
+        .header("content-type", "application/json")
+        .send()
+        .await
+        .unwrap()
+}
+
 fn fleet_routing(hub: &Harness) -> Vec<(String, Option<bool>)> {
     hub.app.fleet().iter().map(|m| (m.role.clone(), m.routing)).collect()
 }
@@ -216,6 +225,8 @@ async fn the_dashboard_changes_routing_and_removes_machines() {
     assert_eq!(set_routing(&hub, "old-node", true).await.status(), StatusCode::CONFLICT);
     assert_eq!(remove(&hub, "old-node").await.status(), StatusCode::CONFLICT);
     assert_eq!(remove(&hub, "hub-under-test").await.status(), StatusCode::CONFLICT);
+    assert_eq!(forget(&hub, "node-one").await.status(), StatusCode::CONFLICT);
+    assert!(!n.node.lifecycle.is_draining());
 
     let r = set_routing(&hub, "node-one", true).await;
     assert_eq!(r.status(), 200, "{}", r.text().await.unwrap());
@@ -240,7 +251,7 @@ async fn the_dashboard_changes_routing_and_removes_machines() {
     })
     .await;
     assert_eq!(set_routing(&hub, "old-node", true).await.status(), StatusCode::CONFLICT);
-    let r = remove(&hub, "old-node").await;
+    let r = forget(&hub, "old-node").await;
     assert_eq!(r.status(), 200, "{}", r.text().await.unwrap());
     assert!(hub.app.machines.list().is_empty());
 }

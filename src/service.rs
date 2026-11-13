@@ -245,6 +245,9 @@ pub fn running_as_service() -> bool {
         let Ok(exe) = crate::update::running_exe() else {
             return false;
         };
+        if std::env::var_os("CONFLUX_HOME").is_some() {
+            return false;
+        }
         Command::new("reg")
             .args(["query", WINDOWS_RUN_KEY, "/v", "conflux"])
             .output()

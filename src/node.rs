@@ -180,6 +180,7 @@ impl Node {
 
     fn leave(&self) -> Result<()> {
         setup::leave(&self.clients, &self.paths.config_dir, self.port)?;
+        crate::supervisor::stop_when_workers_exit()?;
         if crate::service::running_as_service() {
             crate::service::uninstall()?;
         }
