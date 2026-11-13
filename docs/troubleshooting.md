@@ -30,7 +30,7 @@ The node is running but can't reach the hub. Check that the hub machine is on, t
 
 To keep working until the hub is back, run `conflux off` and restart your session. Run `conflux on` when the hub is back.
 
-### Requests don't show up under "Recent requests"
+### Requests don't show up on the Requests tab
 
 - Restart the session. Sessions that were open before `conflux join` keep their old settings.
 - Check that `~/.claude/settings.json` has `ANTHROPIC_BASE_URL` set to `http://127.0.0.1:<port>`, and that `~/.codex/config.toml` has `model_provider = "conflux"`. `<port>` is `port` in `config.toml`, which is 8317 by default.

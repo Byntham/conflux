@@ -34,7 +34,7 @@ A hub takes an exclusive file lock on `hub.lock` in the data directory, so two h
 1. The updater downloads the release asset next to the binary and checks that it answers `--version`.
 2. It moves the old binary aside and puts the new one in its place.
 3. The old worker starts the new binary as `conflux worker`. The `CONFLUX_HANDOFF` variable tells it a loopback port, a token, and the listening sockets it may inherit.
-4. The new worker connects back and proves the token. The old worker pauses token refresh and usage polling, then sends its in-memory state. That state is the routing state, usage snapshots, the request log, and the machine list.
+4. The new worker connects back and proves the token. The old worker pauses token refresh and usage polling, then sends its in-memory state. That state is the routing state, usage snapshots and their history, the request log, and the machine list.
 5. The new worker imports the state, serves on the inherited sockets, and replies that it is ready.
 6. The old worker stops accepting connections and finishes the requests it already has, for up to an hour. It forwards late changes, such as new response owners, to the new worker.
 
@@ -91,7 +91,7 @@ A cooldown or billing block lifts early when a usage reading taken after it show
 
 ## Usage and token refresh
 
-`src/usage.rs` keeps a usage snapshot per account. It updates the snapshot from the rate-limit headers on each response. It also polls each provider's usage endpoint when an account has no data, or has been idle and its data is old.
+`src/usage.rs` keeps a usage snapshot per account. It updates the snapshot from the rate-limit headers on each response. It also polls each provider's usage endpoint when an account has no data, or has been idle and its data is old. It keeps up to 3 days of readings per account, at most one every 15 minutes, for the dashboard's pool chart. Rate-limit headers carry no model-scoped window, so a model-scoped window such as Fable weekly enters this history only from a poll.
 
 `src/refresh.rs` refreshes OAuth tokens before they expire. Claude tokens refresh an hour ahead, and Codex tokens a few days ahead. Refresh tokens are single use, so each refresh writes a claim and then a receipt to a per-account journal before and after the call. After a crash, the store replays a finished receipt. If the outcome is unknown, conflux does not retry with a token that may already be spent. The account needs a new login once its access token expires. Logins (`src/oauth.rs`, `src/api.rs`) use a pasted redirect URL for Claude and a device code for Codex.
 

@@ -159,8 +159,8 @@ fn free_port() -> u16 {
 #[tokio::test]
 async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
     let h = Harness::new().await;
-    h.add(Provider::Claude, "a").await;
-    h.add(Provider::Claude, "b").await;
+    let a = h.add(Provider::Claude, "a").await;
+    let b = h.add(Provider::Claude, "b").await;
     h.add(Provider::Codex, "c").await;
     h.add(Provider::Codex, "d").await;
     offer_release(&h);
@@ -182,8 +182,19 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
     .await;
 
     let http = reqwest::Client::new();
+    for token in ["at-a", "at-b"] {
+        h.reply(
+            token,
+            Reply::Json(
+                200,
+                vec![("anthropic-ratelimit-unified-7d-utilization", "0.4".into())],
+                json!({"token": token}).to_string(),
+            ),
+        );
+    }
     let first: Value = claude(&http, &base).send().await.unwrap().json().await.unwrap();
     let preferred = first["token"].as_str().unwrap().to_string();
+    let preferred_id = if preferred == "at-a" { &a } else { &b };
     let other = if preferred == "at-a" { "at-b" } else { "at-a" };
     h.reply(
         &preferred,
@@ -308,6 +319,12 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
         },
     )
     .await;
+    let d: Value = reqwest::get(&dashboard).await.unwrap().json().await.unwrap();
+    assert_eq!(
+        d["usage_history"][preferred_id][0]["used"]["seven_day"], 40.0,
+        "the new hub keeps the usage history the old hub recorded: {}",
+        d["usage_history"]
+    );
     let still_listed = away().await.expect("the new hub still lists the offline node");
     assert_eq!(still_listed["online"], false);
     assert_eq!(still_listed["outdated"], true);

@@ -11,7 +11,7 @@ One always-on machine, the **hub**, holds your account logins. Claude Code and C
 - **Less wasted quota.** New sessions start on the available account whose weekly limit resets soonest.
 - **Automatic failover.** When an account runs out, conflux moves the session to one that still has room.
 - **Stable sessions.** A session stays on one account, so its prompt cache keeps working.
-- **A dashboard.** It shows every account's limits, your machines, and recent requests, from any device on your tailnet.
+- **A dashboard.** It shows how much quota each provider's pool of accounts has left and when it refills, plus each account's limits, your machines, and recent requests. It works from any device on your tailnet.
 - **Optional thread history.** Collect Claude Code and Codex threads from the machines you choose, to read and search in one place.
 
 > [!WARNING]
@@ -92,7 +92,7 @@ To skip linking, or for a machine that isn't found, end the install command with
 
 ### 4. Restart and check
 
-Restart open Claude Code and Codex sessions on every machine, including the hub. Send a message from one. It shows up under "Recent requests" on the dashboard.
+Restart open Claude Code and Codex sessions on every machine, including the hub. Send a message from one. It shows up on the dashboard's Requests tab.
 
 If it doesn't, see [Troubleshooting](docs/troubleshooting.md).
 
