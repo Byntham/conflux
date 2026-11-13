@@ -300,7 +300,10 @@ pub async fn remove_machine(
         )
     };
     if machine.online && query.forget {
-        return Err(ApiError(StatusCode::CONFLICT, format!("{hostname} came back online")));
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            format!("{hostname} is online. Use Remove conflux instead."),
+        ));
     }
     if !query.forget {
         if !machine.online {
@@ -310,6 +313,12 @@ pub async fn remove_machine(
             return Err(ApiError(
                 StatusCode::CONFLICT,
                 format!("{hostname} runs an older conflux. Update it to remove conflux from it here."),
+            ));
+        }
+        if machine.update.as_ref().is_some_and(|u| u.in_progress()) {
+            return Err(ApiError(
+                StatusCode::CONFLICT,
+                format!("{hostname} is updating. Try again when it finishes."),
             ));
         }
         if !app.machines.send(&hostname, machines::leave()) {

@@ -179,12 +179,15 @@ impl Node {
     }
 
     fn leave(&self) -> Result<()> {
+        if self.updater.status().is_some_and(|s| s.in_progress()) {
+            bail!("an update is running");
+        }
         setup::leave(&self.clients, &self.paths.config_dir, self.port)?;
         tracing::info!("left the hub; Claude Code and Codex use this machine's own logins again");
         if crate::service::running_as_service() {
             crate::service::uninstall()?;
         }
-        crate::supervisor::stop_when_workers_exit()?;
+        crate::supervisor::stop_when_workers_exit();
         self.lifecycle.begin_drain();
         Ok(())
     }

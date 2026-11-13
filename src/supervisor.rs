@@ -36,15 +36,15 @@ pub fn run() -> Result<()> {
     }
 }
 
-pub fn stop_when_workers_exit() -> Result<()> {
+pub fn stop_when_workers_exit() {
     if std::env::var_os(SUPERVISED).is_none() {
-        return Ok(());
+        return;
     }
     #[cfg(unix)]
-    let lifeline = std::os::fd::AsFd::as_fd(&std::io::stdin()).try_clone_to_owned()?;
+    let lifeline = std::os::fd::AsFd::as_fd(&std::io::stdin()).try_clone_to_owned();
     #[cfg(windows)]
-    let lifeline = std::os::windows::io::AsHandle::as_handle(&std::io::stdin()).try_clone_to_owned()?;
-    std::fs::File::from(lifeline)
-        .write_all(STOP)
-        .context("tell the supervisor to stop")
+    let lifeline = std::os::windows::io::AsHandle::as_handle(&std::io::stdin()).try_clone_to_owned();
+    if let Ok(lifeline) = lifeline {
+        let _ = std::fs::File::from(lifeline).write_all(STOP);
+    }
 }
