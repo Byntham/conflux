@@ -54,8 +54,17 @@ pub fn load_joined(config_dir: &Path) -> Result<Option<Joined>> {
     fsutil::read_json(&joined_path(config_dir))
 }
 
-pub fn routing(config_dir: &Path) -> Option<bool> {
-    load_joined(config_dir).ok().flatten().map(|j| j.active)
+pub fn routing(config_dir: &Path) -> bool {
+    load_joined(config_dir).ok().flatten().is_some_and(|j| j.active)
+}
+
+pub fn set_routing(paths: &ClientPaths, config_dir: &Path, port: u16, on: bool) -> Result<()> {
+    if on {
+        apply(paths, config_dir, port)?;
+    } else {
+        restore(paths, config_dir, port)?;
+    }
+    Ok(())
 }
 
 fn base_url(port: u16) -> String {

@@ -269,6 +269,10 @@ impl Harness {
         let hub = Arc::get_mut(&mut app).unwrap();
         hub.hostname = "hub-under-test".into();
         hub.ssh = ssh.into();
+        hub.clients = conflux::setup::ClientPaths {
+            claude_settings: dir.path().join("claude/settings.json"),
+            codex_config: dir.path().join("codex/config.toml"),
+        };
         let routes = app
             .routes()
             .into_make_service_with_connect_info::<std::net::SocketAddr>();

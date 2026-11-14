@@ -82,6 +82,7 @@ async fn connects_as_a_node(hub: &Harness, machine: &mut Machine, name: &str) {
         hub.port,
         node_port,
         machine.paths.clone(),
+        machine.clients.clone(),
     );
     tokio::spawn(node.run_control());
 }

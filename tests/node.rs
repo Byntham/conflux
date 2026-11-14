@@ -21,6 +21,7 @@ struct NodeHarness {
     base: String,
     port: u16,
     dir: tempfile::TempDir,
+    clients: ClientPaths,
     http: reqwest::Client,
 }
 
@@ -28,12 +29,17 @@ async fn start_node(hub_port: u16) -> NodeHarness {
     let dir = tempfile::tempdir().unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
+    let clients = ClientPaths {
+        claude_settings: dir.path().join("claude/settings.json"),
+        codex_config: dir.path().join("codex/config.toml"),
+    };
     let node = Node::named(
         "node-one".into(),
         "127.0.0.1".into(),
         hub_port,
         port,
         Paths::under(dir.path()),
+        clients.clone(),
     );
     let routes = node.routes();
     tokio::spawn(async move { axum::serve(listener, routes).await.unwrap() });
@@ -42,6 +48,7 @@ async fn start_node(hub_port: u16) -> NodeHarness {
         base: format!("http://127.0.0.1:{port}"),
         port,
         dir,
+        clients,
         http: reqwest::Client::new(),
     }
 }
@@ -126,29 +133,89 @@ async fn connect(hub: &Harness, n: &NodeHarness) -> tokio::task::JoinHandle<()> 
     control
 }
 
+fn claude_base_url(clients: &ClientPaths) -> Option<String> {
+    let text = std::fs::read_to_string(&clients.claude_settings).unwrap_or_default();
+    let settings: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+    settings["env"]["ANTHROPIC_BASE_URL"].as_str().map(str::to_string)
+}
+
+async fn set_routing(hub: &Harness, machine: &str, on: bool) -> reqwest::Response {
+    hub.http
+        .patch(format!("{}/conflux/api/machines/{machine}", hub.base))
+        .json(&json!({ "routing": on }))
+        .send()
+        .await
+        .unwrap()
+}
+
+fn fleet_routing(hub: &Harness) -> Vec<(String, Option<bool>)> {
+    hub.app.fleet().iter().map(|m| (m.role.clone(), m.routing)).collect()
+}
+
 #[tokio::test]
-async fn a_node_reports_its_routing_and_is_online_while_connected() {
+async fn the_dashboard_turns_routing_on_and_off_for_each_machine() {
     let hub = Harness::new().await;
     let n = start_node(hub.port).await;
-    let clients = ClientPaths {
-        claude_settings: n.dir.path().join("claude/settings.json"),
-        codex_config: n.dir.path().join("codex/config.toml"),
-    };
     let node_config = Paths::under(n.dir.path()).config_dir;
-    setup::apply(&clients, &node_config, n.port).unwrap();
-    setup::restore(&clients, &node_config, n.port).unwrap();
-    setup::apply(&clients, &Paths::under(hub.dir.path()).config_dir, hub.port).unwrap();
+    setup::apply(&n.clients, &node_config, n.port).unwrap();
+    setup::restore(&n.clients, &node_config, n.port).unwrap();
+    setup::apply(&hub.app.clients, &Paths::under(hub.dir.path()).config_dir, hub.port).unwrap();
     let control = connect(&hub, &n).await;
-    let machines = hub.app.machines.list();
-    assert_eq!(machines.len(), 1);
-    assert_eq!(machines[0].hostname, "node-one");
-    let routing: Vec<_> = hub.app.fleet().iter().map(|m| (m.role.clone(), m.routing)).collect();
+    assert_eq!(hub.app.machines.list()[0].hostname, "node-one");
     assert_eq!(
-        routing,
+        fleet_routing(&hub),
         [("hub".to_string(), Some(true)), ("node".to_string(), Some(false))]
     );
+
+    let r = set_routing(&hub, "node-one", true).await;
+    assert_eq!(r.status(), 200, "{}", r.text().await.unwrap());
+    assert_eq!(
+        claude_base_url(&n.clients),
+        Some(format!("http://127.0.0.1:{}", n.port))
+    );
+    assert_eq!(
+        fleet_routing(&hub),
+        [("hub".to_string(), Some(true)), ("node".to_string(), Some(true))]
+    );
+
+    let r = set_routing(&hub, "hub-under-test", false).await;
+    assert_eq!(r.status(), 200, "{}", r.text().await.unwrap());
+    assert_eq!(claude_base_url(&hub.app.clients), None);
+    assert_eq!(
+        claude_base_url(&n.clients),
+        Some(format!("http://127.0.0.1:{}", n.port))
+    );
+
+    let r = set_routing(&hub, "node-one", false).await;
+    assert_eq!(r.status(), 200, "{}", r.text().await.unwrap());
+    assert_eq!(claude_base_url(&n.clients), None);
+    assert_eq!(
+        fleet_routing(&hub),
+        [("hub".to_string(), Some(false)), ("node".to_string(), Some(false))]
+    );
+
+    let mut old = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{}/conflux/control", hub.port))
+        .await
+        .unwrap()
+        .0;
+    old.send(Message::Text(
+        json!({ "hostname": "old-node", "version": "0.1.5" }).to_string().into(),
+    ))
+    .await
+    .unwrap();
+    eventually(|| hub.app.machines.list().into_iter().find(|m| m.hostname == "old-node")).await;
+    assert_eq!(set_routing(&hub, "old-node", true).await.status(), StatusCode::CONFLICT);
+
     control.abort();
-    eventually(|| hub.app.machines.list().into_iter().find(|m| !m.online)).await;
+    eventually(|| {
+        hub.app
+            .machines
+            .list()
+            .into_iter()
+            .find(|m| m.hostname == "node-one" && !m.online)
+    })
+    .await;
+    assert_eq!(set_routing(&hub, "node-one", true).await.status(), StatusCode::CONFLICT);
 }
 
 #[tokio::test]

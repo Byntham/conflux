@@ -12,8 +12,9 @@ use serde_json::{Value, json};
 use crate::accounts::{AccountEntry, RefreshState};
 use crate::app::App;
 use crate::hubstate::HubState;
+use crate::machines;
 use crate::oauth::{self, DevicePoll, Pkce};
-use crate::update;
+use crate::{setup, update};
 
 const LOGIN_TTL: Duration = Duration::from_secs(15 * 60);
 
@@ -208,6 +209,65 @@ pub async fn update(State(app): State<Arc<App>>, Json(req): Json<UpdateRequest>)
     Ok(Json(
         json!({ "version": version, "started": started, "skipped": skipped }),
     ))
+}
+
+#[derive(Deserialize)]
+pub struct MachinePatch {
+    routing: bool,
+}
+
+const ROUTING_CONFIRM_LIMIT: Duration = Duration::from_secs(5);
+
+pub async fn update_machine(
+    State(app): State<Arc<App>>,
+    Path(hostname): Path<String>,
+    Json(patch): Json<MachinePatch>,
+) -> ApiResult<Json<Value>> {
+    let on = patch.routing;
+    let done = json!({ "machine": hostname, "routing": on });
+    if hostname == app.hostname {
+        let hub = app.clone();
+        tokio::task::spawn_blocking(move || {
+            let _one_change_at_a_time = hub.routing_change.lock().unwrap();
+            setup::set_routing(&hub.clients, &hub.paths.config_dir, hub.cfg.port, on)
+        })
+        .await
+        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
+        return Ok(Json(done));
+    }
+    let machine = app
+        .machines
+        .list()
+        .into_iter()
+        .find(|m| m.hostname == hostname)
+        .ok_or_else(|| not_found("machine"))?;
+    let offline = || ApiError(StatusCode::CONFLICT, format!("{hostname} is offline"));
+    if !machine.online {
+        return Err(offline());
+    }
+    if machine.routing.is_none() {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            format!("{hostname} runs an older conflux. Update it to change its routing from here."),
+        ));
+    }
+    if !app.machines.send(&hostname, machines::set_routing(on)) {
+        return Err(offline());
+    }
+    if !app
+        .machines
+        .wait_for(&hostname, ROUTING_CONFIRM_LIMIT, |m| m.routing == Some(on))
+        .await
+    {
+        return Err(ApiError(
+            StatusCode::GATEWAY_TIMEOUT,
+            format!(
+                "{hostname} did not confirm the change. Update it if it runs an older conflux, or check its conflux log."
+            ),
+        ));
+    }
+    Ok(Json(done))
 }
 
 pub async fn claude_start(State(app): State<Arc<App>>) -> Json<Value> {

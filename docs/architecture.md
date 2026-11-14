@@ -125,7 +125,9 @@ A waiting machine can also start the link itself. `conflux join` with no name an
 
 ## Control channel
 
-Each node keeps a WebSocket open to `/conflux/control` on the hub (`src/machines.rs`). The node reports its hostname, version, sync setting, routing setting (`conflux on` or `off`), and update status every 20 seconds. The hub uses the socket to send two commands, "the hub moved" and "update to version X". The dashboard's machine list comes from these reports.
+Each node keeps a WebSocket open to `/conflux/control` on the hub (`src/machines.rs`). The node reports its hostname, version, sync setting, routing setting (`conflux on` or `off`), and update status every 20 seconds. The hub uses the socket to send three commands: "the hub moved", "update to version X", and "turn routing on or off". The node reports again right after each command. The dashboard's machine list comes from these reports.
+
+The dashboard's routing switch calls `PATCH /conflux/api/machines/<hostname>`. For the hub's own row, the hub edits its own client config. For a node, the hub sends the routing command and waits up to 5 seconds for a report with the new setting. A node older than this command reports no routing setting, so the hub refuses the request and asks for an update.
 
 ## Transcript sync
 

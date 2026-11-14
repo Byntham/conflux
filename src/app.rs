@@ -21,6 +21,7 @@ use crate::oauth;
 use crate::refresh::Refresher;
 use crate::requests::RequestLog;
 use crate::router::Router;
+use crate::setup::ClientPaths;
 use crate::tailnet::{self, TailnetSelf, Tailscale};
 use crate::transcript_sync::TranscriptSync;
 use crate::transcripts::{self, Transcripts};
@@ -57,6 +58,8 @@ pub struct App {
     pub tailscale: Tailscale,
     pub ssh: String,
     pub installing: Mutex<HashSet<IpAddr>>,
+    pub clients: ClientPaths,
+    pub routing_change: Mutex<()>,
 }
 
 pub fn proxy_client() -> reqwest::Client {
@@ -134,6 +137,8 @@ impl App {
             tailscale,
             ssh: std::env::var("CONFLUX_SSH").unwrap_or_else(|_| "ssh".into()),
             installing: Mutex::default(),
+            clients: ClientPaths::from_env()?,
+            routing_change: Mutex::default(),
         }))
     }
 
@@ -216,7 +221,7 @@ impl App {
             last_seen: chrono::Utc::now(),
             online: true,
             transcript_sync: Config::load(&self.paths).map(|c| c.transcript_sync).unwrap_or(false),
-            routing: crate::setup::routing(&self.paths.config_dir),
+            routing: Some(crate::setup::routing(&self.paths.config_dir)),
             update: self.updater.status(),
             outdated: false,
         };
@@ -282,6 +287,7 @@ impl App {
             .route("/conflux/api/dashboard", get(dashboard::data))
             .route("/conflux/control", get(machines::control))
             .route("/conflux/api/update", post(api::update))
+            .route("/conflux/api/machines/{hostname}", patch(api::update_machine))
             .route("/conflux/api/update/check", post(api::check_update))
             .route("/conflux/api/discover", get(link::discover))
             .route("/conflux/api/link", post(link::link))
@@ -392,7 +398,7 @@ pub async fn serve(cfg: Config, paths: Paths, ep: Endpoints) -> Result<()> {
     let sync = TranscriptSync::new(
         app.hostname.clone(),
         paths.clone(),
-        &crate::setup::ClientPaths::from_env()?,
+        &app.clients,
         Arc::new(move || local.clone()),
     );
     background.extend([
