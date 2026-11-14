@@ -223,7 +223,7 @@ async fn the_dashboard_turns_routing_on_and_off_for_each_machine() {
                 .machines
                 .list()
                 .into_iter()
-                .find(|m| m.routing == Some(routing) && m.transcript_sync == sync)
+                .find(|m| m.hostname == "node-one" && m.routing == Some(routing) && m.transcript_sync == sync)
         })
         .await;
     }
