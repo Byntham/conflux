@@ -202,7 +202,12 @@ async fn the_dashboard_turns_routing_on_and_off_for_each_machine() {
     }
     .save(&Paths::under(n.dir.path()))
     .unwrap();
-    for command in [["on"].as_slice(), &["sync", "on"]] {
+    for (command, routing, sync) in [
+        (["on"].as_slice(), true, false),
+        (&["sync", "on"], true, true),
+        (&["off"], false, true),
+        (&["sync", "off"], false, false),
+    ] {
         let ran = tokio::process::Command::new(env!("CARGO_BIN_EXE_conflux"))
             .args(command)
             .env("CONFLUX_HOME", n.dir.path())
@@ -213,15 +218,15 @@ async fn the_dashboard_turns_routing_on_and_off_for_each_machine() {
             .await
             .unwrap();
         assert!(ran.status.success(), "{ran:?}");
+        eventually(|| {
+            hub.app
+                .machines
+                .list()
+                .into_iter()
+                .find(|m| m.routing == Some(routing) && m.transcript_sync == sync)
+        })
+        .await;
     }
-    eventually(|| {
-        hub.app
-            .machines
-            .list()
-            .into_iter()
-            .find(|m| m.routing == Some(true) && m.transcript_sync)
-    })
-    .await;
 
     let mut old = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{}/conflux/control", hub.port))
         .await
