@@ -9,12 +9,12 @@ use axum::extract::ws::{Message as ClientMsg, WebSocket, WebSocketUpgrade};
 use axum::extract::{FromRequestParts, Request, State};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Redirect, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use futures_util::{SinkExt, StreamExt};
 use http::{HeaderMap, HeaderValue, StatusCode};
 use serde::Serialize;
 use serde_json::{Value, json};
-use tokio::sync::mpsc;
+use tokio::sync::{Notify, mpsc};
 use tokio_tungstenite::tungstenite::{self, Message, client::IntoClientRequest};
 
 use crate::access::{self, Verdict};
@@ -48,6 +48,7 @@ pub struct Node {
     hostname: String,
     allowed_hosts: Vec<String>,
     hub_link: Mutex<HubLink>,
+    report_requested: Notify,
     clients: ClientPaths,
     pub lifecycle: Arc<Lifecycle>,
     pub updater: Arc<Updater>,
@@ -112,6 +113,7 @@ impl Node {
             hostname,
             allowed_hosts: access::local_hosts(port),
             hub_link: Mutex::default(),
+            report_requested: Notify::new(),
             clients,
             lifecycle: Arc::default(),
             updater: Updater::new(&Endpoints::from_env().releases),
@@ -146,6 +148,7 @@ impl Node {
         axum::Router::new()
             .route("/", get(dashboard_redirect))
             .route("/conflux/node", get(node_status))
+            .route("/conflux/node/report", post(report_now))
             .fallback(forward)
             .layer(axum::middleware::from_fn_with_state(self.clone(), guard))
             .with_state(self.clone())
@@ -238,6 +241,7 @@ impl Node {
                     changed?;
                     hub.send(self.report()).await?;
                 }
+                () = self.report_requested.notified() => hub.send(self.report()).await?,
                 frame = hub.next() => match frame {
                     Some(Ok(Message::Text(command))) => {
                         quiet.as_mut().reset(tokio::time::Instant::now() + HUB_SILENCE_LIMIT);
@@ -304,6 +308,11 @@ async fn node_status(State(node): State<Arc<Node>>) -> Json<Value> {
         "hub_link": node.hub_link.lock().unwrap().clone(),
         "update": node.updater.status(),
     }))
+}
+
+async fn report_now(State(node): State<Arc<Node>>) -> StatusCode {
+    node.report_requested.notify_one();
+    StatusCode::NO_CONTENT
 }
 
 async fn forward(State(node): State<Arc<Node>>, req: Request) -> Response {
