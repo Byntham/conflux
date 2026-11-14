@@ -31,6 +31,8 @@ const LINK_TIMEOUT: Duration = Duration::from_secs(15);
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(300);
 const START_TIMEOUT: Duration = Duration::from_secs(20);
 const START_POLL: Duration = Duration::from_millis(500);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+const CONNECT_POLL: Duration = Duration::from_millis(100);
 const SSH_OPTIONS: &[&str] = &[
     "-o",
     "BatchMode=yes",
@@ -154,7 +156,7 @@ async fn find_peer(app: &App, address: IpAddr) -> Result<Peer, ApiError> {
         })
 }
 
-async fn link_peer(app: &App, address: IpAddr, name: &str) -> Result<(), ApiError> {
+async fn link_peer(app: &App, peer: &Peer, address: IpAddr, name: &str) -> Result<(), ApiError> {
     let url = format!("http://{}/conflux/link", SocketAddr::new(address, app.cfg.port));
     let resp = app
         .proxy_http
@@ -169,13 +171,27 @@ async fn link_peer(app: &App, address: IpAddr, name: &str) -> Result<(), ApiErro
         let reason = v["error"].as_str().unwrap_or("it did not accept the link");
         return Err(ApiError(StatusCode::BAD_GATEWAY, format!("{name}: {reason}")));
     }
+    connected(app, peer, name).await
+}
+
+async fn connected(app: &App, peer: &Peer, name: &str) -> Result<(), ApiError> {
+    let deadline = tokio::time::Instant::now() + CONNECT_TIMEOUT;
+    while !app.machines.addresses().iter().any(|a| peer.machine.ips.contains(a)) {
+        if tokio::time::Instant::now() >= deadline {
+            return Err(ApiError(
+                StatusCode::GATEWAY_TIMEOUT,
+                format!("{name} is linked, but it has not connected to the hub yet"),
+            ));
+        }
+        tokio::time::sleep(CONNECT_POLL).await;
+    }
     Ok(())
 }
 
 pub async fn link(State(app): State<Arc<App>>, Json(req): Json<LinkRequest>) -> Result<Json<Value>, ApiError> {
     let peer = find_peer(&app, req.address).await?;
     let name = peer_name(&peer, req.address);
-    link_peer(&app, req.address, &name).await?;
+    link_peer(&app, &peer, req.address, &name).await?;
     Ok(Json(json!({ "linked": name })))
 }
 
@@ -246,7 +262,7 @@ async fn install_and_link(app: &App, peer: &Peer, address: IpAddr, name: &str) -
         state = state_once_started(app, address).await;
     }
     match state {
-        "waiting" => link_peer(app, address, name).await,
+        "waiting" => link_peer(app, peer, address, name).await,
         "busy" => Err(ApiError(
             StatusCode::CONFLICT,
             format!("{name} already runs conflux and is not waiting to be linked"),
