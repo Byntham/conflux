@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::cell::Cell;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
@@ -221,6 +222,7 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, path: S
     };
     let route = first_frame_route(&headers, &first);
     let url = ws_url(&proxy::upstream_url(&app, Provider::Codex, &path, query.as_deref()));
+    let started = Instant::now();
 
     let mut tried = HashSet::new();
     let mut refreshed = HashSet::new();
@@ -289,7 +291,8 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, path: S
 
     let turn = Turn {
         machine: proxy::machine_name(&app, &headers),
-        started: std::cell::Cell::new(Instant::now()),
+        started: Cell::new(started),
+        record: Cell::new(None),
     };
     let (mut up_tx, mut up_rx) = upstream.split();
     if up_tx.send(UpstreamMsg::Text(first.into())).await.is_err() {
@@ -391,7 +394,8 @@ pub fn rate_limit_headers(event: &Value) -> HeaderMap {
 
 struct Turn {
     machine: String,
-    started: std::cell::Cell<Instant>,
+    started: Cell<Instant>,
+    record: Cell<Option<u64>>,
 }
 
 fn inspect_event(app: &App, account: &AccountEntry, route: &RouteRequest, turn: &Turn, text: &str) -> bool {
@@ -403,11 +407,6 @@ fn inspect_event(app: &App, account: &AccountEntry, route: &RouteRequest, turn: 
             if let Some(id) = v["response"]["id"].as_str() {
                 app.router.record_response_owner(id, &account.id);
             }
-            false
-        }
-        Some("response.completed") => {
-            let mut usage = TokenUsage::default();
-            requests::apply_event(Provider::Codex, &mut usage, &v);
             let record = proxy::log_attempt(
                 app,
                 Provider::Codex,
@@ -417,8 +416,16 @@ fn inspect_event(app: &App, account: &AccountEntry, route: &RouteRequest, turn: 
                 200,
                 turn.started.get(),
             );
-            app.requests.set_usage(record, usage);
             app.requests.set_transport(record, "ws");
+            turn.record.set(Some(record));
+            false
+        }
+        Some("response.completed") => {
+            if let Some(record) = turn.record.take() {
+                let mut usage = TokenUsage::default();
+                requests::apply_event(Provider::Codex, &mut usage, &v);
+                app.requests.set_usage(record, usage);
+            }
             false
         }
         Some("codex.rate_limits") => {

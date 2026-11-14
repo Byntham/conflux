@@ -146,7 +146,7 @@ async fn fake_ws(fake: Arc<Fake>, req: Request) -> Response {
                     return;
                 }
                 tokio::time::sleep(Duration::from_millis(400)).await;
-                let completed = json!({"type": "response.completed", "response": {"id": id}});
+                let completed = json!({"type": "response.completed", "response": {"id": id, "usage": {"output_tokens": 7}}});
                 if socket.send(Message::Text(completed.to_string().into())).await.is_err() {
                     return;
                 }

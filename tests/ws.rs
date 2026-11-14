@@ -185,6 +185,21 @@ async fn a_draining_hub_closes_the_socket_only_after_the_turn_ends() {
 }
 
 #[tokio::test]
+async fn the_row_is_logged_when_the_upstream_starts_answering() {
+    let h = Harness::new().await;
+    h.add(Provider::Codex, "c").await;
+    h.ws_script("at-c", WsScript::SlowTurn);
+    let mut ws = open(&h, &[]).await.unwrap();
+    ws.send(create("m")).await.unwrap();
+    assert_eq!(next_json(&mut ws).await.unwrap()["type"], "response.created");
+    let rows = h.app.requests.recent();
+    assert_eq!(rows.len(), 1, "the row is logged before the turn ends");
+    assert_eq!(rows[0].transport, "ws");
+    assert_eq!(next_json(&mut ws).await.unwrap()["type"], "response.completed");
+    assert_eq!(h.app.requests.recent()[0].usage.output, 7);
+}
+
+#[tokio::test]
 async fn no_accounts_sends_an_error_frame() {
     let h = Harness::new().await;
     let mut ws = open(&h, &[]).await.unwrap();
