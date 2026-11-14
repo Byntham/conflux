@@ -986,7 +986,6 @@ function updateCell(m, version) {
 const ROUTING_OFF = '<span class="pill warn" data-tip="Uses its own logins">Routing off</span>';
 
 function machineMenuButton(m) {
-  if (!m.online) return "";
   return `<button class="icon-btn" data-menu data-machine="${esc(m.hostname)}" title="More actions" aria-label="More actions for ${esc(m.hostname)}" aria-haspopup="menu">${icon("more")}</button>`;
 }
 
@@ -1579,9 +1578,13 @@ function accountMenu(a) {
 }
 
 function machineMenu(m) {
+  const host = esc(m.hostname);
+  if (!m.online) return `<button role="menuitem" data-forget="${host}">Remove from list</button><div class="menu-note">It comes back if conflux starts on ${host} again.</div>`;
   const on = m.routing !== false;
-  const item = `<button role="menuitem" data-routing="${esc(m.hostname)}" data-on="${!on}" ${m.routing === null ? "disabled" : ""}>${on ? "Turn routing off" : "Turn routing on"}</button>`;
-  return m.routing === null ? `${item}<div class="menu-note">Update ${esc(m.hostname)} to change its routing from here.</div>` : item;
+  const old = m.routing === null ? "disabled" : "";
+  const routing = `<button role="menuitem" data-routing="${host}" data-on="${!on}" ${old}>${on ? "Turn routing off" : "Turn routing on"}</button>`;
+  const leave = m.role === "hub" ? "" : `<hr><button role="menuitem" class="danger" data-leave="${host}" ${old}>Remove conflux</button>`;
+  return `${routing}${leave}${old && `<div class="menu-note">Update ${host} to manage it from here.</div>`}`;
 }
 
 function openMenu(button) {
@@ -1609,6 +1612,29 @@ function confirmRemove(id, name, kind) {
     closeModal();
     try { await api("DELETE", `/conflux/api/accounts/${encodeURIComponent(id)}`); refresh(); } catch (e) { showError(e); }
   };
+}
+
+function confirmLeave(machine) {
+  closeMenu();
+  const host = esc(machine);
+  openModal(`<h2>Remove conflux from ${host}?</h2><p>Claude Code and Codex on ${host} go back to their own logins. Sessions already running there stop working until you restart them. conflux stops and no longer starts at login. The conflux binary stays installed.</p><div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn danger" id="confirm-leave">Remove conflux</button></div>`);
+  $("confirm-leave").onclick = async () => {
+    closeModal();
+    try {
+      await api("DELETE", `/conflux/api/machines/${encodeURIComponent(machine)}`);
+      await refresh();
+      toast(`Removed conflux from ${machine}`);
+    } catch (e) { showError(e); }
+  };
+}
+
+async function forgetMachine(machine) {
+  closeMenu();
+  try {
+    await api("DELETE", `/conflux/api/machines/${encodeURIComponent(machine)}?forget=true`);
+    await refresh();
+    toast(`Removed ${machine} from the list`);
+  } catch (e) { showError(e); }
 }
 
 const OS_NAMES = { linux: "Linux", macOS: "macOS", windows: "Windows" };
@@ -1805,6 +1831,10 @@ document.addEventListener("click", (ev) => {
   if (thread) return openThread(thread.dataset.thread);
   const routing = ev.target.closest("[data-routing]");
   if (routing) return setRouting(routing);
+  const leave = ev.target.closest("[data-leave]");
+  if (leave) return confirmLeave(leave.dataset.leave);
+  const forget = ev.target.closest("[data-forget]");
+  if (forget) return forgetMachine(forget.dataset.forget);
   const action = ev.target.closest("[data-act]");
   if (action) return accountAction(action);
   const installButton = ev.target.closest("[data-install-on]");

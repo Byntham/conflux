@@ -468,6 +468,20 @@ async fn a_node_updates_on_the_hubs_command_and_its_supervisor_keeps_watch() {
     })
     .await;
     node.later_pids.push(third_pid);
+
+    let left = http
+        .delete(format!("http://[::1]:{port}/conflux/api/machines/{name}"))
+        .header("content-type", "application/json")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(left.status(), 200, "{}", left.text().await.unwrap());
+    let stopped = eventually("the supervisor to stop after the node leaves", async || {
+        node.child.try_wait().unwrap()
+    })
+    .await;
+    assert!(stopped.success(), "{stopped}");
+    assert_eq!(pid_at(&status).await, None);
 }
 
 #[tokio::test]

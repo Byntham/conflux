@@ -113,7 +113,17 @@ impl Machines {
         {
             entry.link = None;
             entry.last_seen = Utc::now();
+            self.reported.notify_waiters();
         }
+    }
+
+    pub fn forget(&self, hostname: &str) -> bool {
+        let mut map = self.map.lock().unwrap();
+        let offline = map.get(hostname).is_some_and(|e| e.link.is_none());
+        if offline {
+            map.remove(hostname);
+        }
+        offline
     }
 
     pub fn send(&self, hostname: &str, command: Value) -> bool {
@@ -197,6 +207,10 @@ pub fn hub_moved(hub: &str) -> Value {
 
 pub fn set_routing(on: bool) -> Value {
     json!({ "type": "routing", "on": on })
+}
+
+pub fn leave() -> Value {
+    json!({ "type": "leave" })
 }
 
 pub async fn control(

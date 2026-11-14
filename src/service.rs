@@ -117,13 +117,13 @@ fn plist_path() -> Result<PathBuf> {
 }
 
 fn launchd_unload(label: &str) -> Result<()> {
-    let _ = Command::new("launchctl")
-        .args(["bootout", &format!("gui/{}/{label}", uid())])
-        .output();
     let path = plist_path_for(label)?;
     if path.exists() {
         std::fs::remove_file(path)?;
     }
+    let _ = Command::new("launchctl")
+        .args(["bootout", &format!("gui/{}/{label}", uid())])
+        .output();
     Ok(())
 }
 
@@ -240,24 +240,45 @@ pub fn installed() -> bool {
     .is_ok_and(|p| p.exists())
 }
 
+pub fn running_as_service() -> bool {
+    if cfg!(windows) {
+        let Ok(exe) = crate::update::running_exe() else {
+            return false;
+        };
+        if std::env::var_os("CONFLUX_HOME").is_some() {
+            return false;
+        }
+        Command::new("reg")
+            .args(["query", WINDOWS_RUN_KEY, "/v", "conflux"])
+            .output()
+            .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains(&windows_launch_command(&exe)))
+    } else if cfg!(target_os = "macos") {
+        std::env::var("XPC_SERVICE_NAME").is_ok_and(|label| label == LAUNCHD_LABEL)
+    } else {
+        std::fs::read_to_string("/proc/self/cgroup")
+            .is_ok_and(|groups| groups.lines().any(|g| g.ends_with(&format!("/{UNIT_NAME}"))))
+    }
+}
+
 pub fn uninstall() -> Result<()> {
     if cfg!(windows) {
-        windows_stop();
         let _ = Command::new("reg")
             .args(["delete", WINDOWS_RUN_KEY, "/v", "conflux", "/f"])
             .output();
+        windows_stop();
     } else if cfg!(target_os = "macos") {
-        launchd_unload(LAUNCHD_LABEL)?;
         launchd_unload(MENU_BAR_LABEL)?;
+        launchd_unload(LAUNCHD_LABEL)?;
     } else {
         let path = unit_path()?;
         let _ = Command::new("systemctl")
-            .args(["--user", "disable", "--now", UNIT_NAME])
+            .args(["--user", "disable", UNIT_NAME])
             .status();
         if path.exists() {
             std::fs::remove_file(path)?;
         }
         let _ = Command::new("systemctl").args(["--user", "daemon-reload"]).status();
+        let _ = Command::new("systemctl").args(["--user", "stop", UNIT_NAME]).status();
     }
     Ok(())
 }

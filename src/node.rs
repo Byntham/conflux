@@ -178,6 +178,20 @@ impl Node {
         Ok(true)
     }
 
+    fn leave(&self) -> Result<()> {
+        if self.updater.status().is_some_and(|s| s.in_progress()) {
+            bail!("an update is running");
+        }
+        setup::leave(&self.clients, &self.paths.config_dir, self.port)?;
+        tracing::info!("left the hub; Claude Code and Codex use this machine's own logins again");
+        if crate::service::running_as_service() {
+            crate::service::uninstall()?;
+        }
+        crate::supervisor::stop_when_workers_exit();
+        self.lifecycle.begin_drain();
+        Ok(())
+    }
+
     async fn obey(self: &Arc<Self>, command: &str) -> bool {
         let command: Value = serde_json::from_str(command).unwrap_or(Value::Null);
         match (
@@ -193,6 +207,13 @@ impl Node {
                 }
                 false
             }
+            (Some("leave"), _, _) => match self.leave() {
+                Ok(()) => true,
+                Err(e) => {
+                    tracing::warn!("could not leave the hub: {e:#}");
+                    false
+                }
+            },
             (Some("hub"), Some(hub), _) => match self.follow_redirect(hub).await {
                 Ok(moved) => moved,
                 Err(e) => {
@@ -201,11 +222,13 @@ impl Node {
                 }
             },
             (Some("update"), _, Some(version)) => {
-                let update = self
-                    .updater
-                    .clone()
-                    .run(version.to_string(), self.lifecycle.clone(), self.clone());
-                tokio::spawn(update);
+                if self.updater.claim(version) {
+                    let update =
+                        self.updater
+                            .clone()
+                            .run_claimed(version.to_string(), self.lifecycle.clone(), self.clone());
+                    tokio::spawn(update);
+                }
                 false
             }
             _ => false,
@@ -258,6 +281,9 @@ impl Node {
         let mut wait = RECONNECT_MIN;
         loop {
             let ended = self.control_session().await;
+            if self.lifecycle.is_draining() {
+                return;
+            }
             let was_connected = {
                 let mut link = self.hub_link.lock().unwrap();
                 if let Err(e) = ended {
@@ -457,7 +483,7 @@ pub async fn serve(cfg: Config, paths: Paths) -> Result<()> {
     }
     update::remove_old_binaries(&exe);
     node.lifecycle.drain_started().await;
-    tracing::info!("a newer conflux took over; finishing the requests already running");
+    tracing::info!("stopping; finishing the requests already running");
     for task in background {
         task.abort();
     }

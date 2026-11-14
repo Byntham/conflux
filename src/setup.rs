@@ -58,6 +58,11 @@ pub fn routing(config_dir: &Path) -> bool {
     load_joined(config_dir).ok().flatten().is_some_and(|j| j.active)
 }
 
+pub fn leave(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<()> {
+    restore(paths, config_dir, port)?;
+    fsutil::remove_durable(&joined_path(config_dir))
+}
+
 pub fn set_routing(paths: &ClientPaths, config_dir: &Path, port: u16, on: bool) -> Result<()> {
     if on {
         apply(paths, config_dir, port)?;

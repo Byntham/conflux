@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
@@ -216,7 +216,7 @@ pub struct MachinePatch {
     routing: bool,
 }
 
-const ROUTING_CONFIRM_LIMIT: Duration = Duration::from_secs(5);
+const CONFIRM_LIMIT: Duration = Duration::from_secs(5);
 
 pub async fn update_machine(
     State(app): State<Arc<App>>,
@@ -257,7 +257,7 @@ pub async fn update_machine(
     }
     if !app
         .machines
-        .wait_for(&hostname, ROUTING_CONFIRM_LIMIT, |m| m.routing == Some(on))
+        .wait_for(&hostname, CONFIRM_LIMIT, |m| m.routing == Some(on))
         .await
     {
         return Err(ApiError(
@@ -268,6 +268,73 @@ pub async fn update_machine(
         ));
     }
     Ok(Json(done))
+}
+
+#[derive(Deserialize)]
+pub struct RemoveQuery {
+    #[serde(default)]
+    forget: bool,
+}
+
+pub async fn remove_machine(
+    State(app): State<Arc<App>>,
+    Path(hostname): Path<String>,
+    Query(query): Query<RemoveQuery>,
+) -> ApiResult<Json<Value>> {
+    if hostname == app.hostname {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            "Run `conflux leave` on the hub to remove conflux from it.".into(),
+        ));
+    }
+    let machine = app
+        .machines
+        .list()
+        .into_iter()
+        .find(|m| m.hostname == hostname)
+        .ok_or_else(|| not_found("machine"))?;
+    let offline = || {
+        ApiError(
+            StatusCode::CONFLICT,
+            format!("{hostname} is offline. Use Remove from list instead."),
+        )
+    };
+    if machine.online && query.forget {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            format!("{hostname} is online. Use Remove conflux instead."),
+        ));
+    }
+    if !query.forget {
+        if !machine.online {
+            return Err(offline());
+        }
+        if machine.routing.is_none() {
+            return Err(ApiError(
+                StatusCode::CONFLICT,
+                format!("{hostname} runs an older conflux. Update it to remove conflux from it here."),
+            ));
+        }
+        if machine.update.as_ref().is_some_and(|u| u.in_progress()) {
+            return Err(ApiError(
+                StatusCode::CONFLICT,
+                format!("{hostname} is updating. Try again when it finishes."),
+            ));
+        }
+        if !app.machines.send(&hostname, machines::leave()) {
+            return Err(offline());
+        }
+        if !app.machines.wait_for(&hostname, CONFIRM_LIMIT, |m| !m.online).await {
+            return Err(ApiError(
+                StatusCode::GATEWAY_TIMEOUT,
+                format!("{hostname} did not confirm. Update it if it runs an older conflux, or check its conflux log."),
+            ));
+        }
+    }
+    if !app.machines.forget(&hostname) {
+        return Err(ApiError(StatusCode::CONFLICT, format!("{hostname} came back online")));
+    }
+    Ok(Json(json!({ "removed": hostname })))
 }
 
 pub async fn claude_start(State(app): State<Arc<App>>) -> Json<Value> {
