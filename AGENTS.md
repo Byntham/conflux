@@ -24,6 +24,7 @@ Rust proxy that pools Claude Code and Codex subscription accounts on one hub mac
 - Point Claude Code at the copy with `CLAUDE_CONFIG_DIR`, as the command prints. Setting `ANTHROPIC_BASE_URL` in the shell does not work. `~/.claude/settings.json` wins, and the request goes to the real hub.
 - The copy's hub cannot install conflux on your other machines. It runs `false` in place of `ssh`, so Install on the dashboard and `conflux add` fail. To fake a machine, set `CONFLUX_SSH` to a script before you start the copy.
 - Stop it with Ctrl-C or the `kill` command it prints. It then stops the hub, node, and Mac app it started and removes the temp folder. Killing the PID of `cargo run` leaves them running.
+- `cargo run --release --example stress` drives many fake accounts and sessions through a throwaway hub and node, then prints what the clients saw, what each account served, and routing problems. `-- --help` lists the quota, load, and failure options.
 - To test on another operating system from inside T3 Code, push the branch, list the linked environments, and delegate the test to an agent on a machine that runs that system. The rules in "Don't break the developer's setup" apply on that machine too.
 
 ## Hit every path

@@ -1,9 +1,10 @@
+mod common;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use axum::body::{Body, Bytes};
@@ -13,14 +14,13 @@ use axum::extract::{Path as UrlPath, Request, State};
 use axum::response::Response;
 use axum::routing::{any, get, post};
 use chrono::{DateTime, Utc};
-use conflux::accounts::{Provider, Store};
-use conflux::config::{Config, Endpoints, Paths, Role};
-use conflux::oauth::{self, LoginTokens};
-use conflux::refresh::Refresher;
-use conflux::setup::{self, ClientPaths};
+use common::{Layout, add_accounts, build_conflux, endpoint_env, stop_requested};
+use conflux::accounts::Provider;
+use conflux::config::Endpoints;
+use conflux::oauth::LoginTokens;
 use http::{HeaderMap, StatusCode};
 use serde_json::{Value, json};
-use tokio::process::{Child, Command};
+use tokio::process::Command;
 
 struct Seed {
     name: &'static str,
@@ -397,26 +397,6 @@ async fn start_provider() -> Result<String> {
     Ok(base)
 }
 
-fn build_conflux() -> Result<PathBuf> {
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let mut build = std::process::Command::new(cargo);
-    build
-        .args(["build", "--bin", "conflux"])
-        .current_dir(env!("CARGO_MANIFEST_DIR"));
-    if !cfg!(debug_assertions) {
-        build.arg("--release");
-    }
-    if !build.status().context("run cargo")?.success() {
-        bail!("could not build conflux");
-    }
-    let exe = std::env::current_exe()?;
-    let profile_dir = exe
-        .parent()
-        .and_then(Path::parent)
-        .context("find the target directory")?;
-    Ok(profile_dir.join(format!("conflux{}", std::env::consts::EXE_SUFFIX)))
-}
-
 fn build_mac_app(conflux: &Path) -> Result<PathBuf> {
     if !cfg!(target_os = "macos") {
         bail!("--app needs macOS");
@@ -434,98 +414,21 @@ fn build_mac_app(conflux: &Path) -> Result<PathBuf> {
     Ok(out.join("Conflux.app/Contents/MacOS/Conflux"))
 }
 
-fn free_port() -> Result<u16> {
-    Ok(std::net::TcpListener::bind("127.0.0.1:0")?.local_addr()?.port())
-}
-
-fn endpoint_env(ep: &Endpoints) -> Vec<(&'static str, String)> {
-    vec![
-        ("CONFLUX_ANTHROPIC_API", ep.anthropic_api.clone()),
-        ("CONFLUX_CLAUDE_AUTHORIZE", ep.claude_authorize.clone()),
-        ("CONFLUX_CLAUDE_TOKEN", ep.claude_token.clone()),
-        ("CONFLUX_CODEX_API", ep.codex_api.clone()),
-        ("CONFLUX_CHATGPT_BACKEND", ep.chatgpt_backend.clone()),
-        ("CONFLUX_OPENAI_AUTH", ep.openai_auth.clone()),
-        ("CONFLUX_RELEASES", ep.releases.clone()),
-    ]
-}
-
-async fn add_accounts(paths: &Paths, ep: &Endpoints) -> Result<()> {
-    let store = Arc::new(Store::load(&paths.accounts_dir())?);
-    let refresher = Refresher::new(store, ep.clone(), oauth::control_client(), true);
-    for seed in &SEEDS {
-        let name = seed.name;
-        refresher
-            .install_login(LoginTokens {
-                provider: seed.provider,
-                identity: name.into(),
-                email: Some(format!("{name}@example.com")),
-                plan: None,
-                chatgpt_account_id: (seed.provider == Provider::Codex).then(|| format!("acct-{name}")),
-                access_token: format!("at-{name}"),
-                refresh_token: format!("rt-{name}"),
-                expires_at: Utc::now() + chrono::Duration::days(30),
-                id_token: None,
-            })
-            .await?;
-    }
-    Ok(())
-}
-
-struct Machine<'a> {
-    conflux: &'a Path,
-    home: &'a Path,
-    name: &'a str,
-    clients: &'a Path,
-}
-
-impl Machine<'_> {
-    fn start(&self, env: &[(&'static str, String)]) -> Result<Child> {
-        Command::new(self.conflux)
-            .arg("worker")
-            .env("CONFLUX_HOME", self.home)
-            .env("CONFLUX_HOSTNAME", self.name)
-            .env("CLAUDE_CONFIG_DIR", self.clients.join("claude"))
-            .env("CODEX_HOME", self.clients.join("codex"))
-            .env_remove("CONFLUX_HANDOFF")
-            .envs(env.iter().map(|(k, v)| (k, v)))
-            .stdin(Stdio::null())
-            .kill_on_drop(true)
-            .spawn()
-            .with_context(|| format!("start {}", self.name))
-    }
-}
-
-async fn wait_until_up(child: &mut Child, port: u16, name: &str) -> Result<()> {
-    let url = format!("http://127.0.0.1:{port}/conflux/api/status");
-    let http = reqwest::Client::new();
-    for _ in 0..300 {
-        if let Some(status) = child.try_wait()? {
-            bail!("{name} stopped before it was ready ({status})");
-        }
-        let up = http.get(&url).send().await.is_ok_and(|r| r.status().is_success());
-        if up {
-            return Ok(());
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    bail!("{name} did not start in time")
-}
-
-async fn stop_requested() {
-    #[cfg(unix)]
-    {
-        let mut terminate =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).expect("watch for SIGTERM");
-        tokio::select! {
-            _ = tokio::signal::ctrl_c() => {}
-            _ = terminate.recv() => {}
-        }
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = tokio::signal::ctrl_c().await;
-    }
+fn logins() -> Vec<LoginTokens> {
+    SEEDS
+        .iter()
+        .map(|seed| LoginTokens {
+            provider: seed.provider,
+            identity: seed.name.into(),
+            email: Some(format!("{}@example.com", seed.name)),
+            plan: None,
+            chatgpt_account_id: (seed.provider == Provider::Codex).then(|| format!("acct-{}", seed.name)),
+            access_token: format!("at-{}", seed.name),
+            refresh_token: format!("rt-{}", seed.name),
+            expires_at: Utc::now() + chrono::Duration::days(30),
+            id_token: None,
+        })
+        .collect()
 }
 
 #[tokio::main]
@@ -536,38 +439,16 @@ async fn main() -> Result<()> {
         .any(|a| a == "--app")
         .then(|| build_mac_app(&conflux))
         .transpose()?;
-    let dir = tempfile::tempdir()?;
-    let hub_home = dir.path().join("hub");
-    let node_home = dir.path().join("node");
-    let hub_paths = Paths::under(&hub_home);
-    let node_paths = Paths::under(&node_home);
-    let hub_port = free_port()?;
-    let node_port = free_port()?;
-
-    Config {
-        role: Role::Hub,
-        port: hub_port,
-        ..Config::default()
-    }
-    .save(&hub_paths)?;
-    Config {
-        role: Role::Node,
-        hub: Some("127.0.0.1".into()),
-        port: node_port,
-        ..Config::default()
-    }
-    .save(&node_paths)?;
-    let clients = ClientPaths {
-        claude_settings: dir.path().join("claude").join("settings.json"),
-        codex_config: dir.path().join("codex").join("config.toml"),
-    };
-    setup::apply(&clients, &node_paths.config_dir, node_port)?;
+    let layout = Layout::new()?;
+    let dir = &layout.dir;
+    let (hub_port, hub_home, node_home) = (layout.hub_port, &layout.hub_home, &layout.node_home);
+    let node_port = layout.node_port;
 
     let provider = if real { None } else { Some(start_provider().await?) };
     let mut env = Vec::new();
     if let Some(base) = &provider {
         let ep = Endpoints::all_at(base);
-        add_accounts(&hub_paths, &ep).await?;
+        add_accounts(&layout.hub_paths, &ep, logins()).await?;
         env = endpoint_env(&ep);
     }
 
@@ -575,28 +456,12 @@ async fn main() -> Result<()> {
         "CONFLUX_SSH",
         std::env::var("CONFLUX_SSH").unwrap_or_else(|_| "false".into()),
     ));
-    let mut hub = Machine {
-        conflux: &conflux,
-        home: &hub_home,
-        name: "dev-hub",
-        clients: dir.path(),
-    }
-    .start(&env)?;
-    wait_until_up(&mut hub, hub_port, "the dev hub").await?;
-    env.push(("CONFLUX_HUB_PORT", hub_port.to_string()));
-    let mut node = Machine {
-        conflux: &conflux,
-        home: &node_home,
-        name: "dev-node",
-        clients: dir.path(),
-    }
-    .start(&env)?;
-    wait_until_up(&mut node, node_port, "the dev node").await?;
+    let (mut hub, mut node) = layout.start(&conflux, &env, None).await?;
     let menu_bar = mac_app
         .as_ref()
         .map(|app| {
             Command::new(app)
-                .env("CONFLUX_HOME", &node_home)
+                .env("CONFLUX_HOME", node_home)
                 .env("CLAUDE_CONFIG_DIR", dir.path().join("claude"))
                 .env("CODEX_HOME", dir.path().join("codex"))
                 .stdin(Stdio::null())
