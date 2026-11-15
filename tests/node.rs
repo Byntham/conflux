@@ -1,14 +1,16 @@
 mod common;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use common::Harness;
+use common::{Harness, fake_tailscale, whois};
 use conflux::accounts::Provider;
 use conflux::config::{Config, Paths, Role};
 use conflux::hubstate::HubState;
+use conflux::machines;
 use conflux::node::Node;
 use conflux::setup::{self, ClientPaths};
+use conflux::tailnet::Tailscale;
 use conflux::update::UpdateStatus;
 use futures_util::{SinkExt, StreamExt};
 use http::StatusCode;
@@ -26,6 +28,10 @@ struct NodeHarness {
 }
 
 async fn start_node(hub_port: u16) -> NodeHarness {
+    start_node_on(hub_port, Arc::new(|_: &[&str]| None)).await
+}
+
+async fn start_node_on(hub_port: u16, tailscale: Tailscale) -> NodeHarness {
     let dir = tempfile::tempdir().unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -40,6 +46,7 @@ async fn start_node(hub_port: u16) -> NodeHarness {
         port,
         Paths::under(dir.path()),
         clients.clone(),
+        tailscale,
     );
     let routes = node.routes();
     tokio::spawn(async move { axum::serve(listener, routes).await.unwrap() });
@@ -148,19 +155,90 @@ async fn set_routing(hub: &Harness, machine: &str, on: bool) -> reqwest::Respons
         .unwrap()
 }
 
+struct Tailnet {
+    status: Arc<Mutex<Value>>,
+    caller: Arc<Mutex<Value>>,
+}
+
+impl Tailnet {
+    fn new() -> Self {
+        Self {
+            status: Arc::new(Mutex::new(json!({ "Self": { "UserID": 1 } }))),
+            caller: Arc::default(),
+        }
+    }
+
+    fn fake(&self) -> Tailscale {
+        fake_tailscale(self.status.clone(), self.caller.clone())
+    }
+}
+
+async fn hub_on(tailnet: &Tailnet) -> Harness {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    Harness::on_tailnet(listener, tailnet.fake(), "false").await
+}
+
+type ControlSocket = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+async fn open_control(hub: &Harness, report: Value) -> Result<ControlSocket, tokio_tungstenite::tungstenite::Error> {
+    let url = format!("ws://127.0.0.1:{}/conflux/control", hub.port);
+    let (mut socket, _) = tokio_tungstenite::connect_async(url).await?;
+    socket.send(Message::Text(report.to_string().into())).await?;
+    Ok(socket)
+}
+
+async fn next_command(socket: &mut ControlSocket) -> Value {
+    loop {
+        let frame = tokio::time::timeout(Duration::from_secs(5), socket.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        if let Message::Text(text) = frame {
+            return serde_json::from_str(text.as_str()).unwrap();
+        }
+    }
+}
+
+fn online_named(hub: &Harness, name: &str) -> Vec<(bool, Option<bool>)> {
+    hub.app
+        .machines
+        .list()
+        .into_iter()
+        .filter(|m| m.hostname == name && m.online)
+        .map(|m| (m.guest, m.routing))
+        .collect()
+}
+
 fn fleet_routing(hub: &Harness) -> Vec<(String, Option<bool>)> {
     hub.app.fleet().iter().map(|m| (m.role.clone(), m.routing)).collect()
 }
 
 #[tokio::test]
 async fn the_dashboard_turns_routing_on_and_off_for_each_machine() {
-    let hub = Harness::new().await;
+    let tailnet = Tailnet::new();
+    let hub = hub_on(&tailnet).await;
     let n = start_node(hub.port).await;
     let node_config = Paths::under(n.dir.path()).config_dir;
     setup::apply(&n.clients, &node_config, n.port).unwrap();
     setup::restore(&n.clients, &node_config, n.port).unwrap();
     setup::apply(&hub.app.clients, &Paths::under(hub.dir.path()).config_dir, hub.port).unwrap();
+    let before_update = json!({ "hostname": "node-one", "version": "0.1.0" });
+    hub.app
+        .machines
+        .import(&json!([[before_update, "2026-01-01T00:00:00Z"]]));
+    assert!(
+        hub.app
+            .machines
+            .list()
+            .iter()
+            .any(|m| m.hostname == "node-one" && !m.online)
+    );
+    *tailnet.caller.lock().unwrap() = whois(1, &[]);
     let control = connect(&hub, &n).await;
+    *tailnet.caller.lock().unwrap() = Value::Null;
+    assert_eq!(online_named(&hub, "node-one").len(), 1);
+    assert_eq!(hub.app.machines.list().len(), 1);
     assert_eq!(hub.app.machines.list()[0].hostname, "node-one");
     assert_eq!(
         fleet_routing(&hub),
@@ -240,13 +318,54 @@ async fn the_dashboard_turns_routing_on_and_off_for_each_machine() {
     eventually(|| hub.app.machines.list().into_iter().find(|m| m.hostname == "old-node")).await;
     assert_eq!(set_routing(&hub, "old-node", true).await.status(), StatusCode::CONFLICT);
 
+    *tailnet.caller.lock().unwrap() = whois(2, &[]);
+    let impostor = json!({ "hostname": "node-one", "version": "0.1.0", "routing": true });
+    let mut guest = open_control(&hub, impostor.clone()).await.unwrap();
+    eventually(|| (online_named(&hub, "node-one").len() == 2).then_some(())).await;
+    assert!(online_named(&hub, "node-one").contains(&(false, Some(false))));
+    assert!(online_named(&hub, "node-one").contains(&(true, Some(true))));
+    let r = set_routing(&hub, "node-one", true).await;
+    assert_eq!(r.status(), 200, "{}", r.text().await.unwrap());
+    assert_eq!(
+        claude_base_url(&n.clients),
+        Some(format!("http://127.0.0.1:{}", n.port))
+    );
+    hub.app.machines.broadcast(&machines::hub_moved("127.0.0.1"));
+    assert_eq!(next_command(&mut guest).await["type"], "hub");
+    set_routing(&hub, "node-one", false).await;
+    drop(guest);
+    let mut guest = open_control(
+        &hub,
+        json!({ "hostname": "guest-only", "version": "0.1.0", "routing": true }),
+    )
+    .await
+    .unwrap();
+    eventually(|| (online_named(&hub, "guest-only") == [(true, Some(true))]).then_some(())).await;
+    assert_eq!(
+        set_routing(&hub, "guest-only", false).await.status(),
+        StatusCode::FORBIDDEN
+    );
+    hub.app.machines.broadcast(&machines::hub_moved("127.0.0.1"));
+    assert_eq!(next_command(&mut guest).await["type"], "hub");
+
+    *tailnet.status.lock().unwrap() = Value::Null;
+    let before = hub.app.machines.list().len();
+    let refused = open_control(&hub, json!({ "hostname": "unknown-box", "version": "0.1.0" })).await;
+    assert!(
+        matches!(&refused, Err(tokio_tungstenite::tungstenite::Error::Http(r)) if r.status() == 503),
+        "{refused:?}"
+    );
+    assert_eq!(hub.app.machines.list().len(), before);
+    *tailnet.status.lock().unwrap() = json!({ "Self": { "UserID": 1 } });
+    *tailnet.caller.lock().unwrap() = Value::Null;
+
     control.abort();
     eventually(|| {
         hub.app
             .machines
             .list()
             .into_iter()
-            .find(|m| m.hostname == "node-one" && !m.online)
+            .find(|m| m.hostname == "node-one" && !m.guest && !m.online)
     })
     .await;
     assert_eq!(set_routing(&hub, "node-one", true).await.status(), StatusCode::CONFLICT);
@@ -255,8 +374,43 @@ async fn the_dashboard_turns_routing_on_and_off_for_each_machine() {
 #[tokio::test]
 async fn nodes_follow_a_hub_move_at_once() {
     let hub = Harness::new().await;
-    let before = start_node(hub.port).await;
+    let tagged = Tailnet::new();
+    *tagged.status.lock().unwrap() = json!({ "Self": { "UserID": 1, "Tags": ["tag:server"] } });
+    *tagged.caller.lock().unwrap() = whois(1, &[]);
+    let before = start_node_on(hub.port, tagged.fake()).await;
     connect(&hub, &before).await;
+    let status: Value = before
+        .http
+        .get(format!("{}/conflux/node", before.base))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(status["guest"], true);
+    before
+        .http
+        .post(format!("{}/conflux/api/update", before.base))
+        .json(&json!({ "machines": ["someone-else"] }))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        !hub.fake
+            .hits
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(path, _)| path.starts_with("/releases")),
+        "a guest updates itself instead of asking the hub"
+    );
+    assert!(hub.app.machines.send("node-one", machines::set_routing(true)));
+    assert!(
+        hub.app
+            .machines
+            .send("node-one", json!({ "type": "update", "version": "9.9.9" }))
+    );
     let moving = HubState::Moving { id: "x".into() };
     assert!(hub.app.hub_state.compare_and_set(&HubState::Active, moving).unwrap());
     let r = hub
@@ -268,6 +422,8 @@ async fn nodes_follow_a_hub_move_at_once() {
         .unwrap();
     assert_eq!(r.status(), 200);
     eventually(|| (before.node.hub() == "100.64.0.9").then_some(())).await;
+    assert_eq!(claude_base_url(&before.clients), None);
+    assert!(before.node.updater.status().is_none());
 
     let after = start_node(hub.port).await;
     tokio::spawn(after.node.clone().run_control());
@@ -276,10 +432,16 @@ async fn nodes_follow_a_hub_move_at_once() {
 
 #[tokio::test]
 async fn update_reaches_connected_nodes_and_shows_their_failures() {
-    let hub = Harness::new().await;
+    let tailnet = Tailnet::new();
+    let hub = hub_on(&tailnet).await;
     *hub.fake.release.lock().unwrap() = Some(("9.9.9".into(), "unused".into()));
     let n = start_node(hub.port).await;
     connect(&hub, &n).await;
+    *tailnet.caller.lock().unwrap() = whois(2, &[]);
+    let mut guest = open_control(&hub, json!({ "hostname": "node-one", "version": "0.1.0" }))
+        .await
+        .unwrap();
+    eventually(|| (online_named(&hub, "node-one").len() == 2).then_some(())).await;
 
     let v: Value = hub
         .http
@@ -295,8 +457,13 @@ async fn update_reaches_connected_nodes_and_shows_their_failures() {
     assert_eq!(v["started"], json!(["node-one"]));
     assert_eq!(
         v["skipped"],
-        json!([{"machine": "node-typo", "reason": "unknown machine"}])
+        json!([
+            {"machine": "node-one", "reason": "guest machine"},
+            {"machine": "node-typo", "reason": "unknown machine"}
+        ])
     );
+    hub.app.machines.broadcast(&machines::hub_moved("127.0.0.1"));
+    assert_eq!(next_command(&mut guest).await["type"], "hub");
 
     let failed = eventually(|| {
         hub.app

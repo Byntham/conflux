@@ -4,25 +4,12 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use common::Harness;
+use common::{Harness, fake_tailscale, whois};
 use conflux::config::{Config, Paths, Role};
 use conflux::link::{self, Waiting};
 use conflux::node::Node;
 use conflux::setup::ClientPaths;
-use conflux::tailnet::Tailscale;
 use serde_json::{Value, json};
-
-fn whois(user: u64, tags: &[&str]) -> Value {
-    json!({ "Node": { "Name": "hub.example.ts.net.", "Tags": tags }, "UserProfile": { "ID": user } })
-}
-
-fn fake_tailscale(status: Arc<Mutex<Value>>, caller: Arc<Mutex<Value>>) -> Tailscale {
-    Arc::new(move |args: &[&str]| match args.first() {
-        Some(&"status") => Some(status.lock().unwrap().clone()),
-        Some(&"whois") => Some(caller.lock().unwrap().clone()),
-        _ => None,
-    })
-}
 
 struct Machine {
     paths: Paths,
@@ -83,6 +70,7 @@ async fn connects_as_a_node(hub: &Harness, machine: &mut Machine, name: &str) {
         node_port,
         machine.paths.clone(),
         machine.clients.clone(),
+        Arc::new(|_: &[&str]| None),
     );
     tokio::spawn(node.run_control());
 }
@@ -230,6 +218,8 @@ async fn a_waiting_machine_refuses_links_it_should_not_take() {
     *machine.caller.lock().unwrap() = whois(2, &[]);
     assert_eq!(ask_to_link(&machine).await, 403);
     *machine.caller.lock().unwrap() = whois(1, &["tag:server"]);
+    assert_eq!(ask_to_link(&machine).await, 403);
+    *machine.caller.lock().unwrap() = Value::Null;
     assert_eq!(ask_to_link(&machine).await, 403);
     *machine.caller.lock().unwrap() = whois(1, &[]);
 

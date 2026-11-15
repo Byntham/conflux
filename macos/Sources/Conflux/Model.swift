@@ -251,7 +251,8 @@ final class Model: ObservableObject {
     }
 
     func isThisMac(_ machine: Machine) -> Bool {
-        node.map { machine.hostname == $0.hostname } ?? (machine.role == "hub" || machine.role == "waiting")
+        node.map { machine.hostname == $0.hostname && (machine.guest ?? false) == ($0.guest ?? false) }
+            ?? (machine.role == "hub" || machine.role == "waiting")
     }
 
     var machines: [Machine] {
@@ -275,11 +276,15 @@ final class Model: ObservableObject {
     }
 
     var outdatedMachines: [Machine] {
-        machines.filter { $0.outdated && $0.online && !$0.isUpdating }
+        machines.filter { $0.outdated && $0.online && !$0.isUpdating && canUpdate($0) }
+    }
+
+    func canUpdate(_ machine: Machine) -> Bool {
+        isThisMac(machine) || (node?.guest != true && machine.guest != true)
     }
 
     var upToDate: Bool {
-        checkedForUpdates && !updating && !machines.contains { $0.outdated }
+        checkedForUpdates && !updating && !machines.contains { $0.outdated && canUpdate($0) }
     }
 
     var updating: Bool {
