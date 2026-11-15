@@ -232,6 +232,7 @@ async fn relay(
     let route = first_frame_route(&headers, &first);
     let url = ws_url(&proxy::upstream_url(&app, Provider::Codex, &path, query.as_deref()));
     let started = Instant::now();
+    let mut cooldowns = app.router.watch_cooldowns();
 
     let mut tried = HashSet::new();
     let mut refreshed = HashSet::new();
@@ -323,6 +324,13 @@ async fn relay(
                 let _ = up_tx.send(UpstreamMsg::Close(None)).await;
                 break;
             }
+            Ok(()) = cooldowns.changed(), if turns.idle() => {
+                if app.router.blocked_account_wide(&account.id) {
+                    let _ = client.send(ClientMsg::Close(None)).await;
+                    let _ = up_tx.send(UpstreamMsg::Close(None)).await;
+                    break;
+                }
+            }
             changed = access_changed.changed(), if guest.is_some() && turns.idle() => {
                 if changed.is_err() || guest.as_deref().is_some_and(|id| !app.guests.is_approved(id)) {
                     let _ = client.send(ClientMsg::Close(None)).await;
@@ -377,7 +385,7 @@ async fn relay(
 fn apply_rejection(app: &App, account: &AccountEntry, rejection: &Rejection) {
     match rejection {
         Rejection::Quota { scope, until, reason } => app.router.cool(&account.id, scope, *until, reason),
-        Rejection::Short { scope, until } => app.router.cool(&account.id, scope, *until, "short rate limit"),
+        Rejection::Short { scope, until } => app.router.cool(&account.id, scope, *until, router::SHORT_THROTTLE),
     }
 }
 
