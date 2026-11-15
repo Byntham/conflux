@@ -264,20 +264,30 @@ async fn a_waiting_machine_finds_its_hub_and_links_itself_to_it() {
     let tailnet = |hub_owner: u64, hub_tags: &[&str]| {
         let mut hub = peer("localhost", "linux", hub_owner, "127.0.0.1");
         hub["Tags"] = json!(hub_tags);
-        json!({ "Self": { "UserID": 1 }, "Peer": { "a": hub, "b": peer("fresh", "linux", 1, "::1") } })
+        json!({
+            "Self": { "UserID": 1 },
+            "User": { "1": { "LoginName": "me@example.com" }, "2": { "LoginName": "friend@example.com" } },
+            "Peer": { "a": hub, "b": peer("fresh", "linux", 1, "::1") },
+        })
     };
 
     *machine.tailnet.lock().unwrap() = tailnet(2, &[]);
-    assert_eq!(find_hubs(&machine).await, json!([]));
-    assert_eq!(ask_to_join(&machine, "127.0.0.1").await, 404);
+    assert_eq!(
+        find_hubs(&machine).await,
+        json!([{ "name": "localhost", "address": "127.0.0.1", "guest": true, "owner": "friend@example.com" }])
+    );
     *machine.tailnet.lock().unwrap() = tailnet(1, &["tag:server"]);
-    assert_eq!(find_hubs(&machine).await, json!([]));
+    assert_eq!(
+        find_hubs(&machine).await,
+        json!([{ "name": "localhost", "address": "127.0.0.1", "guest": true }])
+    );
 
     *machine.tailnet.lock().unwrap() = tailnet(1, &[]);
     assert_eq!(
         find_hubs(&machine).await,
-        json!([{ "name": "localhost", "address": "127.0.0.1" }])
+        json!([{ "name": "localhost", "address": "127.0.0.1", "guest": false }])
     );
+    assert_eq!(ask_to_join(&machine, "192.0.2.9").await, 404);
     assert_eq!(ask_to_join(&machine, "::1").await, 502);
     assert_eq!(Config::load(&machine.paths).unwrap().role, Role::Waiting);
 

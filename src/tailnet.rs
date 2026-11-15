@@ -39,9 +39,11 @@ pub fn status(tailscale: &Tailscale) -> Option<Value> {
 pub struct Peer {
     pub machine: TailnetSelf,
     pub os: String,
+    pub guest: bool,
+    pub owner: Option<String>,
 }
 
-pub fn same_user_peers(status: &Value) -> Vec<Peer> {
+pub fn online_peers(status: &Value) -> Vec<Peer> {
     let me = &status["Self"]["UserID"];
     if me.is_null() {
         return Vec::new();
@@ -50,16 +52,23 @@ pub fn same_user_peers(status: &Value) -> Vec<Peer> {
         .as_object()
         .into_iter()
         .flat_map(|peers| peers.values())
-        .filter(|p| p["UserID"] == *me && p["Online"] == true)
-        .filter(|p| p["Tags"].as_array().is_none_or(|tags| tags.is_empty()))
+        .filter(|p| p["Online"] == true)
         .filter_map(|p| {
             let os = p["OS"].as_str().filter(|os| INSTALLABLE_OS.contains(os))?;
+            let tagged = p["Tags"].as_array().is_some_and(|tags| !tags.is_empty());
+            let owner = status["User"][p["UserID"].to_string()]["LoginName"].as_str();
             Some(Peer {
                 machine: TailnetSelf::from_peer(p),
                 os: os.to_string(),
+                guest: p["UserID"] != *me || tagged,
+                owner: owner.filter(|_| !tagged).map(str::to_string),
             })
         })
         .collect()
+}
+
+pub fn same_user_peers(status: &Value) -> Vec<Peer> {
+    online_peers(status).into_iter().filter(|p| !p.guest).collect()
 }
 
 #[derive(Clone, Debug, PartialEq)]

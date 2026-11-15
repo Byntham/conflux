@@ -751,15 +751,20 @@ async fn join_found_hub(cfg: Config, paths: Paths, daemon: &Daemon) -> Result<()
     let hubs = found["hubs"].as_array().cloned().unwrap_or_default();
     let name = |hub: &Value| hub["name"].as_str().unwrap_or("?").to_string();
     let hub = match hubs.as_slice() {
-        [hub] => hub,
+        [hub] if hub["guest"] != true => hub,
         [] => bail!(
-            "found no hub on your tailnet. The hub must be on, and signed in to Tailscale as the same user \
-             as this machine. To name it yourself, run `conflux join <hub>`."
+            "found no hub on your tailnet. The hub must be on and signed in to Tailscale. \
+             To name it yourself, run `conflux join <hub>`."
         ),
-        _ => bail!(
-            "found more than one hub: {}. Pick one with `conflux join <hub>`.",
-            hubs.iter().map(name).collect::<Vec<_>>().join(", ")
-        ),
+        _ => {
+            println!("Found these hubs on your tailnet:");
+            for hub in &hubs {
+                println!("  {:<24} {}", name(hub), found_hub(hub));
+            }
+            bail!(
+                "pick one with `conflux join <hub>`. A guest's Claude Code and Codex prompts go through the owner's hub."
+            )
+        }
     };
     daemon
         .post("/conflux/api/join", json!({ "address": hub["address"] }))
@@ -767,6 +772,14 @@ async fn join_found_hub(cfg: Config, paths: Paths, daemon: &Daemon) -> Result<()
     println!("Found the hub {}.", name(hub));
     print_joined(&Config::load(&paths)?);
     Ok(())
+}
+
+fn found_hub(hub: &Value) -> String {
+    match (hub["guest"] == true, hub["owner"].as_str()) {
+        (false, _) => "your hub".into(),
+        (true, Some(owner)) => format!("join {owner}'s hub as a guest"),
+        (true, None) => "join this tagged hub as a guest".into(),
+    }
 }
 
 fn found_state(machine: &Value) -> &'static str {
