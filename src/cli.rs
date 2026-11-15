@@ -243,6 +243,8 @@ const UPDATE_WAIT: Duration = Duration::from_secs(300);
 const HOW_TO_LINK: &str = "To link it, run `conflux join` here. conflux finds the hub on your tailnet. \
                            Or run `conflux add` on the hub, or open Machines on its dashboard and click Find machines.";
 
+const REPORT_LIMIT: Duration = Duration::from_secs(2);
+
 struct Daemon {
     base: String,
     http: reqwest::Client,
@@ -279,6 +281,14 @@ impl Daemon {
             bail!("{}", v["error"].as_str().unwrap_or(&format!("HTTP {status}")));
         }
         Ok(v)
+    }
+
+    async fn report_to_hub(&self, cfg: &Config) {
+        if cfg.role != Role::Node {
+            return;
+        }
+        let report = self.call(reqwest::Method::POST, "/conflux/node/report", None);
+        let _ = tokio::time::timeout(REPORT_LIMIT, report).await;
     }
 
     async fn get(&self, path: &str) -> Result<Value> {
@@ -370,6 +380,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 SyncSetting::On => {
                     cfg.transcript_sync = true;
                     cfg.save(&paths)?;
+                    daemon.report_to_hub(&cfg).await;
                     println!("Transcript sync is on for this machine.");
                     println!(
                         "Its Claude Code and Codex transcripts will be copied to the hub, including everything agents read."
@@ -378,6 +389,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 SyncSetting::Off => {
                     cfg.transcript_sync = false;
                     cfg.save(&paths)?;
+                    daemon.report_to_hub(&cfg).await;
                     println!("Transcript sync is off for this machine. Copies already on the hub stay there.");
                 }
                 SyncSetting::Status => {
@@ -401,6 +413,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         }
         Command::Off => {
             let restored = setup::restore(&ClientPaths::from_env()?, &paths.config_dir, cfg.port)?;
+            daemon.report_to_hub(&cfg).await;
             println!(
                 "{}",
                 if restored.is_some() {
@@ -413,6 +426,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         }
         Command::On => {
             setup::apply(&ClientPaths::from_env()?, &paths.config_dir, cfg.port)?;
+            daemon.report_to_hub(&cfg).await;
             println!("Claude Code and Codex now go through conflux.");
             Ok(())
         }
