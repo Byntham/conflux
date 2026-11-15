@@ -11,6 +11,7 @@ use crate::usage::{Snapshot, Usage};
 
 const PIN_TTL: chrono::Duration = chrono::Duration::hours(1);
 const MAX_WINDOW: chrono::Duration = chrono::Duration::hours(7 * 24 + 1);
+pub const SHORT_COOLDOWN: chrono::Duration = chrono::Duration::seconds(30);
 const ACCOUNT_SCOPE: &str = "account";
 const MODEL_SCOPE: &str = "model:";
 
@@ -239,6 +240,7 @@ impl Router {
 
     pub fn cool(&self, account: &str, scope: &str, until: DateTime<Utc>, reason: &str) {
         let now = Utc::now();
+        let until = if until > now { until } else { now + SHORT_COOLDOWN };
         let mut st = self.state.lock().unwrap();
         if until - now > MAX_WINDOW {
             tracing::warn!(account, %until, "reset is past the longest window; blocking for billing");
