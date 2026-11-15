@@ -393,6 +393,30 @@ impl Fake {
         Ok(name.to_string())
     }
 
+    fn note_session(
+        self: &Arc<Self>,
+        accounts: &BTreeMap<String, Account>,
+        name: &str,
+        session: Option<&str>,
+        now: DateTime<Utc>,
+    ) {
+        let Some(session) = session else { return };
+        let provider = accounts[name].provider;
+        let key = format!("{}:{session}", provider.as_str());
+        let before = self.sessions.lock().unwrap().insert(key, name.to_string());
+        if let Some(before) = before.filter(|b| b != name)
+            && let Some(b) = accounts.get(&before).filter(|b| b.clearly_available(now))
+        {
+            let detail = format!(
+                "{provider} session {session} moved from {before} to {name}; {before} had {} in flight, short {:.0}%, unblocked {} ms ago",
+                b.in_flight,
+                b.short.pct(),
+                (now - b.blocked_until).num_milliseconds()
+            );
+            self.problem_with_view("session moved off an account with room", detail, &before);
+        }
+    }
+
     fn begin(self: &Arc<Self>, name: &str, session: Option<&str>, previous: Option<&str>) -> Result<Turn, Refusal> {
         let now = Utc::now();
         let mut rng = rand::rng();
@@ -400,6 +424,7 @@ impl Fake {
         for a in accounts.values_mut() {
             a.roll(now);
         }
+        self.note_session(&accounts, name, session, now);
         let a = accounts.get_mut(name).expect("authorized account");
         let provider = a.provider;
         if a.full() {
@@ -448,21 +473,6 @@ impl Fake {
             a.told_full.get_or_insert(now);
         }
         let limits = a.limits();
-        if let Some(session) = session {
-            let key = format!("{}:{session}", provider.as_str());
-            let before = self.sessions.lock().unwrap().insert(key, name.to_string());
-            if let Some(before) = before.filter(|b| b != name)
-                && let Some(b) = accounts.get(&before).filter(|b| b.clearly_available(now))
-            {
-                let detail = format!(
-                    "{provider} session {session} moved from {before} to {name}; {before} had {} in flight, short {:.0}%, unblocked {} ms ago",
-                    b.in_flight,
-                    b.short.pct(),
-                    (now - b.blocked_until).num_milliseconds()
-                );
-                self.problem_with_view("session moved off an account with room", detail, &before);
-            }
-        }
         drop_lock(accounts);
         let id = self.turns.fetch_add(1, Ordering::SeqCst) + 1;
         if provider == Provider::Codex {
@@ -725,9 +735,12 @@ async fn codex_responses(
     if let Ok(upgrade) = upgrade {
         let limits = {
             let mut accounts = fake.accounts.lock().unwrap();
-            let a = accounts.get_mut(&name).expect("authorized account");
             let now = Utc::now();
-            a.roll(now);
+            for a in accounts.values_mut() {
+                a.roll(now);
+            }
+            fake.note_session(&accounts, &name, session.as_deref(), now);
+            let a = accounts.get_mut(&name).expect("authorized account");
             if a.full() {
                 fake.refuse_full(&name, a, now);
                 let body = codex_error(
@@ -917,6 +930,7 @@ async fn start_provider(fake: Arc<Fake>) -> Result<String> {
 enum Outcome {
     Ok,
     Limited,
+    LimitedWithRoom,
     Throttled,
     ServerError,
     Unauthorized,
@@ -926,9 +940,10 @@ enum Outcome {
     Other,
 }
 
-const OUTCOMES: [(Outcome, &str); 9] = [
+const OUTCOMES: [(Outcome, &str); 10] = [
     (Outcome::Ok, "ok"),
     (Outcome::Limited, "all used"),
+    (Outcome::LimitedWithRoom, "had room"),
     (Outcome::Throttled, "throttled"),
     (Outcome::ServerError, "5xx"),
     (Outcome::Unauthorized, "401"),
@@ -978,10 +993,10 @@ impl Ctx {
         total
     }
 
-    async fn check_limited(&self, kind: &str, provider: Provider, conflux_said: bool) {
+    async fn check_limited(&self, kind: &str, provider: Provider, conflux_said: bool) -> Outcome {
         const KIND: &str = "client told every account is used up while one had room";
         let Some(free) = self.fake.any_available(provider) else {
-            return;
+            return Outcome::Limited;
         };
         let source = if conflux_said { "conflux" } else { "an upstream refusal" };
         let mut detail = format!("{source} refused a {kind} turn while {free} had room");
@@ -992,12 +1007,15 @@ impl Ctx {
             ));
         }
         self.fake.problem(KIND, detail);
+        Outcome::LimitedWithRoom
     }
 
     async fn pause(&self, outcome: Outcome, retry_after: Option<u64>) {
         let wait = match outcome {
             Outcome::Ok => rand::rng().random_range(0..=self.fake.args.think_ms),
-            Outcome::Limited | Outcome::Throttled => retry_after.unwrap_or(2).clamp(1, 10) * 1000,
+            Outcome::Limited | Outcome::LimitedWithRoom | Outcome::Throttled => {
+                retry_after.unwrap_or(2).clamp(1, 10) * 1000
+            }
             _ => 1000,
         };
         let left = self.deadline.saturating_duration_since(Instant::now());
@@ -1156,12 +1174,14 @@ async fn claude_session(ctx: Arc<Ctx>) {
                 "messages": [{"role": "user", "content": "hello"}]
             }));
         let sent = send_http(&ctx, req, "message_stop").await;
-        if sent.outcome == Outcome::Limited {
-            ctx.check_limited("claude http", Provider::Claude, sent.body.contains("conflux: every"))
+        let mut outcome = sent.outcome;
+        if outcome == Outcome::Limited {
+            outcome = ctx
+                .check_limited("claude http", Provider::Claude, sent.body.contains("conflux: every"))
                 .await;
         }
-        ctx.record("claude http", sent.outcome, sent.first_byte, sent.detail);
-        ctx.pause(sent.outcome, sent.retry_after).await;
+        ctx.record("claude http", outcome, sent.first_byte, sent.detail);
+        ctx.pause(outcome, sent.retry_after).await;
     }
 }
 
@@ -1189,17 +1209,19 @@ async fn codex_http_session(ctx: Arc<Ctx>) {
             .header("session_id", &session)
             .json(&body);
         let sent = send_http(&ctx, req, "response.completed").await;
-        match sent.outcome {
+        let mut outcome = sent.outcome;
+        match outcome {
             Outcome::Ok => previous = completed_id(&sent.body),
             Outcome::LostContinuation => previous = None,
             Outcome::Limited => {
-                ctx.check_limited("codex http", Provider::Codex, sent.body.contains("conflux: every"))
+                outcome = ctx
+                    .check_limited("codex http", Provider::Codex, sent.body.contains("conflux: every"))
                     .await
             }
             _ => {}
         }
-        ctx.record("codex http", sent.outcome, sent.first_byte, sent.detail);
-        ctx.pause(sent.outcome, sent.retry_after).await;
+        ctx.record("codex http", outcome, sent.first_byte, sent.detail);
+        ctx.pause(outcome, sent.retry_after).await;
     }
 }
 
@@ -1280,16 +1302,20 @@ async fn codex_ws_session(ctx: Arc<Ctx>) {
         ctx.in_flight.fetch_add(1, Ordering::SeqCst);
         if socket.is_none() {
             match ws_connect(&ctx, &session).await {
-                Ok(s) => socket = Some(s),
-                Err((outcome, detail)) => {
+                Ok(s) => {
+                    socket = Some(s);
+                    previous = None;
+                }
+                Err((mut outcome, detail)) => {
                     ctx.in_flight.fetch_sub(1, Ordering::SeqCst);
                     if outcome == Outcome::Limited {
-                        ctx.check_limited(
-                            "codex ws handshake",
-                            Provider::Codex,
-                            detail.as_deref().is_some_and(|d| d.contains("conflux: every")),
-                        )
-                        .await;
+                        outcome = ctx
+                            .check_limited(
+                                "codex ws handshake",
+                                Provider::Codex,
+                                detail.as_deref().is_some_and(|d| d.contains("conflux: every")),
+                            )
+                            .await;
                     }
                     let detail = detail.filter(|_| outcome == Outcome::Other || outcome == Outcome::ConnectFailed);
                     ctx.record("codex ws", outcome, None, detail);
@@ -1298,17 +1324,15 @@ async fn codex_ws_session(ctx: Arc<Ctx>) {
                 }
             }
         }
-        let (outcome, first_byte, last) = ws_turn(&ctx, socket.as_mut().unwrap(), &previous).await;
+        let (mut outcome, first_byte, last) = ws_turn(&ctx, socket.as_mut().unwrap(), &previous).await;
         ctx.in_flight.fetch_sub(1, Ordering::SeqCst);
         match outcome {
             Outcome::Ok => previous = last["response"]["id"].as_str().map(str::to_string),
             _ => {
-                if outcome == Outcome::LostContinuation {
-                    previous = None;
-                }
                 if outcome == Outcome::Limited {
                     let text = last.to_string();
-                    ctx.check_limited("codex ws", Provider::Codex, text.contains("conflux: every"))
+                    outcome = ctx
+                        .check_limited("codex ws", Provider::Codex, text.contains("conflux: every"))
                         .await;
                 }
                 if let Some(mut s) = socket.take() {
@@ -1476,6 +1500,7 @@ fn report(ctx: &Ctx, fake: &Fake, watch: &HubWatch, secs: f64) {
         ms.sort_unstable();
         println!("{:>10}{:>10}", percentile(&ms, 0.5), percentile(&ms, 0.99));
     }
+    println!("  (had room: refused as if every account were used up while one still had room)");
     println!("  (p50 and p99 are time to first byte through conflux)");
     for (kind, s) in stats.iter() {
         for d in &s.others {
