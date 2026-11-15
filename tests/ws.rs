@@ -222,34 +222,3 @@ async fn browser_websocket_is_rejected() {
     assert!(r.is_err());
     assert_eq!(h.hits_for("at-c"), 0);
 }
-
-#[tokio::test]
-async fn continuation_goes_to_the_account_that_made_the_response() {
-    let h = Harness::new().await;
-    h.add(Provider::Codex, "a").await;
-    h.add(Provider::Codex, "b").await;
-    let mut ws = open(&h, &[]).await.unwrap();
-    ws.send(create("m")).await.unwrap();
-    let created = next_json(&mut ws).await.unwrap();
-    let resp_id = created["response"]["id"].as_str().unwrap().to_string();
-    let owner = resp_id
-        .trim_start_matches("resp_")
-        .rsplit_once('_')
-        .unwrap()
-        .0
-        .to_string();
-    drop(ws);
-
-    for _ in 0..3 {
-        let mut ws = open(&h, &[]).await.unwrap();
-        let msg = json!({"type": "response.create", "model": "m", "previous_response_id": resp_id});
-        ws.send(Message::Text(msg.to_string().into())).await.unwrap();
-        let created = next_json(&mut ws).await.unwrap();
-        assert!(
-            created["response"]["id"]
-                .as_str()
-                .unwrap()
-                .starts_with(&format!("resp_{owner}_"))
-        );
-    }
-}

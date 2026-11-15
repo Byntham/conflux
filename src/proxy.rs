@@ -208,7 +208,6 @@ pub fn route_request(provider: Provider, h: &HeaderMap, body: &[u8]) -> RouteReq
             Provider::Claude => claude_session(h, &json),
             Provider::Codex => codex_session(h, &json),
         },
-        previous_response_id: json["previous_response_id"].as_str().map(str::to_string),
     }
 }
 
@@ -601,14 +600,7 @@ pub async fn handle(State(app): State<Arc<App>>, req: Request) -> Response {
             header_str(resp.headers(), "content-encoding"),
             header_str(resp.headers(), "content-type"),
         );
-        let tap = ResponseTap::new(
-            scanner,
-            provider,
-            record,
-            app.requests.clone(),
-            app.router.clone(),
-            account.id.clone(),
-        );
+        let tap = ResponseTap::new(scanner, provider, record, app.requests.clone());
         return stream_response(resp, tap);
     }
 }
