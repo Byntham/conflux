@@ -516,10 +516,10 @@ async fn not_linked() -> Response {
 async fn accept(State(w): State<Arc<Waiting>>, ConnectInfo(from): ConnectInfo<SocketAddr>) -> Response {
     let tailscale = w.tailscale.clone();
     let caller = from.ip();
-    let same_user = tokio::task::spawn_blocking(move || tailnet::is_same_user(&tailscale, caller))
+    let owner = tokio::task::spawn_blocking(move || tailnet::identify(&tailscale, caller).is_owner())
         .await
         .unwrap_or(false);
-    if !same_user {
+    if !owner {
         return refuse(
             StatusCode::FORBIDDEN,
             "the hub must belong to the same Tailscale user as this machine",

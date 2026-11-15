@@ -6,13 +6,15 @@ use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{ConnectInfo, State};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Utc};
+use http::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::sync::{Notify, mpsc};
 
 use crate::app::App;
+use crate::tailnet::{Caller, Identity};
 use crate::update::UpdateStatus;
 
 const SILENCE_LIMIT: Duration = Duration::from_secs(75);
@@ -40,6 +42,8 @@ pub struct Machine {
     pub routing: Option<bool>,
     pub update: Option<UpdateStatus>,
     pub outdated: bool,
+    pub guest: bool,
+    pub tailnet_name: Option<String>,
 }
 
 struct Link {
@@ -51,7 +55,28 @@ struct Link {
 struct Entry {
     report: Report,
     last_seen: DateTime<Utc>,
+    node: Option<String>,
+    guest: bool,
+    tailnet_name: Option<String>,
     link: Option<Link>,
+}
+
+impl Entry {
+    fn key(&self) -> String {
+        self.node.clone().unwrap_or_else(|| self.report.hostname.clone())
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct Saved {
+    report: Report,
+    last_seen: DateTime<Utc>,
+    #[serde(default)]
+    node: Option<String>,
+    #[serde(default)]
+    guest: bool,
+    #[serde(default)]
+    tailnet_name: Option<String>,
 }
 
 #[derive(Default)]
@@ -62,28 +87,40 @@ pub struct Machines {
 }
 
 impl Machines {
-    pub fn connect(&self, report: Report, address: IpAddr) -> (u64, mpsc::UnboundedReceiver<Value>) {
+    pub fn connect(
+        &self,
+        report: Report,
+        address: IpAddr,
+        peer: Option<&Identity>,
+    ) -> (String, u64, mpsc::UnboundedReceiver<Value>) {
         let id = self.next_link.fetch_add(1, Ordering::SeqCst);
         let (commands, receiver) = mpsc::unbounded_channel();
-        self.map.lock().unwrap().insert(
-            report.hostname.clone(),
-            Entry {
-                report,
-                last_seen: Utc::now(),
-                link: Some(Link { id, commands, address }),
-            },
-        );
+        let entry = Entry {
+            last_seen: Utc::now(),
+            node: peer.map(|p| p.node.clone()),
+            guest: peer.is_some_and(|p| !p.owner),
+            tailnet_name: peer.and_then(|p| p.name.clone()),
+            link: Some(Link { id, commands, address }),
+            report,
+        };
+        let key = entry.key();
+        let mut map = self.map.lock().unwrap();
+        if !entry.guest {
+            map.retain(|_, e| e.link.is_some() || e.report.hostname != entry.report.hostname);
+        }
+        map.insert(key.clone(), entry);
+        drop(map);
         self.reported.notify_waiters();
-        (id, receiver)
+        (key, id, receiver)
     }
 
-    pub fn report(&self, hostname: &str, link: u64, report: Report) {
+    pub fn report(&self, key: &str, link: u64, report: Report) {
         let mut map = self.map.lock().unwrap();
-        if let Some(entry) = map.get_mut(hostname)
+        if let Some(entry) = map.get_mut(key)
             && entry.link.as_ref().is_some_and(|l| l.id == link)
         {
             entry.report = Report {
-                hostname: hostname.to_string(),
+                hostname: entry.report.hostname.clone(),
                 ..report
             };
             entry.last_seen = Utc::now();
@@ -97,7 +134,11 @@ impl Machines {
             let reported = self.reported.notified();
             tokio::pin!(reported);
             reported.as_mut().enable();
-            if self.list().iter().any(|m| m.hostname == hostname && done(m)) {
+            if self
+                .list()
+                .iter()
+                .any(|m| m.hostname == hostname && !m.guest && done(m))
+            {
                 return true;
             }
             if tokio::time::timeout_at(deadline, reported).await.is_err() {
@@ -106,9 +147,9 @@ impl Machines {
         }
     }
 
-    pub fn disconnect(&self, hostname: &str, link: u64) {
+    pub fn disconnect(&self, key: &str, link: u64) {
         let mut map = self.map.lock().unwrap();
-        if let Some(entry) = map.get_mut(hostname)
+        if let Some(entry) = map.get_mut(key)
             && entry.link.as_ref().is_some_and(|l| l.id == link)
         {
             entry.link = None;
@@ -118,8 +159,9 @@ impl Machines {
 
     pub fn send(&self, hostname: &str, command: Value) -> bool {
         let map = self.map.lock().unwrap();
-        map.get(hostname)
-            .and_then(|e| e.link.as_ref())
+        map.values()
+            .filter(|e| !e.guest && e.report.hostname == hostname)
+            .find_map(|e| e.link.as_ref())
             .is_some_and(|l| l.commands.send(command).is_ok())
     }
 
@@ -136,28 +178,35 @@ impl Machines {
         let map = self.map.lock().unwrap();
         let known: Vec<_> = map
             .values()
-            .map(|e| (&e.report, if e.link.is_some() { now } else { e.last_seen }))
+            .map(|e| Saved {
+                report: e.report.clone(),
+                last_seen: if e.link.is_some() { now } else { e.last_seen },
+                node: e.node.clone(),
+                guest: e.guest,
+                tailnet_name: e.tailnet_name.clone(),
+            })
             .collect();
         json!(known)
     }
 
     pub fn import(&self, state: &Value) {
-        let Ok(known) = serde_json::from_value::<Vec<(Report, DateTime<Utc>)>>(state.clone()) else {
+        let Ok(known) = serde_json::from_value::<Vec<Saved>>(state.clone()) else {
             return;
         };
         let mut map = self.map.lock().unwrap();
-        for (report, last_seen) in known {
-            map.insert(
-                report.hostname.clone(),
-                Entry {
-                    report: Report {
-                        update: Value::Null,
-                        ..report
-                    },
-                    last_seen,
-                    link: None,
+        for saved in known {
+            let entry = Entry {
+                report: Report {
+                    update: Value::Null,
+                    ..saved.report
                 },
-            );
+                last_seen: saved.last_seen,
+                node: saved.node,
+                guest: saved.guest,
+                tailnet_name: saved.tailnet_name,
+                link: None,
+            };
+            map.insert(entry.key(), entry);
         }
     }
 
@@ -172,7 +221,8 @@ impl Machines {
 
     pub fn list(&self) -> Vec<Machine> {
         let now = Utc::now();
-        self.map
+        let mut machines: Vec<Machine> = self
+            .map
             .lock()
             .unwrap()
             .values()
@@ -186,8 +236,12 @@ impl Machines {
                 routing: e.report.routing,
                 update: serde_json::from_value(e.report.update.clone()).unwrap_or(None),
                 outdated: false,
+                guest: e.guest,
+                tailnet_name: e.tailnet_name.clone(),
             })
-            .collect()
+            .collect();
+        machines.sort_by(|a, b| a.hostname.cmp(&b.hostname));
+        machines
     }
 }
 
@@ -204,7 +258,19 @@ pub async fn control(
     ConnectInfo(from): ConnectInfo<SocketAddr>,
     upgrade: WebSocketUpgrade,
 ) -> Response {
-    upgrade.on_upgrade(move |socket| serve_control(app, socket, from.ip()))
+    let peer = match app.identify(from.ip()).await {
+        Caller::Unknown => {
+            tracing::warn!(address = %from.ip(), "refused a machine that Tailscale could not identify");
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "the hub could not ask Tailscale who this machine is",
+            )
+                .into_response();
+        }
+        Caller::Local => None,
+        Caller::Peer(identity) => Some(identity),
+    };
+    upgrade.on_upgrade(move |socket| serve_control(app, socket, from.ip(), peer))
 }
 
 async fn next_report(node: &mut WebSocket) -> Option<Option<Report>> {
@@ -215,14 +281,19 @@ async fn next_report(node: &mut WebSocket) -> Option<Option<Report>> {
     }
 }
 
-async fn serve_control(app: Arc<App>, mut node: WebSocket, address: IpAddr) {
+async fn serve_control(app: Arc<App>, mut node: WebSocket, address: IpAddr, peer: Option<Identity>) {
     let Some(Some(first)) = next_report(&mut node).await else {
         return;
     };
-    let hostname = first.hostname.clone();
-    let (link, mut commands) = app.machines.connect(first, address);
-    if let Some(hub) = app.redirect_hub() {
-        app.machines.send(&hostname, hub_moved(&hub));
+    let (key, link, mut commands) = app.machines.connect(first, address, peer.as_ref());
+    if let Some(hub) = app.redirect_hub()
+        && node
+            .send(Message::Text(hub_moved(&hub).to_string().into()))
+            .await
+            .is_err()
+    {
+        app.machines.disconnect(&key, link);
+        return;
     }
     let drain = app.lifecycle.drain_started();
     tokio::pin!(drain);
@@ -236,12 +307,12 @@ async fn serve_control(app: Arc<App>, mut node: WebSocket, address: IpAddr) {
                 }
             }
             report = next_report(&mut node) => match report {
-                Some(Some(report)) => app.machines.report(&hostname, link, report),
+                Some(Some(report)) => app.machines.report(&key, link, report),
                 Some(None) => {}
                 None => break,
             },
         }
     }
     let _ = node.send(Message::Close(None)).await;
-    app.machines.disconnect(&hostname, link);
+    app.machines.disconnect(&key, link);
 }

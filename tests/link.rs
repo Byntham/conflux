@@ -13,7 +13,10 @@ use conflux::tailnet::Tailscale;
 use serde_json::{Value, json};
 
 fn whois(user: u64, tags: &[&str]) -> Value {
-    json!({ "Node": { "Name": "hub.example.ts.net.", "Tags": tags }, "UserProfile": { "ID": user } })
+    json!({
+        "Node": { "StableID": format!("n{user}"), "Name": "hub.example.ts.net.", "Tags": tags },
+        "UserProfile": { "ID": user, "LoginName": format!("user{user}@example.com") },
+    })
 }
 
 fn fake_tailscale(status: Arc<Mutex<Value>>, caller: Arc<Mutex<Value>>) -> Tailscale {

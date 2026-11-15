@@ -172,6 +172,8 @@ pub async fn update(State(app): State<Arc<App>>, Json(req): Json<UpdateRequest>)
         let is_hub = m.role == "hub";
         let obstacle = if !m.outdated {
             Some("already up to date")
+        } else if m.guest {
+            Some("guest machine")
         } else if !m.online {
             Some("offline")
         } else if m.update.as_ref().is_some_and(update::UpdateStatus::in_progress) {
@@ -236,12 +238,23 @@ pub async fn update_machine(
         .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
         return Ok(Json(done));
     }
-    let machine = app
+    let named: Vec<_> = app
         .machines
         .list()
         .into_iter()
-        .find(|m| m.hostname == hostname)
+        .filter(|m| m.hostname == hostname)
+        .collect();
+    let machine = named
+        .iter()
+        .find(|m| !m.guest)
+        .or(named.first())
         .ok_or_else(|| not_found("machine"))?;
+    if machine.guest {
+        return Err(ApiError(
+            StatusCode::FORBIDDEN,
+            format!("{hostname} is a guest machine. Its owner controls its routing."),
+        ));
+    }
     let offline = || ApiError(StatusCode::CONFLICT, format!("{hostname} is offline"));
     if !machine.online {
         return Err(offline());

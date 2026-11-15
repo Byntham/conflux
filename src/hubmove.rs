@@ -238,10 +238,7 @@ pub async fn abort(State(app): State<Arc<App>>, Json(req): Json<Abort>) -> Respo
     }
 }
 
-pub async fn resume(State(app): State<Arc<App>>, ConnectInfo(addr): ConnectInfo<SocketAddr>) -> Response {
-    if !addr.ip().is_loopback() {
-        return local_only();
-    }
+pub async fn resume(State(app): State<Arc<App>>) -> Response {
     let HubState::Moving { id } = app.hub_state.get() else {
         return fail(StatusCode::CONFLICT, "the hub is not in the middle of a move");
     };

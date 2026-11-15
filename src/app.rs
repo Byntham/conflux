@@ -4,7 +4,11 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use axum::extract::DefaultBodyLimit;
+use axum::Json;
+use axum::extract::{ConnectInfo, DefaultBodyLimit, Request, State};
+use axum::http::StatusCode;
+use axum::middleware::Next;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, patch, post};
 use fs2::FileExt;
 use serde_json::{Value, json};
@@ -22,7 +26,7 @@ use crate::refresh::Refresher;
 use crate::requests::RequestLog;
 use crate::router::Router;
 use crate::setup::ClientPaths;
-use crate::tailnet::{self, TailnetSelf, Tailscale};
+use crate::tailnet::{self, Caller, TailnetSelf, Tailscale};
 use crate::transcript_sync::TranscriptSync;
 use crate::transcripts::{self, Transcripts};
 use crate::update::{self, Updater};
@@ -201,6 +205,13 @@ impl App {
         }
     }
 
+    pub async fn identify(&self, caller: IpAddr) -> Caller {
+        let tailscale = self.tailscale.clone();
+        tokio::task::spawn_blocking(move || tailnet::identify(&tailscale, caller))
+            .await
+            .unwrap_or(Caller::Unknown)
+    }
+
     pub fn accepting_requests(&self) -> bool {
         self.hub_state.get() == HubState::Active
     }
@@ -224,6 +235,8 @@ impl App {
             routing: Some(crate::setup::routing(&self.paths.config_dir)),
             update: self.updater.status(),
             outdated: false,
+            guest: false,
+            tailnet_name: self.tailnet.read().unwrap().dns_name.clone(),
         };
         std::iter::once(hub)
             .chain(self.machines.list())
@@ -268,8 +281,12 @@ impl App {
                 self.clone(),
                 management::require_key,
             ));
+        let owner_only = axum::Router::new()
+            .route("/conflux/api/hub/resume", post(hubmove::resume))
+            .layer(axum::middleware::from_fn_with_state(self.clone(), require_owner));
         axum::Router::new()
             .merge(t3)
+            .merge(owner_only)
             .route("/", get(dashboard::page))
             .route(
                 "/conflux/transcripts",
@@ -279,7 +296,6 @@ impl App {
             .route("/conflux/api/threads/{id}", get(transcripts::thread))
             .route("/conflux/api/transcripts/search", get(transcripts::search))
             .route("/conflux/api/hub/move-code", post(hubmove::create_code))
-            .route("/conflux/api/hub/resume", post(hubmove::resume))
             .route("/conflux/move/prepare", post(hubmove::prepare))
             .route("/conflux/move/commit", post(hubmove::commit))
             .route("/conflux/move/abort", post(hubmove::abort))
@@ -314,6 +330,26 @@ impl App {
             tokio::spawn(self.usage.clone().run_poller(self.store.clone())),
             tokio::spawn(self.transcripts.clone().run_maintenance()),
         ]
+    }
+}
+
+pub async fn require_owner(
+    State(app): State<Arc<App>>,
+    ConnectInfo(from): ConnectInfo<SocketAddr>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let refuse = |status: StatusCode, message: &str| (status, Json(json!({ "error": message }))).into_response();
+    match app.identify(from.ip()).await {
+        Caller::Unknown => refuse(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "the hub could not ask Tailscale who you are. Try again in a minute.",
+        ),
+        caller if caller.is_owner() => next.run(req).await,
+        _ => refuse(
+            StatusCode::FORBIDDEN,
+            "only the hub's owner can do this. Your machine is a guest, because it signs in to Tailscale as a different user or is tagged.",
+        ),
     }
 }
 

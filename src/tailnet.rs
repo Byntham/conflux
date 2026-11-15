@@ -60,16 +60,58 @@ pub fn same_user_peers(status: &Value) -> Vec<Peer> {
         .collect()
 }
 
-pub fn is_same_user(tailscale: &Tailscale, caller: IpAddr) -> bool {
-    let Some(status) = status(tailscale) else {
-        return false;
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Identity {
+    pub node: String,
+    pub name: Option<String>,
+    pub user: Option<String>,
+    pub tagged: bool,
+    pub owner: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Caller {
+    Local,
+    Peer(Identity),
+    Unknown,
+}
+
+impl Caller {
+    pub fn is_owner(&self) -> bool {
+        match self {
+            Caller::Local => true,
+            Caller::Peer(identity) => identity.owner,
+            Caller::Unknown => false,
+        }
+    }
+}
+
+pub fn identify(tailscale: &Tailscale, caller: IpAddr) -> Caller {
+    let whois = tailscale(&["whois", "--json", &caller.to_string()]);
+    let Some((whois, node)) = whois.as_ref().and_then(|w| Some((w, w["Node"]["StableID"].as_str()?))) else {
+        return if caller.is_loopback() {
+            Caller::Local
+        } else {
+            Caller::Unknown
+        };
     };
-    let Some(whois) = tailscale(&["whois", "--json", &caller.to_string()]) else {
-        return false;
+    let Some(me) = status(tailscale)
+        .map(|s| s["Self"]["UserID"].clone())
+        .filter(|me| !me.is_null())
+    else {
+        return Caller::Unknown;
     };
-    let me = &status["Self"]["UserID"];
     let tagged = whois["Node"]["Tags"].as_array().is_some_and(|t| !t.is_empty());
-    !me.is_null() && whois["UserProfile"]["ID"] == *me && !tagged
+    Caller::Peer(Identity {
+        node: node.to_string(),
+        name: whois["Node"]["Name"]
+            .as_str()
+            .map(|n| n.trim_end_matches('.').to_lowercase())
+            .filter(|n| !n.is_empty()),
+        user: whois["UserProfile"]["LoginName"].as_str().map(str::to_string),
+        tagged,
+        owner: whois["UserProfile"]["ID"] == me && !tagged,
+    })
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
