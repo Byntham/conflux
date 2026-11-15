@@ -54,8 +54,12 @@ conflux runs as a systemd user service. It keeps running after you log out only 
 
 ### `conflux join` refuses because the machine holds accounts
 
-Joining another hub would strand this machine's accounts. To move them, run [`conflux hub take-over`](commands.md#conflux-hub-take-over-old-hub---code-code) on the new hub instead. To join anyway, pass `--force`.
+Joining another hub would strand this machine's accounts. To move them, run [`conflux hub move <machine>`](commands.md#conflux-hub-move-machine) on this machine. The other machine must be one of its nodes, and it becomes the hub. To join anyway, pass `--force`.
 
 ### A hub move got stuck
 
-If the new machine already has the accounts, run `conflux hub take-over <old-hub>` there again to finish the move. Otherwise, run `conflux hub resume` on the old hub to put it back in service, then start over with a new code.
+If the new machine stops before it confirms the move, the old hub goes back into service after 2 minutes. To cancel sooner, click Cancel on the dashboard or run `conflux hub resume` on the old hub.
+
+If the new machine already has the accounts, restart conflux there. It confirms the move with the old hub again and finishes it, or drops the accounts if the move was cancelled.
+
+If the old hub confirmed the move but the new hub never comes up, the old hub keeps refusing requests and waits for it. Restart conflux on the new machine. If that machine is gone, the old hub still has a copy of the accounts in the `retired-*` folder under its data directory.

@@ -115,6 +115,10 @@ impl Lifecycle {
 
     pub fn close_listeners(&self) {
         self.listeners.lock().unwrap().clear();
+        self.drop_inherited();
+    }
+
+    pub fn drop_inherited(&self) {
         self.inherited.lock().unwrap().clear();
     }
 

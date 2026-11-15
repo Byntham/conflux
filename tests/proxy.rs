@@ -490,7 +490,11 @@ async fn a_second_rejection_of_an_old_token_does_not_refresh_again() {
 async fn a_request_admitted_before_a_move_does_not_reach_the_upstream() {
     let h = Harness::new().await;
     h.add(Provider::Claude, "a").await;
-    let moving = conflux::hubstate::HubState::Moving { id: "x".into() };
+    let moving = conflux::hubstate::HubState::Moving {
+        id: "x".into(),
+        hub: "node-one".into(),
+        address: None,
+    };
     assert!(
         h.app
             .hub_state

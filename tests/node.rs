@@ -422,12 +422,16 @@ async fn nodes_follow_a_hub_move_at_once() {
             .machines
             .send("node-one", json!({ "type": "update", "version": "9.9.9" }))
     );
-    let moving = HubState::Moving { id: "x".into() };
+    let moving = HubState::Moving {
+        id: "x".into(),
+        hub: "100.64.0.9".into(),
+        address: Some(std::net::Ipv4Addr::LOCALHOST.into()),
+    };
     assert!(hub.app.hub_state.compare_and_set(&HubState::Active, moving).unwrap());
     let r = hub
         .http
         .post(format!("{}/conflux/move/commit", hub.base))
-        .json(&json!({"id": "x", "hub": "100.64.0.9"}))
+        .json(&json!({"id": "x"}))
         .send()
         .await
         .unwrap();
@@ -528,7 +532,10 @@ async fn a_draining_node_closes_the_socket_only_after_the_turn_ends() {
 #[tokio::test]
 async fn only_tailnet_redirects_are_followed() {
     let hub = Harness::new().await;
-    let n = start_node(hub.port).await;
+    let tailnet = Tailnet::new();
+    *tailnet.status.lock().unwrap() =
+        json!({ "Self": { "UserID": 1, "TailscaleIPs": ["100.64.0.8", "fd7a:115c:a1e0::8"] } });
+    let n = start_node_on(hub.port, tailnet.fake()).await;
     let paths = Paths::under(n.dir.path());
     Config {
         role: Role::Node,
@@ -540,6 +547,12 @@ async fn only_tailnet_redirects_are_followed() {
 
     assert!(!n.node.follow_redirect("evil.example.com").await.unwrap());
     assert!(!n.node.follow_redirect("8.8.8.8").await.unwrap());
+    for me in ["100.64.0.8", "[fd7a:115c:a1e0::8]"] {
+        assert!(
+            !n.node.follow_redirect(me).await.unwrap(),
+            "a node never makes itself its own hub: {me}"
+        );
+    }
     assert_eq!(n.node.hub(), "127.0.0.1");
 
     assert!(n.node.follow_redirect("100.64.0.9").await.unwrap());
@@ -735,7 +748,11 @@ async fn guests_see_the_hub_and_their_own_machines_and_change_nothing() {
     tailnet.calls_from(&hub, Value::Null);
     assert_eq!(threads().await.0, 200);
 
-    let moving = HubState::Moving { id: "secret".into() };
+    let moving = HubState::Moving {
+        id: "secret".into(),
+        hub: "new-hub".into(),
+        address: None,
+    };
     assert!(hub.app.hub_state.compare_and_set(&HubState::Active, moving).unwrap());
     *tailnet.status.lock().unwrap() = json!({ "Self": { "UserID": 1 } });
     tailnet.calls_from(&hub, whois(2, &[]));

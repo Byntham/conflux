@@ -18,7 +18,7 @@ use crate::accounts::Store;
 use crate::api::{self, Logins};
 use crate::config::{Config, Endpoints, Paths};
 use crate::guests::{self, Access, ApprovedGuest, Guests};
-use crate::hubmove::{self, MoveCode};
+use crate::hubmove;
 use crate::hubstate::{HubState, HubStateStore};
 use crate::lifecycle::Lifecycle;
 use crate::machines::{self, Machine, Machines};
@@ -54,7 +54,6 @@ pub struct App {
     pub hostname: String,
     pub paths: Paths,
     pub hub_state: HubStateStore,
-    pub move_code: Mutex<Option<MoveCode>>,
     pub ws_shutdown: tokio::sync::watch::Sender<bool>,
     pub management_key: String,
     pub api_call_http: reqwest::Client,
@@ -135,7 +134,6 @@ impl App {
             hostname: tailnet::hostname(),
             paths: paths.clone(),
             hub_state,
-            move_code: Mutex::new(None),
             ws_shutdown: tokio::sync::watch::channel(moving).0,
             management_key: management::load_or_create_key(&paths.management_key_file())?,
             api_call_http: management::api_call_client(),
@@ -270,6 +268,7 @@ impl App {
             outdated: false,
             guest: false,
             tailnet_name: self.tailnet.read().unwrap().dns_name.clone(),
+            has_battery: false,
             id: None,
             user: None,
             access: None,
@@ -352,6 +351,7 @@ impl App {
             )
             .route("/conflux/api/accounts/{id}/usage", post(api::poll_usage))
             .route("/conflux/api/hub/resume", post(hubmove::resume))
+            .route("/conflux/api/hub/move", post(hubmove::start))
             .route(
                 "/conflux/api/guests/{id}",
                 post(api::decide_guest).delete(api::remove_guest),
@@ -366,8 +366,6 @@ impl App {
             .merge(owner_only)
             .merge(proxied)
             .route("/", get(dashboard::page))
-            .route("/conflux/api/hub/move-code", post(hubmove::create_code))
-            .route("/conflux/move/prepare", post(hubmove::prepare))
             .route("/conflux/move/commit", post(hubmove::commit))
             .route("/conflux/move/abort", post(hubmove::abort))
             .route("/conflux/api/dashboard", get(dashboard::data))
@@ -517,6 +515,7 @@ pub async fn serve(cfg: Config, paths: Paths, ep: Endpoints) -> Result<()> {
     let exe = update::running_exe()?;
     app.updater.replaces(exe.clone());
     let mut background = app.start_background();
+    hubmove::continue_move(&app);
     let listener = lifecycle.listen(addr).with_context(|| format!("bind {addr}"))?;
     app.serve_on(listener);
     let mut bound = HashSet::new();

@@ -1,7 +1,7 @@
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use axum::Json;
@@ -11,40 +11,18 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Redirect, Response};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use rand::Rng;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::app::App;
-use crate::config::Paths;
-use crate::fsutil;
+use crate::config::{Config, Paths, Role};
 use crate::guests::{self, GuestList};
 use crate::hubstate::HubState;
-use crate::proxy;
+use crate::{fsutil, proxy, update};
 
-const CODE_LIFETIME: Duration = Duration::from_secs(600);
-const MAX_CODE_ATTEMPTS: u32 = 5;
-const CODE_ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-
-pub struct MoveCode {
-    code: String,
-    created: Instant,
-    failures: u32,
-}
-
-impl MoveCode {
-    fn generate() -> Self {
-        let mut rng = rand::rng();
-        let code = (0..8)
-            .map(|_| CODE_ALPHABET[rng.random_range(0..CODE_ALPHABET.len())] as char)
-            .collect();
-        Self {
-            code,
-            created: Instant::now(),
-            failures: 0,
-        }
-    }
-}
+const MOVE_TIMEOUT: Duration = Duration::from_secs(120);
+const COMMIT_ATTEMPTS: u32 = 30;
+const RETRY_EVERY: Duration = Duration::from_secs(2);
 
 fn fail(status: StatusCode, message: impl Into<String>) -> Response {
     (status, Json(json!({ "error": message.into() }))).into_response()
@@ -106,43 +84,11 @@ pub fn export_accounts(accounts_dir: &Path) -> Result<Vec<BundleFile>> {
     Ok(files)
 }
 
-fn local_only() -> Response {
-    fail(StatusCode::FORBIDDEN, "run this command on the hub itself")
-}
-
-pub async fn create_code(State(app): State<Arc<App>>, ConnectInfo(addr): ConnectInfo<SocketAddr>) -> Response {
-    if !addr.ip().is_loopback() {
-        return local_only();
-    }
-    if app.hub_state.get() != HubState::Active {
-        return fail(StatusCode::CONFLICT, "the hub is not active");
-    }
-    let code = MoveCode::generate();
-    let text = code.code.clone();
-    *app.move_code.lock().unwrap() = Some(code);
-    Json(json!({ "code": text, "expires_in_seconds": CODE_LIFETIME.as_secs() })).into_response()
-}
-
-fn check_code(app: &App, presented: &str) -> bool {
-    let mut slot = app.move_code.lock().unwrap();
-    let Some(code) = slot.as_mut() else { return false };
-    if code.created.elapsed() > CODE_LIFETIME {
-        *slot = None;
-        return false;
-    }
-    if code.code == presented.trim().to_ascii_uppercase() {
-        *slot = None;
-        return true;
-    }
-    code.failures += 1;
-    if code.failures >= MAX_CODE_ATTEMPTS {
-        *slot = None;
-    }
-    false
-}
-
 async fn restore_service(app: &App, id: &str) -> Result<bool> {
-    let moving = HubState::Moving { id: id.to_string() };
+    let moving = app.hub_state.get();
+    if !matches!(&moving, HubState::Moving { id: current, .. } if current == id) {
+        return Ok(false);
+    }
     let aborted = HubState::Aborted { id: id.to_string() };
     if !app.hub_state.compare_and_set(&moving, aborted.clone())? {
         return Ok(false);
@@ -154,78 +100,162 @@ async fn restore_service(app: &App, id: &str) -> Result<bool> {
     Ok(true)
 }
 
-#[derive(Deserialize)]
-pub struct Prepare {
-    code: String,
-    id: String,
+pub async fn resume_after(app: Arc<App>, id: String, wait: Duration) {
+    tokio::time::sleep(wait).await;
+    match restore_service(&app, &id).await {
+        Ok(true) => tracing::warn!("the hub move did not finish in time; the hub is back in service"),
+        Ok(false) => {}
+        Err(e) => tracing::error!("could not put the hub back in service: {e:#}"),
+    }
 }
 
-pub async fn prepare(State(app): State<Arc<App>>, Json(req): Json<Prepare>) -> Response {
-    if uuid::Uuid::parse_str(&req.id).is_err() {
-        return fail(StatusCode::BAD_REQUEST, "invalid transfer id");
+struct Target {
+    link: u64,
+    hub: String,
+    address: IpAddr,
+}
+
+#[derive(Deserialize)]
+pub struct MoveRequest {
+    machine: String,
+    #[serde(default)]
+    force: bool,
+}
+
+fn check_move(app: &App, req: &MoveRequest) -> Result<Target, (StatusCode, String)> {
+    let refuse = |message: String| Err((StatusCode::CONFLICT, message));
+    if app.hub_state.get() != HubState::Active {
+        return refuse("the hub is not active".into());
     }
-    if !check_code(&app, &req.code) {
-        return fail(
+    if app.lifecycle.is_draining() || app.updater.status().is_some_and(|s| s.in_progress()) {
+        return refuse("the hub is updating. Try again when it finishes.".into());
+    }
+    let name = &req.machine;
+    let Some((machine, link)) = app.machines.find(name) else {
+        return Err((StatusCode::NOT_FOUND, format!("no machine named {name}")));
+    };
+    if machine.guest {
+        return Err((
             StatusCode::FORBIDDEN,
-            "wrong or expired move code. Run `conflux hub move-code` on the hub.",
-        );
+            format!("{name} is a guest machine. Only your own machines can become the hub."),
+        ));
     }
-    let moving = HubState::Moving { id: req.id.clone() };
+    let Some((link, address)) = link else {
+        return refuse(format!("{name} is offline"));
+    };
+    if machine.update.as_ref().is_some_and(|s| s.in_progress()) {
+        return refuse(format!("{name} is updating. Try again when it finishes."));
+    }
+    if machine.version != update::CURRENT {
+        return refuse(format!(
+            "{name} runs v{} and the hub runs v{}. Update both to the same version first.",
+            machine.version,
+            update::CURRENT
+        ));
+    }
+    let Some(hub) = machine.tailnet_name else {
+        return refuse(format!("the hub does not know {name}'s tailnet name"));
+    };
+    if machine.has_battery && !req.force {
+        return refuse(format!(
+            "{name} has a battery, so it may leave home and change IP. Pass force to make it the hub anyway."
+        ));
+    }
+    Ok(Target { link, hub, address })
+}
+
+pub async fn start(State(app): State<Arc<App>>, Json(req): Json<MoveRequest>) -> Response {
+    let target = match check_move(&app, &req) {
+        Ok(target) => target,
+        Err((status, message)) => return fail(status, message),
+    };
+    let id = uuid::Uuid::new_v4().to_string();
+    let moving = HubState::Moving {
+        id: id.clone(),
+        hub: target.hub.clone(),
+        address: Some(target.address),
+    };
     match app.hub_state.compare_and_set(&HubState::Active, moving) {
         Ok(true) => {}
         Ok(false) => return fail(StatusCode::CONFLICT, "the hub is not active"),
         Err(e) => return fail(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
     }
+    tokio::spawn(resume_after(app.clone(), id.clone(), MOVE_TIMEOUT));
     app.refresher.close_gate().await;
     app.usage.set_paused(true);
     let _ = app.ws_shutdown.send(true);
-    match export_accounts(app.store.dir()) {
-        Ok(files) => Json(Bundle {
-            id: req.id,
-            files,
-            management_key: app.management_key.clone(),
-            guests: app.guests.export(),
-        })
-        .into_response(),
-        Err(e) => {
-            let _ = restore_service(&app, &req.id).await;
-            fail(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))
-        }
+    let sent = export_accounts(app.store.dir()).map(|files| {
+        let command = json!({
+            "type": "become_hub",
+            "id": id,
+            "files": files,
+            "management_key": app.management_key,
+            "guests": app.guests.export(),
+        });
+        app.machines.send_to_link(target.link, command)
+    });
+    let failure = match sent {
+        Ok(true) => None,
+        Ok(false) => Some(fail(
+            StatusCode::CONFLICT,
+            format!("{} disconnected before the move started", req.machine),
+        )),
+        Err(e) => Some(fail(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))),
+    };
+    if let Some(failure) = failure {
+        let _ = restore_service(&app, &id).await;
+        return failure;
     }
+    Json(json!({ "status": "moving", "hub": target.hub })).into_response()
 }
 
 #[derive(Deserialize)]
 pub struct Commit {
     id: String,
-    hub: String,
 }
 
 pub fn commit_response(ok: bool) -> Response {
     Json(json!({ "status": if ok { "ok" } else { "aborted" } })).into_response()
 }
 
-pub async fn commit(State(app): State<Arc<App>>, Json(req): Json<Commit>) -> Response {
-    let moving = HubState::Moving { id: req.id.clone() };
-    let retired = HubState::Retired {
-        id: req.id.clone(),
-        hub: req.hub.clone(),
-    };
-    let result = match app.hub_state.get() {
-        state if state == moving => match app.hub_state.compare_and_set(&moving, retired) {
-            Ok(true) => true,
-            Ok(false) => matches!(app.hub_state.get(), HubState::Retired { id, .. } if id == req.id),
-            Err(e) => return fail(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
-        },
-        HubState::Retired { id, .. } if id == req.id => true,
-        _ => false,
-    };
-    if !result {
+fn not_the_target() -> Response {
+    fail(StatusCode::FORBIDDEN, "only the machine taking over can do this")
+}
+
+pub async fn commit(
+    State(app): State<Arc<App>>,
+    ConnectInfo(from): ConnectInfo<SocketAddr>,
+    Json(req): Json<Commit>,
+) -> Response {
+    let state = app.hub_state.get();
+    let (HubState::Moving { id, hub, address } | HubState::Retired { id, hub, address }) = state.clone() else {
         return commit_response(false);
+    };
+    if id != req.id {
+        return commit_response(false);
+    }
+    if address != Some(from.ip()) {
+        return not_the_target();
+    }
+    if matches!(state, HubState::Moving { .. }) {
+        match app
+            .hub_state
+            .compare_and_set(&state, HubState::Retired { id, hub, address })
+        {
+            Ok(true) => {
+                tokio::spawn(follow_new_hub(app.clone()));
+            }
+            Ok(false) if matches!(app.hub_state.get(), HubState::Retired { id, .. } if id == req.id) => {}
+            Ok(false) => return commit_response(false),
+            Err(e) => return fail(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
+        }
     }
     if let Err(e) = finish_retirement(&app.paths, &req.id) {
         return fail(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));
     }
-    app.machines.broadcast(&crate::machines::hub_moved(&req.hub));
+    if let Some(hub) = app.redirect_hub() {
+        app.machines.broadcast(&crate::machines::hub_moved(&hub));
+    }
     commit_response(true)
 }
 
@@ -234,7 +264,17 @@ pub struct Abort {
     id: String,
 }
 
-pub async fn abort(State(app): State<Arc<App>>, Json(req): Json<Abort>) -> Response {
+pub async fn abort(
+    State(app): State<Arc<App>>,
+    ConnectInfo(from): ConnectInfo<SocketAddr>,
+    Json(req): Json<Abort>,
+) -> Response {
+    if let HubState::Moving { id, address, .. } = app.hub_state.get()
+        && id == req.id
+        && address != Some(from.ip())
+    {
+        return not_the_target();
+    }
     match restore_service(&app, &req.id).await {
         Ok(true) => Json(json!({ "status": "aborted" })).into_response(),
         Ok(false) => fail(StatusCode::CONFLICT, "the hub is not moving under that transfer"),
@@ -243,7 +283,7 @@ pub async fn abort(State(app): State<Arc<App>>, Json(req): Json<Abort>) -> Respo
 }
 
 pub async fn resume(State(app): State<Arc<App>>) -> Response {
-    let HubState::Moving { id } = app.hub_state.get() else {
+    let HubState::Moving { id, .. } = app.hub_state.get() else {
         return fail(StatusCode::CONFLICT, "the hub is not in the middle of a move");
     };
     match restore_service(&app, &id).await {
@@ -251,6 +291,67 @@ pub async fn resume(State(app): State<Arc<App>>) -> Response {
         Ok(false) => fail(StatusCode::CONFLICT, "the move finished before this could take effect"),
         Err(e) => fail(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
     }
+}
+
+pub fn continue_move(app: &Arc<App>) {
+    match app.hub_state.get() {
+        HubState::Moving { id, .. } => {
+            tokio::spawn(resume_after(app.clone(), id, MOVE_TIMEOUT));
+        }
+        HubState::Retired { .. } => {
+            tokio::spawn(follow_new_hub(app.clone()));
+        }
+        HubState::Active | HubState::Aborted { .. } => {}
+    }
+}
+
+async fn serves_as_hub(app: &App, url: &str) -> bool {
+    let reply = app.control_http.get(url).timeout(Duration::from_secs(10)).send().await;
+    match reply {
+        Ok(r) => r.json::<Value>().await.is_ok_and(|v| v["role"] == "hub"),
+        Err(_) => false,
+    }
+}
+
+pub async fn follow_new_hub(app: Arc<App>) {
+    let Some(hub) = app.redirect_hub() else { return };
+    let url = format!("http://{hub}:{}/conflux/api/status", app.cfg.port);
+    while !serves_as_hub(&app, &url).await {
+        tokio::time::sleep(RETRY_EVERY).await;
+    }
+    if let Err(e) = become_node(&app, &hub).await {
+        tracing::error!("could not turn this machine into a node of {hub}: {e:#}");
+    }
+}
+
+async fn become_node(app: &Arc<App>, hub: &str) -> Result<()> {
+    if app.lifecycle.is_draining() {
+        return Ok(());
+    }
+    let mut cfg = Config::load(&app.paths)?;
+    cfg.role = Role::Node;
+    cfg.hub = Some(hub.to_string());
+    cfg.save(&app.paths)?;
+    fsutil::remove_durable(&hub_state_file(&app.paths))?;
+    tracing::info!(hub, "the new hub is serving; this machine is now its node");
+    hand_off_and_drain(&app.lifecycle, app.updater.exe(), &**app).await;
+    app.lifecycle.close_listeners();
+    Ok(())
+}
+
+pub async fn hand_off_and_drain<H: update::Handoff>(
+    lifecycle: &crate::lifecycle::Lifecycle,
+    exe: Option<&Path>,
+    host: &H,
+) {
+    let handed_over = match exe {
+        Some(exe) => update::hand_off(lifecycle, exe, host).await,
+        None => Err(anyhow::anyhow!("this conflux does not know which binary to start")),
+    };
+    if let Err(e) = handed_over {
+        tracing::error!("could not start the next conflux; this one stops when its requests finish: {e:#}");
+    }
+    lifecycle.begin_drain();
 }
 
 fn is_always_allowed(path: &str) -> bool {
@@ -265,8 +366,8 @@ pub async fn state_guard(State(app): State<Arc<App>>, req: Request, next: Next) 
         HubState::Moving { .. } => {
             let read_only = req.method() == http::Method::GET
                 && (path == "/" || path == "/conflux/api/dashboard" || path == "/conflux/api/status");
-            let local_resume = path == "/conflux/api/hub/resume";
-            if is_always_allowed(&path) || read_only || local_resume {
+            let resume = path == "/conflux/api/hub/resume";
+            if is_always_allowed(&path) || read_only || resume {
                 return next.run(req).await;
             }
             "conflux: the hub is moving to another machine. Try again in a minute.".to_string()
@@ -278,7 +379,7 @@ pub async fn state_guard(State(app): State<Arc<App>>, req: Request, next: Next) 
             if path == "/" && req.method() == http::Method::GET {
                 return Redirect::temporary(&format!("http://{hub}:{}/", app.cfg.port)).into_response();
             }
-            format!("conflux: the hub moved to {hub}. On this machine, run `conflux join {hub}`.")
+            format!("conflux: the hub moved to {hub}. This machine follows it within a minute. Try again then.")
         }
     };
     let ua = req
@@ -350,10 +451,21 @@ pub fn find_pending(paths: &Paths) -> Result<Option<(PathBuf, Pending)>> {
 }
 
 pub fn import_bundle(paths: &Paths, bundle: &Bundle, old_hub: &str, port: u16) -> Result<(PathBuf, Pending)> {
+    uuid::Uuid::parse_str(&bundle.id).context("the move has an invalid id")?;
     let dir = incoming_root(paths).join(&bundle.id);
+    let imported = write_bundle(&dir, bundle, old_hub, port);
+    if imported.is_err() && dir.exists() {
+        let _ = discard_incoming(&dir);
+    }
+    imported.map(|pending| (dir, pending))
+}
+
+fn write_bundle(dir: &Path, bundle: &Bundle, old_hub: &str, port: u16) -> Result<Pending> {
     let files = dir.join("files");
-    fsutil::ensure_private_dir(&incoming_root(paths))?;
-    fsutil::ensure_private_dir(&dir)?;
+    if let Some(root) = dir.parent() {
+        fsutil::ensure_private_dir(root)?;
+    }
+    fsutil::ensure_private_dir(dir)?;
     fsutil::ensure_private_dir(&files)?;
     for f in &bundle.files {
         let rel = Path::new(&f.path);
@@ -373,8 +485,8 @@ pub fn import_bundle(paths: &Paths, bundle: &Bundle, old_hub: &str, port: u16) -
         management_key: bundle.management_key.clone(),
         guests: bundle.guests.clone(),
     };
-    fsutil::write_json_durable(&transfer_file(&dir), &pending)?;
-    Ok((dir, pending))
+    fsutil::write_json_durable(&transfer_file(dir), &pending)?;
+    Ok(pending)
 }
 
 pub fn activate(paths: &Paths, dir: &Path, pending: &Pending) -> Result<()> {
@@ -404,6 +516,39 @@ pub fn discard_incoming(dir: &Path) -> Result<()> {
         fsutil::sync_dir(parent)?;
     }
     Ok(())
+}
+
+pub async fn commit_move(http: &reqwest::Client, pending: &Pending) -> Result<bool> {
+    let url = format!("http://{}:{}/conflux/move/commit", pending.old_hub, pending.port);
+    for attempt in 0..COMMIT_ATTEMPTS {
+        if attempt > 0 {
+            tokio::time::sleep(RETRY_EVERY).await;
+        }
+        let sent = http
+            .post(&url)
+            .json(&json!({ "id": pending.id }))
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await;
+        let Ok(resp) = sent else { continue };
+        let v: Value = resp.json().await.unwrap_or(Value::Null);
+        match v["status"].as_str() {
+            Some("ok") => return Ok(true),
+            Some("aborted") => return Ok(false),
+            _ => continue,
+        }
+    }
+    bail!("could not confirm the move with {}", pending.old_hub)
+}
+
+pub fn become_hub(paths: &Paths, dir: &Path, pending: &Pending) -> Result<()> {
+    activate(paths, dir, pending)?;
+    fsutil::remove_durable(&hub_state_file(paths))?;
+    let mut cfg = Config::load(paths)?;
+    cfg.role = Role::Hub;
+    cfg.hub = None;
+    cfg.save(paths)?;
+    discard_incoming(dir)
 }
 
 #[cfg(test)]
@@ -447,8 +592,16 @@ mod tests {
     fn unsafe_paths_are_refused() {
         let d = tempfile::tempdir().unwrap();
         let mut b = bundle();
-        b.files[0].path = "../../evil".into();
-        assert!(import_bundle(&Paths::under(d.path()), &b, "hub-box", 8317).is_err());
+        b.files[1].path = "../../evil".into();
+        let paths = Paths::under(d.path());
+        assert!(import_bundle(&paths, &b, "hub-box", 8317).is_err());
+        assert!(
+            !incoming_root(&paths).join(&b.id).exists(),
+            "a failed import leaves no tokens behind"
+        );
+        let mut b = bundle();
+        b.id = "../../evil".into();
+        assert!(import_bundle(&paths, &b, "hub-box", 8317).is_err());
     }
 
     #[test]

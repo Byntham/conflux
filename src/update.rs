@@ -167,6 +167,16 @@ async fn verify(binary: &Path) -> Result<()> {
     Ok(())
 }
 
+pub async fn hand_off<H: Handoff>(lifecycle: &Lifecycle, exe: &Path, host: &H) -> Result<()> {
+    let successor = lifecycle.spawn_successor(exe).await?;
+    let (state, later) = host.pause().await;
+    let result = successor.hand_over(&state, later, lifecycle.in_flight()).await;
+    if result.is_err() {
+        host.resume().await;
+    }
+    result
+}
+
 impl Updater {
     pub fn new(releases: &str) -> Arc<Self> {
         Arc::new(Self {
@@ -184,6 +194,10 @@ impl Updater {
 
     pub fn replaces(&self, exe: PathBuf) {
         let _ = self.exe.set(exe);
+    }
+
+    pub fn exe(&self) -> Option<&Path> {
+        self.exe.get().map(PathBuf::as_path)
     }
 
     pub fn status(&self) -> Option<UpdateStatus> {
@@ -313,17 +327,7 @@ impl Updater {
         self.status.send_replace(Some(UpdateStatus::Starting {
             version: version.to_string(),
         }));
-        let handed_over = async {
-            let successor = lifecycle.spawn_successor(exe).await?;
-            let (state, later) = host.pause().await;
-            let result = successor.hand_over(&state, later, lifecycle.in_flight()).await;
-            if result.is_err() {
-                host.resume().await;
-            }
-            result
-        }
-        .await;
-        if let Err(e) = handed_over {
+        if let Err(e) = hand_off(lifecycle, exe, host).await {
             let installed = app_bundle(exe).unwrap_or(exe);
             let failed = aside(exe, "failed");
             remove_path(&failed);

@@ -201,29 +201,21 @@ pub enum Command {
 #[derive(Subcommand)]
 pub enum HubAction {
     #[command(
-        about = "Print a one-time code for moving this hub. Run it on the current hub",
-        long_about = "Print a one-time code for moving this hub. Run it on the current hub.\n\n\
-                      It also prints the take-over command to run on the new machine. The code \
-                      works for 10 minutes."
+        about = "Make another of your machines the hub. Run it on the current hub",
+        long_about = "Make another of your machines the hub. Run it on the current hub.\n\n\
+                      The accounts move to that machine, and this machine becomes its node. \
+                      Other machines follow within a minute. Codex WebSocket sessions close when \
+                      the move starts."
     )]
-    MoveCode,
-    #[command(
-        about = "Make this machine the hub, taking the accounts from the old hub",
-        long_about = "Make this machine the hub, taking the accounts from the old hub.\n\n\
-                      Run it on the new machine. If a move stopped after the accounts reached \
-                      this machine, run it again without --code to finish it."
-    )]
-    TakeOver {
-        #[arg(help = "The current hub's tailnet name")]
-        old_hub: String,
-        #[arg(long, help = "The code from `conflux hub move-code`")]
-        code: Option<String>,
+    Move {
+        #[arg(help = "The machine to make the hub, as the dashboard names it")]
+        machine: String,
         #[arg(long, help = "Allow a machine with a battery, such as a laptop, to become the hub")]
         force: bool,
     },
     #[command(
-        about = "Put the old hub back in service after a move that did not finish",
-        long_about = "Put the old hub back in service after a move that did not finish. Run it on the old hub."
+        about = "Cancel a hub move that has not finished",
+        long_about = "Cancel a hub move that has not finished, and put this hub back in service. Run it on the hub."
     )]
     Resume,
 }
@@ -335,13 +327,16 @@ pub async fn run(cli: Cli) -> Result<()> {
     };
     match command {
         Command::Hub {
-            action: HubAction::MoveCode,
+            action: HubAction::Move { machine, force },
         } => {
-            let v = daemon.post("/conflux/api/hub/move-code", json!({})).await?;
-            let code = v["code"].as_str().context("no code")?;
-            let host = TailnetSelf::detect().short_name().unwrap_or_else(tailnet::hostname);
-            println!("On the new hub machine, within 10 minutes, run:");
-            println!("  conflux hub take-over {host} --code {code}");
+            let v = daemon
+                .post("/conflux/api/hub/move", json!({ "machine": machine, "force": force }))
+                .await?;
+            println!(
+                "Moving the hub to {}. Other machines follow within a minute.",
+                v["hub"].as_str().unwrap_or(&machine)
+            );
+            println!("To cancel before it finishes, run `conflux hub resume`.");
             Ok(())
         }
         Command::Hub {
@@ -351,14 +346,13 @@ pub async fn run(cli: Cli) -> Result<()> {
             println!("The hub is back in service.");
             Ok(())
         }
-        Command::Hub {
-            action: HubAction::TakeOver { old_hub, code, force },
-        } => take_over(cfg, paths, &old_hub, code, force).await,
         Command::Serve => tokio::task::spawn_blocking(supervisor::run).await?,
         Command::Update { machines } => update(&daemon, machines).await,
         Command::Worker => {
-            if let Some((_, pending)) = hubmove::find_pending(&paths)? {
-                tracing::warn!(old_hub = %pending.old_hub, "a hub move is unfinished. Run `conflux hub take-over` to finish it.");
+            if cfg.role == Role::Hub
+                && let Some((dir, _)) = hubmove::find_pending(&paths)?
+            {
+                hubmove::discard_incoming(&dir)?;
             }
             loop {
                 let cfg = Config::load(&paths)?;
@@ -545,109 +539,6 @@ fn is_this_machine(hub: &str) -> bool {
         || t.ips.iter().any(|ip| ip.to_string() == hub)
 }
 
-async fn commit_move(http: &reqwest::Client, pending: &hubmove::Pending, me: &str) -> Result<bool> {
-    let url = format!("http://{}:{}/conflux/move/commit", pending.old_hub, pending.port);
-    for attempt in 0..30 {
-        if attempt > 0 {
-            tokio::time::sleep(Duration::from_secs(2)).await;
-        }
-        let sent = http
-            .post(&url)
-            .json(&json!({ "id": pending.id, "hub": me }))
-            .timeout(Duration::from_secs(10))
-            .send()
-            .await;
-        let Ok(resp) = sent else { continue };
-        let v: Value = resp.json().await.unwrap_or(Value::Null);
-        match v["status"].as_str() {
-            Some("ok") => return Ok(true),
-            Some("aborted") => return Ok(false),
-            _ => continue,
-        }
-    }
-    bail!(
-        "could not confirm the move with {}. Run `conflux hub take-over {}` again to retry.",
-        pending.old_hub,
-        pending.old_hub
-    )
-}
-
-async fn take_over(mut cfg: Config, paths: Paths, old_hub: &str, code: Option<String>, force: bool) -> Result<()> {
-    let me = TailnetSelf::detect()
-        .short_name()
-        .context("Tailscale must be running on this machine")?;
-    if hubmove::is_laptop() && !force {
-        bail!(
-            "this machine has a battery, so it may leave home and change IP. Pass --force to make it the hub anyway."
-        );
-    }
-    let http = reqwest::Client::new();
-    let (dir, pending) = match hubmove::find_pending(&paths)? {
-        Some(found) => {
-            println!("Resuming the move from {}.", found.1.old_hub);
-            found
-        }
-        None => {
-            if paths.has_accounts() {
-                bail!("this machine already holds accounts");
-            }
-            let code = code.context("pass --code with the code from `conflux hub move-code`")?;
-            let id = uuid::Uuid::new_v4().to_string();
-            let base = format!("http://{old_hub}:{}", cfg.port);
-            println!(
-                "Asking {old_hub} to stop and export its accounts. Codex WebSocket sessions close now. HTTP responses running through this machine end when it becomes the hub."
-            );
-            let resp = http
-                .post(format!("{base}/conflux/move/prepare"))
-                .json(&json!({ "code": code, "id": id }))
-                .timeout(Duration::from_secs(300))
-                .send()
-                .await
-                .with_context(|| format!("reach the hub at {old_hub}"))?;
-            if !resp.status().is_success() {
-                let v: Value = resp.json().await.unwrap_or(Value::Null);
-                bail!("{}", v["error"].as_str().unwrap_or("the hub refused the move"));
-            }
-            let bundle: hubmove::Bundle = resp.json().await.context("read the account export")?;
-            match hubmove::import_bundle(&paths, &bundle, old_hub, cfg.port) {
-                Ok(imported) => imported,
-                Err(e) => {
-                    let _ = http
-                        .post(format!("{base}/conflux/move/abort"))
-                        .json(&json!({ "id": id }))
-                        .send()
-                        .await;
-                    return Err(e.context("store the exported accounts"));
-                }
-            }
-        }
-    };
-
-    if !commit_move(&http, &pending, &me).await? {
-        hubmove::discard_incoming(&dir)?;
-        bail!("the move was cancelled on {}. Nothing changed here.", pending.old_hub);
-    }
-
-    hubmove::activate(&paths, &dir, &pending)?;
-    cfg.role = Role::Hub;
-    cfg.hub = None;
-    cfg.save(&paths)?;
-    crate::fsutil::remove_durable(&hubmove::hub_state_file(&paths))?;
-    hubmove::discard_incoming(&dir)?;
-    if service::installed() {
-        service::restart()?;
-    } else {
-        println!("Installed {}.", service::install()?);
-    }
-    setup::apply(&ClientPaths::from_env()?, &paths.config_dir, cfg.port)?;
-    println!("{me} is now the hub. Other machines will follow within a minute.");
-    println!(
-        "On {}, run `conflux join {me}` so that machine routes through the new hub.",
-        pending.old_hub
-    );
-    Ok(())
-}
-
 async fn join(mut cfg: Config, paths: Paths, hub: &str, no_service: bool, force: bool) -> Result<()> {
     let state_file = hubmove::hub_state_file(&paths);
     match crate::hubstate::HubStateStore::load(&state_file)?.get() {
@@ -660,7 +551,7 @@ async fn join(mut cfg: Config, paths: Paths, hub: &str, no_service: bool, force:
     if !becoming_hub && paths.has_accounts() && !force {
         bail!(
             "this machine holds logged-in accounts. Joining another hub would strand them. \
-             Move them with `conflux hub take-over` on the new hub, or pass --force."
+             Move them with `conflux hub move <machine>` on this hub, or pass --force."
         );
     }
     let guest = !becoming_hub && hub_is_guest(hub, cfg.port).await;
