@@ -29,6 +29,8 @@ pub struct Report {
     pub routing: Option<bool>,
     #[serde(default)]
     pub update: Value,
+    #[serde(default)]
+    pub has_battery: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -44,6 +46,7 @@ pub struct Machine {
     pub outdated: bool,
     pub guest: bool,
     pub tailnet_name: Option<String>,
+    pub has_battery: bool,
 }
 
 struct Link {
@@ -64,6 +67,23 @@ struct Entry {
 impl Entry {
     fn key(&self) -> String {
         self.node.clone().unwrap_or_else(|| self.report.hostname.clone())
+    }
+
+    fn machine(&self, now: DateTime<Utc>) -> Machine {
+        Machine {
+            hostname: self.report.hostname.clone(),
+            version: self.report.version.clone(),
+            role: "node".into(),
+            last_seen: if self.link.is_some() { now } else { self.last_seen },
+            online: self.link.is_some(),
+            transcript_sync: self.report.transcript_sync,
+            routing: self.report.routing,
+            update: serde_json::from_value(self.report.update.clone()).unwrap_or(None),
+            outdated: false,
+            guest: self.guest,
+            tailnet_name: self.tailnet_name.clone(),
+            has_battery: self.report.has_battery,
+        }
     }
 }
 
@@ -165,6 +185,22 @@ impl Machines {
             .is_some_and(|l| l.commands.send(command).is_ok())
     }
 
+    pub fn find(&self, hostname: &str) -> Option<(Machine, Option<(u64, IpAddr)>)> {
+        let map = self.map.lock().unwrap();
+        map.values()
+            .filter(|e| e.report.hostname == hostname)
+            .min_by_key(|e| (e.guest, e.link.is_none()))
+            .map(|e| (e.machine(Utc::now()), e.link.as_ref().map(|l| (l.id, l.address))))
+    }
+
+    pub fn send_to_link(&self, link: u64, command: Value) -> bool {
+        let map = self.map.lock().unwrap();
+        map.values()
+            .filter_map(|e| e.link.as_ref())
+            .find(|l| l.id == link)
+            .is_some_and(|l| l.commands.send(command).is_ok())
+    }
+
     pub fn broadcast(&self, command: &Value) {
         for entry in self.map.lock().unwrap().values() {
             if let Some(link) = &entry.link {
@@ -221,25 +257,7 @@ impl Machines {
 
     pub fn list(&self) -> Vec<Machine> {
         let now = Utc::now();
-        let mut machines: Vec<Machine> = self
-            .map
-            .lock()
-            .unwrap()
-            .values()
-            .map(|e| Machine {
-                hostname: e.report.hostname.clone(),
-                version: e.report.version.clone(),
-                role: "node".into(),
-                last_seen: if e.link.is_some() { now } else { e.last_seen },
-                online: e.link.is_some(),
-                transcript_sync: e.report.transcript_sync,
-                routing: e.report.routing,
-                update: serde_json::from_value(e.report.update.clone()).unwrap_or(None),
-                outdated: false,
-                guest: e.guest,
-                tailnet_name: e.tailnet_name.clone(),
-            })
-            .collect();
+        let mut machines: Vec<Machine> = self.map.lock().unwrap().values().map(|e| e.machine(now)).collect();
         machines.sort_by(|a, b| a.hostname.cmp(&b.hostname));
         machines
     }

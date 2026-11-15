@@ -411,12 +411,16 @@ async fn nodes_follow_a_hub_move_at_once() {
             .machines
             .send("node-one", json!({ "type": "update", "version": "9.9.9" }))
     );
-    let moving = HubState::Moving { id: "x".into() };
+    let moving = HubState::Moving {
+        id: "x".into(),
+        hub: "100.64.0.9".into(),
+        address: Some(std::net::Ipv4Addr::LOCALHOST.into()),
+    };
     assert!(hub.app.hub_state.compare_and_set(&HubState::Active, moving).unwrap());
     let r = hub
         .http
         .post(format!("{}/conflux/move/commit", hub.base))
-        .json(&json!({"id": "x", "hub": "100.64.0.9"}))
+        .json(&json!({"id": "x"}))
         .send()
         .await
         .unwrap();

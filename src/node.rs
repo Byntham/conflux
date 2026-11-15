@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
@@ -28,7 +29,7 @@ use crate::tailnet::{Caller, Tailscale};
 use crate::transcript_sync::TranscriptSync;
 use crate::update::{self, Updater};
 use crate::ws::TurnTracker;
-use crate::{link, proxy, tailnet, ws};
+use crate::{hubmove, link, proxy, tailnet, ws};
 
 pub const NODE_HEADER: &str = "x-conflux-node";
 const REPORT_EVERY: Duration = Duration::from_secs(20);
@@ -50,6 +51,7 @@ pub struct Node {
     paths: Paths,
     http: reqwest::Client,
     hostname: String,
+    has_battery: bool,
     allowed_hosts: Vec<String>,
     hub_link: Mutex<HubLink>,
     report_requested: Notify,
@@ -126,6 +128,7 @@ impl Node {
             paths,
             http: crate::app::proxy_client(),
             hostname,
+            has_battery: hubmove::is_laptop(),
             allowed_hosts: access::local_hosts(port),
             hub_link: Mutex::default(),
             report_requested: Notify::new(),
@@ -179,6 +182,7 @@ impl Node {
             "transcript_sync": Config::load(&self.paths).map(|c| c.transcript_sync).unwrap_or(false),
             "routing": setup::routing(&self.paths.config_dir),
             "update": self.updater.status(),
+            "has_battery": self.has_battery,
         });
         Message::Text(report.to_string().into())
     }
@@ -232,6 +236,7 @@ impl Node {
                     false
                 }
             },
+            (Some("become_hub"), _, _) => self.become_hub(command.clone()).await,
             (Some("update"), _, Some(version)) => {
                 let update = self
                     .updater
@@ -242,6 +247,64 @@ impl Node {
             }
             _ => false,
         }
+    }
+
+    async fn become_hub(self: &Arc<Self>, command: Value) -> bool {
+        let Ok(bundle) = serde_json::from_value::<hubmove::Bundle>(command) else {
+            return false;
+        };
+        let imported = if self.is_guest() {
+            Err(anyhow::anyhow!("the hub belongs to another Tailscale user"))
+        } else if self.paths.has_accounts() {
+            Err(anyhow::anyhow!("this machine already holds accounts"))
+        } else {
+            hubmove::import_bundle(&self.paths, &bundle, &self.hub(), self.hub_port)
+        };
+        match imported {
+            Ok((dir, pending)) => self.finish_move(dir, pending).await,
+            Err(e) => {
+                tracing::warn!("refused to become the hub: {e:#}");
+                let _ = self
+                    .http
+                    .post(format!("{}/conflux/move/abort", self.hub_base("http")))
+                    .json(&json!({ "id": bundle.id }))
+                    .timeout(CONNECT_TIMEOUT)
+                    .send()
+                    .await;
+                false
+            }
+        }
+    }
+
+    pub async fn resume_move(self: &Arc<Self>) -> Result<bool> {
+        match hubmove::find_pending(&self.paths)? {
+            Some((dir, pending)) => Ok(self.finish_move(dir, pending).await),
+            None => Ok(false),
+        }
+    }
+
+    async fn finish_move(self: &Arc<Self>, dir: PathBuf, pending: hubmove::Pending) -> bool {
+        let became_hub = match hubmove::commit_move(&self.http, &pending).await {
+            Ok(true) => hubmove::become_hub(&self.paths, &dir, &pending),
+            Ok(false) => {
+                tracing::warn!(old_hub = %pending.old_hub, "the hub move was cancelled");
+                if let Err(e) = hubmove::discard_incoming(&dir) {
+                    tracing::warn!("could not remove the cancelled move: {e:#}");
+                }
+                return false;
+            }
+            Err(e) => {
+                tracing::warn!("{e:#}. conflux tries again when it restarts.");
+                return false;
+            }
+        };
+        if let Err(e) = became_hub {
+            tracing::error!("could not take over the accounts: {e:#}");
+            return false;
+        }
+        tracing::info!(old_hub = %pending.old_hub, "this machine is now the hub");
+        hubmove::hand_off_and_drain(&self.lifecycle, self.updater.exe(), &**self).await;
+        true
     }
 
     async fn control_session(self: &Arc<Self>) -> Result<()> {
@@ -299,7 +362,7 @@ impl Node {
 
     pub async fn run_control(self: Arc<Self>) {
         let mut wait = RECONNECT_MIN;
-        loop {
+        while !self.lifecycle.is_draining() {
             let ended = self.control_session().await;
             let was_connected = {
                 let mut link = self.hub_link.lock().unwrap();
@@ -511,6 +574,7 @@ pub async fn serve(cfg: Config, paths: Paths) -> Result<()> {
     );
     let addr = SocketAddr::from(([127, 0, 0, 1], cfg.port));
     let listener = node.lifecycle.listen(addr).with_context(|| format!("bind {addr}"))?;
+    node.lifecycle.drop_inherited();
     tracing::info!(%addr, hub, "conflux node listening");
     let in_flight = node.lifecycle.in_flight();
     let stop = node.lifecycle.drain_started();
@@ -521,10 +585,11 @@ pub async fn serve(cfg: Config, paths: Paths) -> Result<()> {
         }
         drop(in_flight);
     });
-    let background = [tokio::spawn(node.clone().run_control()), tokio::spawn(sync.run())];
     if let Some(takeover) = takeover {
         takeover.ready(|_| {}).await?;
     }
+    node.resume_move().await?;
+    let background = [tokio::spawn(node.clone().run_control()), tokio::spawn(sync.run())];
     update::remove_old_binaries(&exe);
     node.lifecycle.drain_started().await;
     tracing::info!("a newer conflux took over; finishing the requests already running");

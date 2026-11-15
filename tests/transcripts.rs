@@ -192,7 +192,11 @@ async fn a_moving_hub_refuses_uploads_and_the_client_keeps_its_place() {
     let h = Harness::new().await;
     let mut c = Client::new(&h, "node-two");
     c.write("a.jsonl", &format!("{USER}\n"));
-    let moving = HubState::Moving { id: "x".into() };
+    let moving = HubState::Moving {
+        id: "x".into(),
+        hub: "node-one".into(),
+        address: None,
+    };
     assert!(
         h.app
             .hub_state

@@ -1,3 +1,4 @@
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -13,6 +14,10 @@ pub enum HubState {
     Active,
     Moving {
         id: String,
+        #[serde(default)]
+        hub: String,
+        #[serde(default)]
+        address: Option<IpAddr>,
     },
     Aborted {
         id: String,
@@ -63,7 +68,11 @@ mod tests {
     fn only_one_transition_wins_a_race() {
         let d = tempfile::tempdir().unwrap();
         let s = std::sync::Arc::new(HubStateStore::load(&d.path().join("s.json")).unwrap());
-        let moving = HubState::Moving { id: "x".into() };
+        let moving = HubState::Moving {
+            id: "x".into(),
+            hub: "new".into(),
+            address: None,
+        };
         s.compare_and_set(&HubState::Active, moving.clone()).unwrap();
         let handles: Vec<_> = (0..16)
             .map(|i| {
