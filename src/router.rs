@@ -3,8 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
-use tokio::sync::mpsc;
+use serde_json::Value;
 
 use crate::accounts::{AccountEntry, Provider, Store};
 use crate::usage::{Snapshot, Usage};
@@ -23,7 +22,6 @@ pub struct RouteRequest {
     pub provider: Provider,
     pub model: Option<String>,
     pub session: Option<String>,
-    pub previous_response_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -70,9 +68,6 @@ struct State {
     cooldowns: HashMap<String, HashMap<String, Cooldown>>,
     pins: HashMap<String, (String, DateTime<Utc>)>,
     billing_blocked: HashMap<String, BillingBlock>,
-    response_owner: HashMap<String, (String, DateTime<Utc>)>,
-    #[serde(skip)]
-    successor: Option<mpsc::UnboundedSender<Value>>,
 }
 
 pub struct Router {
@@ -113,7 +108,6 @@ impl Router {
         let model = req.model.as_deref();
         let mut st = self.state.lock().unwrap();
         st.pins.retain(|_, (_, t)| now - *t < PIN_TTL);
-        st.response_owner.retain(|_, (_, t)| now - *t < PIN_TTL);
 
         let mut any_configured = false;
         let mut soonest: Option<DateTime<Utc>> = None;
@@ -182,12 +176,10 @@ impl Router {
         let find = |id: &str| eligible.iter().find(|e| e.id == id).cloned();
         let pin_key = req.session.as_ref().map(|s| format!("{}:{s}", req.provider.as_str()));
 
-        let chosen = req
-            .previous_response_id
+        let chosen = pin_key
             .as_ref()
-            .and_then(|r| st.response_owner.get(r).map(|(a, _)| a.clone()))
-            .and_then(|a| find(&a))
-            .or_else(|| pin_key.as_ref().and_then(|k| st.pins.get(k)).and_then(|(a, _)| find(a)))
+            .and_then(|k| st.pins.get(k))
+            .and_then(|(a, _)| find(a))
             .unwrap_or_else(|| {
                 let far = DateTime::<Utc>::MAX_UTC;
                 let mut ranked: Vec<_> = eligible
@@ -218,16 +210,8 @@ impl Router {
         Ok(chosen)
     }
 
-    pub fn export(&self, successor: mpsc::UnboundedSender<Value>) -> Value {
-        let mut st = self.state.lock().unwrap();
-        st.successor = Some(successor);
-        serde_json::to_value(&*st).unwrap_or_default()
-    }
-
-    pub fn import_later_owner(&self, owner: &Value) {
-        if let Ok((response_id, account)) = serde_json::from_value::<(String, String)>(owner.clone()) {
-            self.record_response_owner(&response_id, &account);
-        }
+    pub fn export(&self) -> Value {
+        serde_json::to_value(&*self.state.lock().unwrap()).unwrap_or_default()
     }
 
     pub fn import(&self, state: &Value) {
@@ -261,15 +245,6 @@ impl Router {
                 at: now,
             },
         );
-    }
-
-    pub fn record_response_owner(&self, response_id: &str, account: &str) {
-        let mut st = self.state.lock().unwrap();
-        st.response_owner
-            .insert(response_id.to_string(), (account.to_string(), Utc::now()));
-        if let Some(successor) = &st.successor {
-            let _ = successor.send(json!({ "owner": [response_id, account] }));
-        }
     }
 
     pub fn clear(&self, account: &str) {
@@ -363,7 +338,6 @@ mod tests {
             provider,
             model: None,
             session: None,
-            previous_response_id: None,
         }
     }
 
@@ -440,23 +414,6 @@ mod tests {
     }
 
     #[test]
-    fn continuation_follows_response_owner() {
-        let (_d, _s, usage, router) = setup(&[("a", Provider::Codex), ("b", Provider::Codex)]);
-        let a = id(Provider::Codex, "a");
-        let b = id(Provider::Codex, "b");
-        usage.set(&a, snap(100, 10.0, 10.0));
-        usage.set(&b, snap(1, 10.0, 10.0));
-        router.record_response_owner("resp_1", &a);
-        let req = RouteRequest {
-            previous_response_id: Some("resp_1".into()),
-            ..route(Provider::Codex)
-        };
-        assert_eq!(router.pick(&req, &HashSet::new()).unwrap().id, a);
-        let tried: HashSet<_> = [a.clone()].into();
-        assert_eq!(router.pick(&req, &tried).unwrap().id, b);
-    }
-
-    #[test]
     fn scoped_cooldown_only_blocks_that_model() {
         let (_d, _s, _u, router) = setup(&[("a", Provider::Claude)]);
         let a = id(Provider::Claude, "a");
@@ -490,9 +447,8 @@ mod tests {
         usage.set(&a, snap(100, 10.0, 10.0));
         std::thread::sleep(std::time::Duration::from_millis(2));
         router.cool(&a, ACCOUNT, Utc::now() + chrono::Duration::days(2), "Codex usage limit");
-        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         let next = Router::new(store, usage);
-        next.import(&router.export(tx));
+        next.import(&router.export());
         assert!(next.pick(&route(Provider::Codex), &HashSet::new()).is_err());
     }
 

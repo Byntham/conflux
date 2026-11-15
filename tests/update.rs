@@ -162,7 +162,6 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
     let a = h.add(Provider::Claude, "a").await;
     let b = h.add(Provider::Claude, "b").await;
     h.add(Provider::Codex, "c").await;
-    h.add(Provider::Codex, "d").await;
     offer_release(&h);
     let port = free_port();
     Config {
@@ -235,22 +234,12 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
     let mut stream = claude(&http, &base).send().await.unwrap().bytes_stream();
     assert!(stream.next().await.unwrap().is_ok());
 
-    let usual: Value = codex(&http, &base, json!({"model": "m"}))
-        .send()
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
-    let usual = usual["token"].as_str().unwrap().to_string();
-    let owner = if usual == "at-c" { "at-d" } else { "at-c" };
-    h.reply(&usual, Reply::Json(429, vec![("retry-after", "1".into())], "{}".into()));
     let event = |kind: &str| {
-        let response = json!({"id": "resp_late", "usage": {"input_tokens": 0, "output_tokens": 77}});
+        let response = json!({"usage": {"input_tokens": 0, "output_tokens": 77}});
         format!("data: {}\n\n", json!({"type": kind, "response": response}))
     };
     h.reply(
-        owner,
+        "at-c",
         Reply::Delayed(
             Duration::from_secs(3),
             Box::new(Reply::EventsWithPause(
@@ -263,7 +252,7 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
     let late = tokio::spawn(codex(&http, &base, json!({"model": "m"})).send());
     eventually("the Codex request to reach its account", async || {
         let hits = h.fake.hits.lock().unwrap();
-        hits.iter().any(|(_, token)| token == owner).then_some(())
+        hits.iter().any(|(_, token)| token == "at-c").then_some(())
     })
     .await;
 
@@ -298,18 +287,6 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
     );
     let late = late.await.unwrap().unwrap().text().await.unwrap();
     assert!(late.contains("response.completed"), "{late}");
-    let next_turn = json!({"model": "m", "previous_response_id": "resp_late"});
-    let continued: Value = codex(&http, &base, next_turn)
-        .send()
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
-    assert_eq!(
-        continued["token"], owner,
-        "the new hub knows which account owns a response that began on the old hub"
-    );
     eventually(
         "the new hub to list the tokens of a request that ended on the old hub",
         async || {

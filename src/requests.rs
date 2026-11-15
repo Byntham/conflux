@@ -9,7 +9,6 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
 use crate::accounts::Provider;
-use crate::router::Router;
 
 pub const LOG_CAPACITY: usize = 500;
 const MAX_LINE: usize = 16 * 1024 * 1024;
@@ -201,7 +200,7 @@ fn is_interesting(line: &[u8]) -> bool {
     fn has(line: &[u8], needle: &[u8]) -> bool {
         line.windows(needle.len()).any(|w| w == needle)
     }
-    has(line, b"usage") || has(line, b"response.created")
+    has(line, b"usage")
 }
 
 impl BodyScanner {
@@ -276,22 +275,14 @@ fn apply_codex_usage(u: &mut TokenUsage, usage: &Value) {
     u.output = n(&usage["output_tokens"]);
 }
 
-pub fn apply_event(provider: Provider, u: &mut TokenUsage, v: &Value) -> Option<String> {
+pub fn apply_event(provider: Provider, u: &mut TokenUsage, v: &Value) {
     match (provider, v["type"].as_str()) {
         (Provider::Claude, Some("message_start")) => apply_claude_usage(u, &v["message"]["usage"]),
         (Provider::Claude, _) => apply_claude_usage(u, &v["usage"]),
-        (Provider::Codex, Some("response.created")) => return v["response"]["id"].as_str().map(str::to_string),
         (Provider::Codex, Some("response.completed")) => apply_codex_usage(u, &v["response"]["usage"]),
-        (Provider::Codex, _) => {
-            if v["usage"].is_object() {
-                apply_codex_usage(u, &v["usage"]);
-            }
-            if let Some(id) = v["id"].as_str().filter(|i| i.starts_with("resp_")) {
-                return Some(id.to_string());
-            }
-        }
+        (Provider::Codex, _) if v["usage"].is_object() => apply_codex_usage(u, &v["usage"]),
+        (Provider::Codex, _) => {}
     }
-    None
 }
 
 pub struct ResponseTap {
@@ -300,34 +291,21 @@ pub struct ResponseTap {
     usage: TokenUsage,
     record: Option<u64>,
     log: Arc<RequestLog>,
-    router: Arc<Router>,
-    account: String,
 }
 
 impl ResponseTap {
-    pub fn new(
-        scanner: BodyScanner,
-        provider: Provider,
-        record: Option<u64>,
-        log: Arc<RequestLog>,
-        router: Arc<Router>,
-        account: String,
-    ) -> Self {
+    pub fn new(scanner: BodyScanner, provider: Provider, record: Option<u64>, log: Arc<RequestLog>) -> Self {
         Self {
             scanner,
             provider,
             usage: TokenUsage::default(),
             record,
             log,
-            router,
-            account,
         }
     }
 
     fn take(&mut self, v: Value) {
-        if let Some(id) = apply_event(self.provider, &mut self.usage, &v) {
-            self.router.record_response_owner(&id, &self.account);
-        }
+        apply_event(self.provider, &mut self.usage, &v);
     }
 
     pub fn feed(&mut self, chunk: &[u8]) {
@@ -417,12 +395,6 @@ mod tests {
     #[test]
     fn codex_usage_events() {
         let mut u = TokenUsage::default();
-        let id = apply_event(
-            Provider::Codex,
-            &mut u,
-            &json!({"type": "response.created", "response": {"id": "resp_1"}}),
-        );
-        assert_eq!(id.as_deref(), Some("resp_1"));
         apply_event(
             Provider::Codex,
             &mut u,

@@ -121,15 +121,10 @@ pub fn first_frame_route(headers: &HeaderMap, first: &str) -> RouteRequest {
         .as_str()
         .or_else(|| v["response"]["model"].as_str())
         .map(str::to_string);
-    let previous = v["previous_response_id"]
-        .as_str()
-        .or_else(|| v["response"]["previous_response_id"].as_str())
-        .map(str::to_string);
     RouteRequest {
         provider: Provider::Codex,
         model,
         session: proxy::codex_session(headers, &v),
-        previous_response_id: previous,
     }
 }
 
@@ -404,9 +399,6 @@ fn inspect_event(app: &App, account: &AccountEntry, route: &RouteRequest, turn: 
     };
     match v["type"].as_str() {
         Some("response.created") => {
-            if let Some(id) = v["response"]["id"].as_str() {
-                app.router.record_response_owner(id, &account.id);
-            }
             let record = proxy::log_attempt(
                 app,
                 Provider::Codex,
@@ -483,12 +475,8 @@ mod tests {
     fn first_frame_routing() {
         let mut h = HeaderMap::new();
         h.insert("session_id", HeaderValue::from_static("s1"));
-        let r = first_frame_route(
-            &h,
-            r#"{"type":"response.create","model":"gpt-6.1-sol","previous_response_id":"resp_1"}"#,
-        );
+        let r = first_frame_route(&h, r#"{"type":"response.create","model":"gpt-6.1-sol"}"#);
         assert_eq!(r.model.as_deref(), Some("gpt-6.1-sol"));
-        assert_eq!(r.previous_response_id.as_deref(), Some("resp_1"));
         assert_eq!(r.session.as_deref(), Some("s1"));
     }
 

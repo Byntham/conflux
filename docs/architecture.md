@@ -36,7 +36,7 @@ A hub takes an exclusive file lock on `hub.lock` in the data directory, so two h
 3. The old worker starts the new binary as `conflux worker`. The `CONFLUX_HANDOFF` variable tells it a loopback port, a token, and the listening sockets it may inherit.
 4. The new worker connects back and proves the token. The old worker pauses token refresh and usage polling, then sends its in-memory state. That state is the routing state, usage snapshots and their history, the request log, and the machine list.
 5. The new worker imports the state, serves on the inherited sockets, and replies that it is ready.
-6. The old worker stops accepting connections and finishes the requests it already has, for up to an hour. It forwards late changes, such as new response owners, to the new worker.
+6. The old worker stops accepting connections and finishes the requests it already has, for up to an hour. It forwards late changes, such as finished request records, to the new worker.
 
 If any step fails, the old worker resumes and puts the old binary back. A node runs the same handoff with no state to send. Routing state, usage, and the request log live only in memory. An update keeps them. A plain restart loses them.
 
@@ -71,13 +71,13 @@ On the hub, `src/proxy.rs` handles `/v1/*` and `/backend-api/*`.
 - The hub reads the model and a session id from the request. It asks the router for an account, removes the client's credentials, and adds the account's OAuth token.
 - It streams the response back and scans it for token usage. The in-memory request log (`src/requests.rs`) keeps recent requests for the dashboard. It does not record every failure.
 
-Codex WebSocket sessions arrive on the same paths with an `Upgrade` header and go to `src/ws.rs`. The hub reads the first client frame to get the model, session, and `previous_response_id`. It then opens the upstream socket with the chosen account and relays frames both ways. Claude does not use WebSockets.
+Codex WebSocket sessions arrive on the same paths with an `Upgrade` header and go to `src/ws.rs`. The hub reads the first client frame to get the model and session. It then opens the upstream socket with the chosen account and relays frames both ways. Claude does not use WebSockets.
 
 ## Routing and failover
 
 `src/router.rs` picks an account for each request. It skips accounts that are disabled, need a new login, are cooling down, or are billing-blocked.
 
-- Stickiness. A session id stays pinned to its account for an hour after its last request. A Codex `previous_response_id` goes to the account that created that response.
+- Stickiness. A session id stays pinned to its account for an hour after its last request.
 - Ranking. Without a pin, the router prefers accounts with fresh usage data, then the account whose longest usage window resets soonest.
 - Overage. The router picks an account that has used up its usage only if overage is on for it and no other account is free.
 

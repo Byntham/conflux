@@ -237,7 +237,7 @@ impl App {
     fn export_state(&self) -> (Value, mpsc::UnboundedReceiver<Value>) {
         let (successor, later) = mpsc::unbounded_channel();
         let state = json!({
-            "router": self.router.export(successor.clone()),
+            "router": self.router.export(),
             "usage": self.usage.export(),
             "requests": self.requests.export(successor),
             "machines": self.machines.export(),
@@ -248,7 +248,6 @@ impl App {
     }
 
     fn import_later(&self, change: &Value) {
-        self.router.import_later_owner(&change["owner"]);
         self.requests.import_later(&change["request"]);
     }
 
