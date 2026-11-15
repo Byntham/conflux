@@ -400,7 +400,7 @@ struct GuestBanner: View {
     var body: some View {
         let waiting = model.guestsWaiting
         if waiting.count == 1 {
-            Banner(icon: "person.badge.plus", title: waiting[0].hostname, detail: "\(waiting[0].user ?? "A tagged machine") wants to join") {
+            Banner(icon: "person.badge.plus", title: "\(waiting[0].hostname) wants to join", detail: waiting[0].user ?? "Tagged machine", detailLines: 1) {
                 Button("Deny") { model.decide(waiting[0], approve: false) }.glassButton()
                 Button("Approve") { model.decide(waiting[0], approve: true) }.glassButton(prominent: true)
             }
@@ -448,6 +448,7 @@ struct Banner<Trailing: View>: View {
     let icon: String
     let title: String
     let detail: String
+    var detailLines: Int?
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
@@ -461,6 +462,8 @@ struct Banner<Trailing: View>: View {
                 Text(detail)
                     .font(.system(size: 11))
                     .foregroundStyle(Palette.muted)
+                    .lineLimit(detailLines)
+                    .truncationMode(.middle)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)

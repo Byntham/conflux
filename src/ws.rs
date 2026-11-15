@@ -216,6 +216,7 @@ async fn relay(
     query: Option<String>,
     guest: Option<String>,
 ) {
+    let mut access_changed = app.guests.watch();
     let first = loop {
         match client.recv().await {
             Some(Ok(ClientMsg::Text(t))) => break t.to_string(),
@@ -224,6 +225,10 @@ async fn relay(
             _ => return,
         }
     };
+    if guest.as_deref().is_some_and(|id| !app.guests.is_approved(id)) {
+        let _ = client.send(ClientMsg::Close(None)).await;
+        return;
+    }
     let route = first_frame_route(&headers, &first);
     let url = ws_url(&proxy::upstream_url(&app, Provider::Codex, &path, query.as_deref()));
     let started = Instant::now();
@@ -309,7 +314,6 @@ async fn relay(
 
     let mut shutdown = app.ws_shutdown.subscribe();
     let mut drain = app.lifecycle.watch_drain();
-    let mut access_changed = app.guests.watch();
     let mut turns = TurnTracker::started();
     loop {
         tokio::select! {

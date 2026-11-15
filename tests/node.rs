@@ -780,13 +780,17 @@ async fn node_access(n: &NodeHarness, state: &str) {
     panic!("the node never reached access {state}");
 }
 
-async fn codex_ws(n: &NodeHarness) -> Result<ControlSocket, tokio_tungstenite::tungstenite::Error> {
+async fn open_codex(n: &NodeHarness) -> Result<ControlSocket, tokio_tungstenite::tungstenite::Error> {
     let mut req = format!("ws://127.0.0.1:{}/v1/responses", n.port)
         .into_client_request()
         .unwrap();
     req.headers_mut()
         .insert("user-agent", "codex_cli_rs/0.200.0".parse().unwrap());
-    let (mut ws, _) = tokio_tungstenite::connect_async(req).await?;
+    Ok(tokio_tungstenite::connect_async(req).await?.0)
+}
+
+async fn codex_ws(n: &NodeHarness) -> Result<ControlSocket, tokio_tungstenite::tungstenite::Error> {
+    let mut ws = open_codex(n).await?;
     ws.send(Message::Text(
         json!({"type": "response.create", "model": "m"}).to_string().into(),
     ))
@@ -906,6 +910,7 @@ async fn a_guest_uses_the_hub_only_while_the_owner_approves_it() {
     assert!(!Config::load(&Paths::under(n.dir.path())).unwrap().route_once_approved);
     assert_eq!(claude(&n).send().await.unwrap().status(), 200);
     let mut open_socket = codex_ws(&n).await.unwrap();
+    let mut idle_socket = open_codex(&n).await.unwrap();
 
     as_owner(&hub, &tailnet, guest_api(reqwest::Method::DELETE, "node-one")).await;
     assert_eq!(claude(&n).send().await.unwrap().status(), StatusCode::FORBIDDEN);
@@ -915,6 +920,15 @@ async fn a_guest_uses_the_hub_only_while_the_owner_approves_it() {
     assert!(
         matches!(closed, None | Some(Ok(Message::Close(_))) | Some(Err(_))),
         "{closed:?}"
+    );
+    let turn = json!({"type": "response.create", "model": "m"}).to_string();
+    let _ = idle_socket.send(Message::Text(turn.into())).await;
+    let refused = tokio::time::timeout(Duration::from_secs(5), idle_socket.next())
+        .await
+        .unwrap();
+    assert!(
+        matches!(refused, None | Some(Ok(Message::Close(_))) | Some(Err(_))),
+        "{refused:?}"
     );
     node_access(&n, "denied").await;
     assert_eq!(claude_base_url(&n.clients), None);
