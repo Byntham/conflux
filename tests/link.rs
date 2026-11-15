@@ -70,7 +70,7 @@ async fn connects_as_a_node(hub: &Harness, machine: &mut Machine, name: &str) {
         node_port,
         machine.paths.clone(),
         machine.clients.clone(),
-        conflux::tailnet::system_tailscale(),
+        Arc::new(|_: &[&str]| None),
     );
     tokio::spawn(node.run_control());
 }

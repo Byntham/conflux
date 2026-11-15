@@ -10,7 +10,7 @@ use conflux::hubstate::HubState;
 use conflux::machines;
 use conflux::node::Node;
 use conflux::setup::{self, ClientPaths};
-use conflux::tailnet::{self, Tailscale};
+use conflux::tailnet::Tailscale;
 use conflux::update::UpdateStatus;
 use futures_util::{SinkExt, StreamExt};
 use http::StatusCode;
@@ -28,7 +28,7 @@ struct NodeHarness {
 }
 
 async fn start_node(hub_port: u16) -> NodeHarness {
-    start_node_on(hub_port, tailnet::system_tailscale()).await
+    start_node_on(hub_port, Arc::new(|_: &[&str]| None)).await
 }
 
 async fn start_node_on(hub_port: u16, tailscale: Tailscale) -> NodeHarness {

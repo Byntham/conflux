@@ -284,7 +284,7 @@ final class Model: ObservableObject {
     }
 
     var upToDate: Bool {
-        checkedForUpdates && !updating && !machines.contains { $0.outdated }
+        checkedForUpdates && !updating && !machines.contains { $0.outdated && canUpdate($0) }
     }
 
     var updating: Bool {
