@@ -197,8 +197,9 @@ impl Node {
             .ok()
             .flatten()
             .unwrap_or_default();
-        let named_me = me.names().contains(&new_hub.to_lowercase());
-        if named_me || me.ips.iter().any(|ip| ip.to_string() == new_hub) {
+        let named_me = me.names().contains(&new_hub.trim_end_matches('.').to_lowercase());
+        let address = new_hub.trim_matches(['[', ']']).parse::<std::net::IpAddr>().ok();
+        if named_me || address.is_some_and(|a| me.ips.contains(&a)) {
             tracing::warn!(new_hub, "ignoring a hub redirect to this machine");
             return Ok(false);
         }

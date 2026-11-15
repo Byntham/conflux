@@ -520,7 +520,8 @@ async fn a_draining_node_closes_the_socket_only_after_the_turn_ends() {
 async fn only_tailnet_redirects_are_followed() {
     let hub = Harness::new().await;
     let tailnet = Tailnet::new();
-    *tailnet.status.lock().unwrap() = json!({ "Self": { "UserID": 1, "TailscaleIPs": ["100.64.0.8"] } });
+    *tailnet.status.lock().unwrap() =
+        json!({ "Self": { "UserID": 1, "TailscaleIPs": ["100.64.0.8", "fd7a:115c:a1e0::8"] } });
     let n = start_node_on(hub.port, tailnet.fake()).await;
     let paths = Paths::under(n.dir.path());
     Config {
@@ -533,10 +534,12 @@ async fn only_tailnet_redirects_are_followed() {
 
     assert!(!n.node.follow_redirect("evil.example.com").await.unwrap());
     assert!(!n.node.follow_redirect("8.8.8.8").await.unwrap());
-    assert!(
-        !n.node.follow_redirect("100.64.0.8").await.unwrap(),
-        "a node never makes itself its own hub"
-    );
+    for me in ["100.64.0.8", "[fd7a:115c:a1e0::8]"] {
+        assert!(
+            !n.node.follow_redirect(me).await.unwrap(),
+            "a node never makes itself its own hub: {me}"
+        );
+    }
     assert_eq!(n.node.hub(), "127.0.0.1");
 
     assert!(n.node.follow_redirect("100.64.0.9").await.unwrap());
