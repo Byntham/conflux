@@ -18,7 +18,7 @@ struct MenuView: View {
                     .padding(.horizontal, 14)
                     .padding(.top, 6)
             }
-            if (model.phase == .ready || model.phase == .waiting) && model.showsUpdateCard {
+            if (model.phase == .ready || model.phase == .waiting) && (model.showsUpdateCard || !model.guestsWaiting.isEmpty) {
                 Spacer().frame(height: 10)
             } else {
                 Separator()
@@ -80,8 +80,23 @@ struct MenuView: View {
                 title: "Can't reach the hub",
                 detail: "\(model.node?.hub ?? "The hub") isn't answering. To keep working, turn off routing below, then restart Claude Code or Codex."
             )
+        case .notApproved:
+            if model.node?.access?.state == "pending" {
+                Notice(
+                    title: "Waiting for \(model.node?.owner ?? "the hub's owner") to approve this Mac",
+                    detail: "Claude Code and Codex use this Mac's own logins until then."
+                )
+            } else {
+                Notice(
+                    title: "\(model.node?.owner ?? "The hub's owner") didn't approve this Mac",
+                    detail: "Claude Code and Codex use this Mac's own logins. You can ask again."
+                ) {
+                    Button("Ask again") { model.askAgain() }.glassButton(prominent: true)
+                }
+            }
         case .ready:
             Accounts()
+            GuestBanner()
             UpdateBanner()
         }
     }
@@ -150,7 +165,7 @@ struct StatusDot: View {
             let ready = "\(model.readyCount) of \(model.accounts.count) ready"
             switch model.attention {
             case .systemRed?: return (Color(nsColor: .systemRed), model.problemSummary ?? ready)
-            case .some: return (Color(nsColor: .systemOrange), ready)
+            case let color?: return (Color(nsColor: color), ready)
             case nil: return (Palette.ok, ready)
             }
         case .notRunning:
@@ -379,21 +394,44 @@ enum Countdown {
     }
 }
 
+struct GuestBanner: View {
+    @EnvironmentObject var model: Model
+
+    var body: some View {
+        let waiting = model.guestsWaiting
+        if waiting.count == 1 {
+            Banner(icon: "person.badge.plus", title: "\(waiting[0].hostname) wants to join", detail: waiting[0].user ?? "Tagged machine") {
+                Button("Deny") { model.decide(waiting[0], approve: false) }.glassButton()
+                Button("Approve") { model.decide(waiting[0], approve: true) }.glassButton(prominent: true)
+            }
+        } else if !waiting.isEmpty {
+            Banner(
+                icon: "person.badge.plus",
+                title: "\(waiting.count) machines want to join",
+                detail: waiting.map(\.hostname).joined(separator: ", ")
+            ) {
+                Button("Review") { model.openDashboard() }.glassButton()
+            }
+        }
+    }
+}
+
 struct UpdateBanner: View {
     @EnvironmentObject var model: Model
 
     var body: some View {
         if model.updating {
-            banner(title: "Updating…", detail: "Machines switch over as they finish their current requests.") {
+            Banner(icon: "arrow.down.circle", title: "Updating…", detail: "Machines switch over as they finish their current requests.") {
                 ProgressView().controlSize(.small)
             }
         } else if let failure = model.updateFailure {
-            banner(title: "An update failed", detail: failure) {
+            Banner(icon: "arrow.down.circle", title: "An update failed", detail: failure) {
                 Button("Try again") { model.updateAll() }.glassButton()
             }
         } else if let latest = model.latestVersion {
             let behind = model.outdatedMachines
-            banner(
+            Banner(
+                icon: "arrow.down.circle",
                 title: "Update available",
                 detail: behind.count == 1
                     ? "\(model.isThisMac(behind[0]) ? "This Mac" : behind[0].hostname) · v\(behind[0].version) → v\(latest)"
@@ -404,10 +442,17 @@ struct UpdateBanner: View {
             }
         }
     }
+}
 
-    private func banner<Trailing: View>(title: String, detail: String, @ViewBuilder trailing: () -> Trailing) -> some View {
+struct Banner<Trailing: View>: View {
+    let icon: String
+    let title: String
+    let detail: String
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "arrow.down.circle")
+            Image(systemName: icon)
                 .font(.system(size: 16))
                 .foregroundStyle(Palette.muted)
                 .frame(width: 22)
@@ -419,7 +464,7 @@ struct UpdateBanner: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
-            trailing()
+            trailing
         }
         .padding(.leading, 8)
         .padding(.trailing, 10)

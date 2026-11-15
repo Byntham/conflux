@@ -234,6 +234,8 @@
   .status-cell .state { display: inline-flex; align-items: center; gap: 8px; }
   .status-cell .reserve { visibility: hidden; }
   .update-cell { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; }
+  .guest-actions { display: inline-flex; gap: 6px; padding-right: 8px; }
+  h1 .pill { vertical-align: middle; margin-left: 6px; }
   td.row-actions { width: 1px; padding-top: 0; padding-bottom: 0; padding-left: 0; vertical-align: middle; }
   .badge { padding: 0 6px; border-radius: 5px; font-size: 11.5px; font-weight: 500; background: var(--hover); color: var(--fg-2); }
 
@@ -552,7 +554,7 @@
     </div>
     <main>
       <div id="connection" class="alerts" hidden></div>
-      <div id="unavailable" hidden><div class="page-head"><div><h1 id="down-title"></h1></div></div><div class="unavailable"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg><strong>Can't reach the hub</strong><span>Retrying every 5 seconds.</span></div></div>
+      <div id="unavailable" hidden><div class="page-head"><div><h1 id="down-title"></h1></div></div><div class="unavailable"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg><strong id="unavailable-title">Can't reach the hub</strong><span id="unavailable-detail">Retrying every 5 seconds.</span></div></div>
 
       <section id="view-overview" hidden>
         <div class="page-head">
@@ -591,7 +593,7 @@
       </section>
 
       <section id="view-machines" hidden>
-        <div class="page-head"><div><h1>Machines</h1><div class="page-sub" id="machines-sub"></div></div></div>
+        <div class="page-head"><div><h1>Machines <span class="pill warn" id="machines-pending" hidden></span></h1><div class="page-sub" id="machines-sub"></div></div></div>
         <div class="card table-wrap"><table id="machine-list"></table></div>
         <div class="panels">
           <div class="card panel">
@@ -672,7 +674,7 @@ async function api(method, path, body) {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  if (!res.ok) throw Object.assign(new Error(data.error || `HTTP ${res.status}`), { status: res.status });
   return data;
 }
 
@@ -992,17 +994,34 @@ const roleBadge = (m) => m.role === "hub" ? '<span class="badge">Hub</span>' : m
 
 const routingPill = (off) => `<span class="pill warn${off ? "" : " reserve"}"${off ? ' data-tip="Uses its own logins"' : ' aria-hidden="true"'}>Routing off</span>`;
 
+const wantsToJoin = (m) => m.access === "pending";
+
+function guestButtons(m) {
+  const id = esc(m.id);
+  return `<span class="guest-actions"><button class="btn small primary" data-guest="${id}" data-decision="approve">Approve</button><button class="btn small" data-guest="${id}" data-decision="deny">Deny</button></span>`;
+}
+
 function machineMenuButton(m) {
-  if (!m.online || m.guest) return "";
+  if (wantsToJoin(m)) return guestButtons(m);
+  if (m.guest) return `<button class="icon-btn" data-menu data-guest-id="${esc(m.id)}" title="More actions" aria-label="More actions for ${esc(m.hostname)}" aria-haspopup="menu">${icon("more")}</button>`;
+  if (!m.online) return "";
   return `<button class="icon-btn" data-menu data-machine="${esc(m.hostname)}" title="More actions" aria-label="More actions for ${esc(m.hostname)}" aria-haspopup="menu">${icon("more")}</button>`;
+}
+
+function statusCell(m) {
+  if (wantsToJoin(m)) return `<span class="status-cell"><span class="pill warn">Wants to join</span></span>`;
+  return `<span class="status-cell${m.online && m.routing === false ? " routing-off" : ""}"><span class="state"><span class="dot ${m.online ? "on" : ""}"></span>${m.online ? "Online" : "Offline"}</span>${routingPill(m.online && m.routing === false)}</span>`;
 }
 
 function renderMachines(d) {
   const online = d.machines.filter((m) => m.online).length;
+  const waiting = d.machines.filter(wantsToJoin).length;
   $("nav-machines").textContent = `${online}/${d.machines.length}`;
   $("machines-sub").textContent = `${online} of ${d.machines.length} online`;
+  $("machines-pending").hidden = !waiting;
+  $("machines-pending").textContent = `${waiting} waiting`;
   setHtml("machine-list", `<thead><tr><th>Machine</th><th>Status</th><th class="hide-sm">Version</th><th class="hide-sm">Transcript sync</th><th class="num hide-sm">Last seen</th><th class="num">Update</th><th aria-label="Actions"></th></tr></thead><tbody>${d.machines.map((m) =>
-    `<tr class="${m.online ? "" : "offline"}"><td><span class="machine-name">${esc(m.hostname)}${roleBadge(m)}</span><div class="cell-sub show-sm">v${esc(m.version)} · sync ${m.transcript_sync ? "on" : "off"}</div></td><td class="${m.online ? "" : "muted"}"><span class="status-cell${m.online && m.routing === false ? " routing-off" : ""}"><span class="state"><span class="dot ${m.online ? "on" : ""}"></span>${m.online ? "Online" : "Offline"}</span>${routingPill(m.online && m.routing === false)}</span></td><td class="mono hide-sm">${esc(m.version)}</td><td class="hide-sm ${m.transcript_sync ? "" : "muted"}">${m.transcript_sync ? "On" : "Off"}</td><td class="num when hide-sm">${esc(ago(m.last_seen))}</td><td class="num"><span class="update-cell">${updateCell(m, d.latest_version)}</span></td><td class="row-actions">${machineMenuButton(m)}</td></tr>`
+    `<tr class="${m.online ? "" : "offline"}"><td><span class="machine-name">${esc(m.hostname)}${roleBadge(m)}</span>${m.guest ? `<div class="cell-sub">${esc(m.user || "Tagged machine")}</div>` : ""}<div class="cell-sub show-sm">v${esc(m.version)} · sync ${m.transcript_sync ? "on" : "off"}</div></td><td class="${m.online ? "" : "muted"}">${statusCell(m)}</td><td class="mono hide-sm">${esc(m.version)}</td><td class="hide-sm ${m.transcript_sync ? "" : "muted"}">${m.transcript_sync ? "On" : "Off"}</td><td class="num when hide-sm">${esc(ago(m.last_seen))}</td><td class="num"><span class="update-cell">${wantsToJoin(m) ? "" : updateCell(m, d.latest_version)}</span></td><td class="row-actions">${machineMenuButton(m)}</td></tr>`
   ).join("")}</tbody>`);
   setHtml("fleet", d.machines.map((m) =>
     `<li class="${m.online ? "" : "offline"}" title="${esc(m.hostname)}${m.online && m.routing === false ? " · routing off" : ""}"><span class="dot ${m.online ? "on" : ""} ${m.online && m.routing === false ? "routing-off" : ""}"></span><span class="truncate">${esc(m.hostname)}</span>${roleBadge(m)}</li>`
@@ -1313,7 +1332,7 @@ function showPoolTip(ev) {
   tip.style.top = `${Math.min(Math.max(0, ev.clientY - box.top - 30), height - tip.offsetHeight)}px`;
 }
 
-function setConnection(ok, message) {
+function setConnection(ok, message, refused = false) {
   for (const dot of [$("hub-dot"), $("top-dot")]) dot.className = `dot ${ok ? "on" : "down"}`;
   $("hub-status").textContent = ok ? "Connected" : "Disconnected";
   $("fleet").classList.toggle("stale", !ok);
@@ -1322,6 +1341,8 @@ function setConnection(ok, message) {
   $("unavailable").hidden = ok || Boolean(latest);
   $("down-title").textContent = titleCase(currentView());
   $("unavailable").title = detail;
+  $("unavailable-title").textContent = refused ? detail : "Can't reach the hub";
+  $("unavailable-detail").textContent = refused ? "This page fills in once you're approved." : "Retrying every 5 seconds.";
   if (!latest) $("hub-line").textContent = ok ? "" : "Waiting for the hub";
   setHtml("connection", ok ? "" : `<div class="alert-row" role="alert">${icon("alert")}<div class="alert-text"><div class="alert-title">Can't reach the hub</div><div class="alert-detail">${esc(detail)}. Showing the last data received, retrying every 5 seconds.</div></div></div>`);
 }
@@ -1359,7 +1380,7 @@ async function refresh() {
     render(await api("GET", "/conflux/api/dashboard"));
     setConnection(true);
   } catch (e) {
-    setConnection(false, e.message);
+    setConnection(false, e.message, e.status === 403);
   }
 }
 
@@ -1593,14 +1614,20 @@ function machineMenu(m) {
   return m.routing === null ? `${item}<div class="menu-note">Update ${esc(m.hostname)} to change its routing from here.</div>` : item;
 }
 
+function guestMenu(m) {
+  return `<button role="menuitem" class="danger" data-guest="${esc(m.id)}" data-decision="remove">Remove guest</button>`;
+}
+
 function openMenu(button) {
-  const machine = button.dataset.machine;
-  const target = machine === undefined
+  const { machine, guestId } = button.dataset;
+  const target = guestId !== undefined
+    ? latest.machines.find((m) => m.id === guestId)
+    : machine === undefined
     ? latest.accounts.find((x) => x.id === button.dataset.menu)
     : latest.machines.find((m) => m.hostname === machine && !m.guest);
   if (!target) return;
   const menu = $("menu");
-  menu.innerHTML = machine === undefined ? accountMenu(target) : machineMenu(target);
+  menu.innerHTML = guestId !== undefined ? guestMenu(target) : machine === undefined ? accountMenu(target) : machineMenu(target);
   menu.hidden = false;
   const rect = button.getBoundingClientRect();
   const left = Math.max(8, Math.min(rect.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - 8));
@@ -1717,6 +1744,20 @@ async function setRouting(button) {
   } catch (e) { showError(e); }
 }
 
+async function decideGuest(button) {
+  const { guest, decision } = button.dataset;
+  const name = (latest.machines.find((m) => m.id === guest) || {}).hostname || "the machine";
+  const path = `/conflux/api/guests/${encodeURIComponent(guest)}`;
+  closeMenu();
+  button.disabled = true;
+  try {
+    if (decision === "remove") await api("DELETE", path);
+    else await api("POST", path, { approve: decision === "approve" });
+    await refresh();
+    toast({ approve: `${name} can use the hub now`, deny: `Turned down ${name}`, remove: `${name} can no longer use the hub` }[decision]);
+  } catch (e) { showError(e); } finally { button.disabled = false; }
+}
+
 async function accountAction(button) {
   const { act, id, on, name, kind } = button.dataset;
   const path = `/conflux/api/accounts/${encodeURIComponent(id)}`;
@@ -1814,6 +1855,8 @@ document.addEventListener("click", (ev) => {
   if (thread) return openThread(thread.dataset.thread);
   const routing = ev.target.closest("[data-routing]");
   if (routing) return setRouting(routing);
+  const guest = ev.target.closest("[data-guest]");
+  if (guest) return decideGuest(guest);
   const action = ev.target.closest("[data-act]");
   if (action) return accountAction(action);
   const installButton = ev.target.closest("[data-install-on]");

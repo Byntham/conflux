@@ -12,6 +12,7 @@ use serde_json::{Value, json};
 
 use crate::accounts::{AccountEntry, RefreshState};
 use crate::app::App;
+use crate::guests::{Access, Guest};
 use crate::hubstate::HubState;
 use crate::machines;
 use crate::oauth::{self, DevicePoll, Pkce};
@@ -142,11 +143,18 @@ pub async fn status(
         .filter(|e| e.credentials().generation > 0)
         .map(|e| account_view(&app, e))
         .collect();
+    let waiting: Vec<_> = app
+        .fleet()
+        .into_iter()
+        .filter(|m| m.access == Some(Access::Pending))
+        .map(|m| json!({ "id": m.id, "hostname": m.hostname, "user": m.user }))
+        .collect();
     Json(json!({
         "role": app.cfg.role,
         "version": update::CURRENT,
         "pid": std::process::id(),
         "accounts": accounts,
+        "guests_waiting": waiting,
     }))
 }
 
@@ -423,4 +431,71 @@ pub async fn poll_usage(State(app): State<Arc<App>>, Path(id): Path<String>) -> 
     let e = account(&app, &id)?;
     app.usage.poll(&e).await?;
     Ok(Json(account_view(&app, &e)))
+}
+
+fn find_guest(app: &App, name: &str) -> ApiResult<(String, Guest)> {
+    let named = |id: &str, hostname: &str| id == name || hostname == name;
+    let mut found: Vec<(String, Guest)> = app
+        .machines
+        .list()
+        .into_iter()
+        .filter(|m| m.guest)
+        .filter_map(|m| {
+            let id = m.id.filter(|id| named(id, &m.hostname))?;
+            Some((
+                id,
+                Guest {
+                    login: m.user.unwrap_or_default(),
+                    hostname: m.hostname,
+                    approved: false,
+                    ask: m.ask,
+                },
+            ))
+        })
+        .collect();
+    if found.is_empty() {
+        found = app
+            .guests
+            .export()
+            .into_iter()
+            .filter(|(id, g)| named(id, &g.hostname))
+            .collect();
+    }
+    match found.len() {
+        0 => Err(not_found("guest machine")),
+        1 => Ok(found.remove(0)),
+        _ => Err(ApiError(
+            StatusCode::CONFLICT,
+            format!(
+                "more than one guest machine is named {name}. Use its ID instead: {}",
+                found.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>().join(", ")
+            ),
+        )),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct GuestDecision {
+    approve: bool,
+}
+
+fn set_guest(app: &App, name: &str, approved: bool) -> ApiResult<Json<Value>> {
+    let (id, guest) = find_guest(app, name)?;
+    let hostname = guest.hostname.clone();
+    app.guests
+        .set(&id, Guest { approved, ..guest })
+        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
+    Ok(Json(json!({ "id": id, "hostname": hostname, "approved": approved })))
+}
+
+pub async fn decide_guest(
+    State(app): State<Arc<App>>,
+    Path(name): Path<String>,
+    Json(req): Json<GuestDecision>,
+) -> ApiResult<Json<Value>> {
+    set_guest(&app, &name, req.approve)
+}
+
+pub async fn remove_guest(State(app): State<Arc<App>>, Path(name): Path<String>) -> ApiResult<Json<Value>> {
+    set_guest(&app, &name, false)
 }

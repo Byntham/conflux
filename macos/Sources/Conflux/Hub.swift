@@ -77,6 +77,9 @@ struct Machine: Decodable {
     let outdated: Bool
     let update: Update?
     let guest: Bool?
+    let id: String?
+    let user: String?
+    let access: String?
 
     var isUpdating: Bool {
         update.map { $0.state != "failed" } ?? false
@@ -89,10 +92,24 @@ struct NodeInfo: Decodable {
         let lastError: String?
     }
 
+    struct Access: Decodable {
+        let state: String
+        let owner: String?
+    }
+
     let hub: String
     let hostname: String
     let hubLink: Link
     let guest: Bool?
+    let access: Access?
+
+    var notApproved: Bool {
+        access.map { $0.state != "approved" } ?? false
+    }
+
+    var owner: String {
+        access?.owner ?? "The hub's owner"
+    }
 }
 
 enum Fetched {

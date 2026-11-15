@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 use tokio::sync::{Notify, mpsc};
 
 use crate::app::App;
+use crate::guests::Access;
 use crate::tailnet::{Caller, Identity};
 use crate::update::UpdateStatus;
 
@@ -29,6 +30,8 @@ pub struct Report {
     pub routing: Option<bool>,
     #[serde(default)]
     pub update: Value,
+    #[serde(default)]
+    pub ask: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -44,6 +47,11 @@ pub struct Machine {
     pub outdated: bool,
     pub guest: bool,
     pub tailnet_name: Option<String>,
+    pub id: Option<String>,
+    pub user: Option<String>,
+    pub access: Option<Access>,
+    #[serde(skip)]
+    pub ask: String,
 }
 
 struct Link {
@@ -58,6 +66,7 @@ struct Entry {
     node: Option<String>,
     guest: bool,
     tailnet_name: Option<String>,
+    user: Option<String>,
     link: Option<Link>,
 }
 
@@ -77,6 +86,8 @@ struct Saved {
     guest: bool,
     #[serde(default)]
     tailnet_name: Option<String>,
+    #[serde(default)]
+    user: Option<String>,
 }
 
 #[derive(Default)]
@@ -100,6 +111,7 @@ impl Machines {
             node: peer.map(|p| p.node.clone()),
             guest: peer.is_some_and(|p| !p.owner),
             tailnet_name: peer.and_then(|p| p.name.clone()),
+            user: peer.and_then(|p| p.user.clone()),
             link: Some(Link { id, commands, address }),
             report,
         };
@@ -184,6 +196,7 @@ impl Machines {
                 node: e.node.clone(),
                 guest: e.guest,
                 tailnet_name: e.tailnet_name.clone(),
+                user: e.user.clone(),
             })
             .collect();
         json!(known)
@@ -204,6 +217,7 @@ impl Machines {
                 node: saved.node,
                 guest: saved.guest,
                 tailnet_name: saved.tailnet_name,
+                user: saved.user,
                 link: None,
             };
             map.insert(entry.key(), entry);
@@ -238,6 +252,10 @@ impl Machines {
                 outdated: false,
                 guest: e.guest,
                 tailnet_name: e.tailnet_name.clone(),
+                id: e.node.clone(),
+                user: e.user.clone(),
+                access: None,
+                ask: e.report.ask.clone().unwrap_or_default(),
             })
             .collect();
         machines.sort_by(|a, b| a.hostname.cmp(&b.hostname));
@@ -247,6 +265,10 @@ impl Machines {
 
 pub fn hub_moved(hub: &str) -> Value {
     json!({ "type": "hub", "hub": hub })
+}
+
+pub fn access(state: Access, owner: Option<&str>) -> Value {
+    json!({ "type": "access", "state": state, "owner": owner })
 }
 
 pub fn set_routing(on: bool) -> Value {
@@ -285,7 +307,11 @@ async fn serve_control(app: Arc<App>, mut node: WebSocket, address: IpAddr, peer
     let Some(Some(first)) = next_report(&mut node).await else {
         return;
     };
+    let mut ask = first.ask.clone().unwrap_or_default();
     let (key, link, mut commands) = app.machines.connect(first, address, peer.as_ref());
+    let guest = peer.filter(|p| !p.owner).map(|p| p.node);
+    let mut access_changed = app.guests.watch();
+    let mut told = None;
     if let Some(hub) = app.redirect_hub()
         && node
             .send(Message::Text(hub_moved(&hub).to_string().into()))
@@ -298,6 +324,20 @@ async fn serve_control(app: Arc<App>, mut node: WebSocket, address: IpAddr, peer
     let drain = app.lifecycle.drain_started();
     tokio::pin!(drain);
     loop {
+        if let Some(guest) = &guest {
+            let now = app.guests.access(guest, &ask);
+            if told != Some(now) {
+                let owner = app.tailnet.read().unwrap().owner.clone();
+                let frame = access(now, owner.as_deref());
+                if node.send(Message::Text(frame.to_string().into())).await.is_err() {
+                    break;
+                }
+                if told == Some(Access::Approved) && now == Access::Denied {
+                    break;
+                }
+                told = Some(now);
+            }
+        }
         tokio::select! {
             () = &mut drain => break,
             command = commands.recv() => {
@@ -306,8 +346,16 @@ async fn serve_control(app: Arc<App>, mut node: WebSocket, address: IpAddr, peer
                     break;
                 }
             }
+            changed = access_changed.changed(), if guest.is_some() => {
+                if changed.is_err() {
+                    break;
+                }
+            }
             report = next_report(&mut node) => match report {
-                Some(Some(report)) => app.machines.report(&key, link, report),
+                Some(Some(report)) => {
+                    ask = report.ask.clone().unwrap_or_default();
+                    app.machines.report(&key, link, report);
+                }
                 Some(None) => {}
                 None => break,
             },

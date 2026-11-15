@@ -104,6 +104,10 @@ pub struct Config {
     pub claude_code_only: bool,
     #[serde(default)]
     pub transcript_sync: bool,
+    #[serde(default)]
+    pub ask: Option<String>,
+    #[serde(default)]
+    pub route_once_approved: bool,
 }
 
 fn default_port() -> u16 {
@@ -121,6 +125,8 @@ impl Default for Config {
             port: DEFAULT_PORT,
             claude_code_only: true,
             transcript_sync: false,
+            ask: None,
+            route_once_approved: false,
         }
     }
 }
