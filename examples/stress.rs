@@ -367,7 +367,12 @@ impl Fake {
         })
     }
 
-    fn authorize(&self, headers: &HeaderMap, chaos: bool) -> Result<String, &'static str> {
+    fn authorize(
+        self: &Arc<Self>,
+        headers: &HeaderMap,
+        session: Option<&str>,
+        chaos: bool,
+    ) -> Result<String, &'static str> {
         let token = headers
             .get("authorization")
             .and_then(|v| v.to_str().ok())
@@ -376,7 +381,15 @@ impl Fake {
         let (name, generation) = token.rsplit_once('.').ok_or("bad token")?;
         let generation: u64 = generation.parse().map_err(|_| "bad token")?;
         let mut accounts = self.accounts.lock().unwrap();
-        let a = accounts.get_mut(name).ok_or("unknown account")?;
+        if !accounts.contains_key(name) {
+            return Err("unknown account");
+        }
+        let now = Utc::now();
+        for a in accounts.values_mut() {
+            a.roll(now);
+        }
+        self.note_session(&accounts, name, session, now);
+        let a = accounts.get_mut(name).expect("known account");
         if generation != a.generation {
             a.stats.stale_token += 1;
             return Err("stale token");
@@ -417,14 +430,13 @@ impl Fake {
         }
     }
 
-    fn begin(self: &Arc<Self>, name: &str, session: Option<&str>, previous: Option<&str>) -> Result<Turn, Refusal> {
+    fn begin(self: &Arc<Self>, name: &str, previous: Option<&str>) -> Result<Turn, Refusal> {
         let now = Utc::now();
         let mut rng = rand::rng();
         let mut accounts = self.accounts.lock().unwrap();
         for a in accounts.values_mut() {
             a.roll(now);
         }
-        self.note_session(&accounts, name, session, now);
         let a = accounts.get_mut(name).expect("authorized account");
         let provider = a.provider;
         if a.full() {
@@ -644,12 +656,12 @@ fn codex_error(kind: &str, message: &str, resets: Option<DateTime<Utc>>) -> Valu
 }
 
 async fn claude_messages(State(fake): State<Arc<Fake>>, headers: HeaderMap, body: Bytes) -> Response {
-    let name = match fake.authorize(&headers, true) {
+    let session = session_header(&headers, &["x-claude-code-session-id"]);
+    let name = match fake.authorize(&headers, session.as_deref(), true) {
         Ok(n) => n,
         Err(why) => return unauthorized(Provider::Claude, why),
     };
-    let session = session_header(&headers, &["x-claude-code-session-id"]);
-    let turn = match fake.begin(&name, session.as_deref(), None) {
+    let turn = match fake.begin(&name, None) {
         Ok(t) => t,
         Err(Refusal::Quota(l, _)) => {
             return json_reply(
@@ -727,20 +739,17 @@ async fn codex_responses(
     upgrade: Result<WebSocketUpgrade, WebSocketUpgradeRejection>,
     body: Bytes,
 ) -> Response {
-    let name = match fake.authorize(&headers, true) {
+    let session = session_header(&headers, &["session_id", "session-id"]);
+    let name = match fake.authorize(&headers, session.as_deref(), true) {
         Ok(n) => n,
         Err(why) => return unauthorized(Provider::Codex, why),
     };
-    let session = session_header(&headers, &["session_id", "session-id"]);
     if let Ok(upgrade) = upgrade {
         let limits = {
             let mut accounts = fake.accounts.lock().unwrap();
-            let now = Utc::now();
-            for a in accounts.values_mut() {
-                a.roll(now);
-            }
-            fake.note_session(&accounts, &name, session.as_deref(), now);
             let a = accounts.get_mut(&name).expect("authorized account");
+            let now = Utc::now();
+            a.roll(now);
             if a.full() {
                 fake.refuse_full(&name, a, now);
                 let body = codex_error(
@@ -752,7 +761,7 @@ async fn codex_responses(
             }
             a.limits()
         };
-        let mut response = upgrade.on_upgrade(move |socket| codex_socket(fake, name, session, socket));
+        let mut response = upgrade.on_upgrade(move |socket| codex_socket(fake, name, socket));
         for (k, v) in codex_limit_headers(&limits) {
             response.headers_mut().insert(k, v.parse().unwrap());
         }
@@ -760,7 +769,7 @@ async fn codex_responses(
     }
     let asked: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
     let previous = asked["previous_response_id"].as_str();
-    match fake.begin(&name, session.as_deref(), previous) {
+    match fake.begin(&name, previous) {
         Ok(turn) => respond(
             StatusCode::OK,
             "text/event-stream",
@@ -798,12 +807,12 @@ async fn codex_responses(
     }
 }
 
-async fn codex_socket(fake: Arc<Fake>, name: String, session: Option<String>, mut socket: WebSocket) {
+async fn codex_socket(fake: Arc<Fake>, name: String, mut socket: WebSocket) {
     while let Some(Ok(message)) = socket.recv().await {
         let Message::Text(text) = message else { continue };
         let frame: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
         let previous = frame["previous_response_id"].as_str();
-        let turn = match fake.begin(&name, session.as_deref(), previous) {
+        let turn = match fake.begin(&name, previous) {
             Ok(t) => t,
             Err(refusal) => {
                 let mut error = match refusal {
@@ -873,9 +882,9 @@ async fn token(State(fake): State<Arc<Fake>>, body: Bytes) -> Response {
     }
 }
 
-fn polled_limits(fake: &Fake, headers: &HeaderMap) -> Result<Limits, Box<Response>> {
+fn polled_limits(fake: &Arc<Fake>, headers: &HeaderMap) -> Result<Limits, Box<Response>> {
     let name = fake
-        .authorize(headers, false)
+        .authorize(headers, None, false)
         .map_err(|why| Box::new(unauthorized(Provider::Claude, why)))?;
     let mut accounts = fake.accounts.lock().unwrap();
     let a = accounts.get_mut(&name).expect("authorized account");
@@ -942,7 +951,7 @@ enum Outcome {
 
 const OUTCOMES: [(Outcome, &str); 10] = [
     (Outcome::Ok, "ok"),
-    (Outcome::Limited, "all used"),
+    (Outcome::Limited, "none free"),
     (Outcome::LimitedWithRoom, "had room"),
     (Outcome::Throttled, "throttled"),
     (Outcome::ServerError, "5xx"),
@@ -1185,22 +1194,10 @@ async fn claude_session(ctx: Arc<Ctx>) {
     }
 }
 
-fn completed_id(body: &str) -> Option<String> {
-    body.lines()
-        .filter_map(|l| l.strip_prefix("data: "))
-        .filter_map(|d| serde_json::from_str::<Value>(d).ok())
-        .find(|v| v["type"] == "response.completed")
-        .and_then(|v| v["response"]["id"].as_str().map(str::to_string))
-}
-
 async fn codex_http_session(ctx: Arc<Ctx>) {
     let session = uuid::Uuid::new_v4().to_string();
-    let mut previous: Option<String> = None;
     while Instant::now() < ctx.deadline {
-        let mut body = json!({"model": "gpt-6.1-sol", "stream": true, "input": [{"role": "user", "content": "hello"}]});
-        if let Some(p) = &previous {
-            body["previous_response_id"] = json!(p);
-        }
+        let body = json!({"model": "gpt-6.1-sol", "stream": true, "input": [{"role": "user", "content": "hello"}]});
         let req = ctx
             .http
             .post(format!("{}/backend-api/codex/responses", ctx.base))
@@ -1210,15 +1207,10 @@ async fn codex_http_session(ctx: Arc<Ctx>) {
             .json(&body);
         let sent = send_http(&ctx, req, "response.completed").await;
         let mut outcome = sent.outcome;
-        match outcome {
-            Outcome::Ok => previous = completed_id(&sent.body),
-            Outcome::LostContinuation => previous = None,
-            Outcome::Limited => {
-                outcome = ctx
-                    .check_limited("codex http", Provider::Codex, sent.body.contains("conflux: every"))
-                    .await
-            }
-            _ => {}
+        if outcome == Outcome::Limited {
+            outcome = ctx
+                .check_limited("codex http", Provider::Codex, sent.body.contains("conflux: every"))
+                .await;
         }
         ctx.record("codex http", outcome, sent.first_byte, sent.detail);
         ctx.pause(outcome, sent.retry_after).await;
@@ -1500,7 +1492,7 @@ fn report(ctx: &Ctx, fake: &Fake, watch: &HubWatch, secs: f64) {
         ms.sort_unstable();
         println!("{:>10}{:>10}", percentile(&ms, 0.5), percentile(&ms, 0.99));
     }
-    println!("  (had room: refused as if every account were used up while one still had room)");
+    println!("  (had room: refused as if no account were free while one still had room)");
     println!("  (p50 and p99 are time to first byte through conflux)");
     for (kind, s) in stats.iter() {
         for d in &s.others {
