@@ -35,7 +35,7 @@ impl Client {
             machine.into(),
             Paths::under(dir.path()),
             &clients,
-            Arc::new(move || base.clone()),
+            Arc::new(move || Some(base.clone())),
         );
         Self { dir, sync }
     }
@@ -120,7 +120,7 @@ async fn offsets_survive_a_client_restart() {
         "node-two".into(),
         Paths::under(c.dir.path()),
         &clients,
-        Arc::new(move || base.clone()),
+        Arc::new(move || Some(base.clone())),
     );
     restarted.pass().await.unwrap();
     assert_eq!(mirror(&h, "node-two", "a.jsonl"), format!("{USER}\n"));
@@ -141,7 +141,7 @@ async fn an_empty_new_hub_gets_everything_again() {
         "node-two".into(),
         Paths::under(dir.path()),
         &clients,
-        Arc::new(move || reader.lock().unwrap().clone()),
+        Arc::new(move || Some(reader.lock().unwrap().clone())),
     );
     let file = dir.path().join("claude/projects/a.jsonl");
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();

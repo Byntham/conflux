@@ -1,10 +1,11 @@
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use axum::Json;
-use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::extract::{ConnectInfo, Path, State};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -14,7 +15,7 @@ use crate::app::App;
 use crate::hubstate::HubState;
 use crate::machines;
 use crate::oauth::{self, DevicePoll, Pkce};
-use crate::{setup, update};
+use crate::{dashboard, setup, update};
 
 const LOGIN_TTL: Duration = Duration::from_secs(15 * 60);
 
@@ -121,7 +122,19 @@ pub fn account_view(app: &App, e: &AccountEntry) -> AccountView {
     }
 }
 
-pub async fn status(State(app): State<Arc<App>>) -> Json<Value> {
+pub async fn status(
+    State(app): State<Arc<App>>,
+    ConnectInfo(from): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> Json<Value> {
+    if !app.identify(from.ip()).await.is_owner() {
+        let host = headers.get(header::HOST).and_then(|v| v.to_str().ok());
+        return Json(json!({
+            "role": app.cfg.role,
+            "version": update::CURRENT,
+            "hub": dashboard::hub_name(&app, host),
+        }));
+    }
     let accounts: Vec<_> = app
         .store
         .all()

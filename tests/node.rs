@@ -13,7 +13,7 @@ use conflux::setup::{self, ClientPaths};
 use conflux::tailnet::Tailscale;
 use conflux::update::UpdateStatus;
 use futures_util::{SinkExt, StreamExt};
-use http::StatusCode;
+use http::{Method, StatusCode};
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
@@ -171,6 +171,11 @@ impl Tailnet {
     fn fake(&self) -> Tailscale {
         fake_tailscale(self.status.clone(), self.caller.clone())
     }
+
+    fn calls_from(&self, hub: &Harness, caller: Value) {
+        *self.caller.lock().unwrap() = caller;
+        hub.app.forget_identities();
+    }
 }
 
 async fn hub_on(tailnet: &Tailnet) -> Harness {
@@ -234,9 +239,9 @@ async fn the_dashboard_turns_routing_on_and_off_for_each_machine() {
             .iter()
             .any(|m| m.hostname == "node-one" && !m.online)
     );
-    *tailnet.caller.lock().unwrap() = whois(1, &[]);
+    tailnet.calls_from(&hub, whois(1, &[]));
     let control = connect(&hub, &n).await;
-    *tailnet.caller.lock().unwrap() = Value::Null;
+    tailnet.calls_from(&hub, Value::Null);
     assert_eq!(online_named(&hub, "node-one").len(), 1);
     assert_eq!(hub.app.machines.list().len(), 1);
     assert_eq!(hub.app.machines.list()[0].hostname, "node-one");
@@ -318,10 +323,11 @@ async fn the_dashboard_turns_routing_on_and_off_for_each_machine() {
     eventually(|| hub.app.machines.list().into_iter().find(|m| m.hostname == "old-node")).await;
     assert_eq!(set_routing(&hub, "old-node", true).await.status(), StatusCode::CONFLICT);
 
-    *tailnet.caller.lock().unwrap() = whois(2, &[]);
+    tailnet.calls_from(&hub, whois(2, &[]));
     let impostor = json!({ "hostname": "node-one", "version": "0.1.0", "routing": true });
     let mut guest = open_control(&hub, impostor.clone()).await.unwrap();
     eventually(|| (online_named(&hub, "node-one").len() == 2).then_some(())).await;
+    tailnet.calls_from(&hub, Value::Null);
     assert!(online_named(&hub, "node-one").contains(&(false, Some(false))));
     assert!(online_named(&hub, "node-one").contains(&(true, Some(true))));
     let r = set_routing(&hub, "node-one", true).await;
@@ -334,6 +340,7 @@ async fn the_dashboard_turns_routing_on_and_off_for_each_machine() {
     assert_eq!(next_command(&mut guest).await["type"], "hub");
     set_routing(&hub, "node-one", false).await;
     drop(guest);
+    tailnet.calls_from(&hub, whois(2, &[]));
     let mut guest = open_control(
         &hub,
         json!({ "hostname": "guest-only", "version": "0.1.0", "routing": true }),
@@ -341,6 +348,7 @@ async fn the_dashboard_turns_routing_on_and_off_for_each_machine() {
     .await
     .unwrap();
     eventually(|| (online_named(&hub, "guest-only") == [(true, Some(true))]).then_some(())).await;
+    tailnet.calls_from(&hub, Value::Null);
     assert_eq!(
         set_routing(&hub, "guest-only", false).await.status(),
         StatusCode::FORBIDDEN
@@ -349,6 +357,7 @@ async fn the_dashboard_turns_routing_on_and_off_for_each_machine() {
     assert_eq!(next_command(&mut guest).await["type"], "hub");
 
     *tailnet.status.lock().unwrap() = Value::Null;
+    tailnet.calls_from(&hub, whois(2, &[]));
     let before = hub.app.machines.list().len();
     let refused = open_control(&hub, json!({ "hostname": "unknown-box", "version": "0.1.0" })).await;
     assert!(
@@ -357,7 +366,7 @@ async fn the_dashboard_turns_routing_on_and_off_for_each_machine() {
     );
     assert_eq!(hub.app.machines.list().len(), before);
     *tailnet.status.lock().unwrap() = json!({ "Self": { "UserID": 1 } });
-    *tailnet.caller.lock().unwrap() = Value::Null;
+    tailnet.calls_from(&hub, Value::Null);
 
     control.abort();
     eventually(|| {
@@ -437,11 +446,12 @@ async fn update_reaches_connected_nodes_and_shows_their_failures() {
     *hub.fake.release.lock().unwrap() = Some(("9.9.9".into(), "unused".into()));
     let n = start_node(hub.port).await;
     connect(&hub, &n).await;
-    *tailnet.caller.lock().unwrap() = whois(2, &[]);
+    tailnet.calls_from(&hub, whois(2, &[]));
     let mut guest = open_control(&hub, json!({ "hostname": "node-one", "version": "0.1.0" }))
         .await
         .unwrap();
     eventually(|| (online_named(&hub, "node-one").len() == 2).then_some(())).await;
+    tailnet.calls_from(&hub, Value::Null);
 
     let v: Value = hub
         .http
@@ -628,4 +638,89 @@ fn bare_conflux_prints_the_dashboard_link() {
         joined.contains("Dashboard: http://") && joined.contains(":4321"),
         "{joined}"
     );
+}
+
+async fn ask(hub: &Harness, method: Method, path: &str, body: Value) -> (StatusCode, Value) {
+    let r = hub
+        .http
+        .request(method, format!("{}{path}", hub.base))
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    (r.status(), r.json().await.unwrap_or(Value::Null))
+}
+
+#[tokio::test]
+async fn guests_see_the_hub_and_their_own_machines_and_change_nothing() {
+    let tailnet = Tailnet::new();
+    let hub = hub_on(&tailnet).await;
+    let account = hub.add(Provider::Claude, "a").await;
+    hub.app.updater.set_latest(Some("9.9.9".into()));
+    let report = |name: &str| json!({ "hostname": name, "version": "0.1.0" });
+    let _owner_box = open_control(&hub, report("owner-box")).await.unwrap();
+    let mut someone_else = whois(3, &[]);
+    someone_else["Node"]["Name"] = json!("other.example.ts.net.");
+    tailnet.calls_from(&hub, someone_else);
+    let _other_guest = open_control(&hub, report("other-guest")).await.unwrap();
+    tailnet.calls_from(&hub, whois(2, &[]));
+    let _guest_box = open_control(&hub, report("guest-box")).await.unwrap();
+    eventually(|| (hub.app.machines.list().len() == 3).then_some(())).await;
+
+    let (status, dashboard) = ask(&hub, Method::GET, "/conflux/api/dashboard", Value::Null).await;
+    assert_eq!(status, 200);
+    assert_eq!(dashboard["guest"], true);
+    assert_eq!(dashboard["accounts"][0]["id"], account);
+    assert_eq!(dashboard["accounts"][0]["email"], Value::Null);
+    let rows: Vec<_> = dashboard["machines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| (m["hostname"].as_str().unwrap(), m["outdated"].as_bool().unwrap()))
+        .collect();
+    assert_eq!(rows, [("hub-under-test", false), ("guest-box", true)]);
+    assert_eq!(dashboard["requests"], json!([]));
+    assert_eq!(dashboard["add_machine"], Value::Null);
+    let (_, status) = ask(&hub, Method::GET, "/conflux/api/status", Value::Null).await;
+    assert_eq!(
+        status,
+        json!({ "role": "hub", "version": conflux::update::CURRENT, "hub": "hub-under-test" })
+    );
+
+    let upload = json!({ "machine": "guest-box", "tool": "claude", "path": "a.jsonl", "offset": 0, "next_offset": 2, "data": "{}" });
+    let owner_only = [
+        (
+            Method::PATCH,
+            format!("/conflux/api/accounts/{account}"),
+            json!({ "enabled": false }),
+        ),
+        (Method::POST, "/conflux/api/update/check".into(), json!({})),
+        (
+            Method::PATCH,
+            "/conflux/api/machines/owner-box".into(),
+            json!({ "routing": false }),
+        ),
+        (Method::GET, "/conflux/api/discover".into(), Value::Null),
+        (Method::GET, "/conflux/api/threads".into(), Value::Null),
+        (Method::POST, "/conflux/transcripts".into(), upload),
+    ];
+    for (method, path, body) in &owner_only {
+        let (status, _) = ask(&hub, method.clone(), path, body.clone()).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{method} {path}");
+    }
+    assert!(hub.app.store.all()[0].settings().enabled);
+
+    tailnet.calls_from(&hub, whois(1, &[]));
+    let (_, dashboard) = ask(&hub, Method::GET, "/conflux/api/dashboard", Value::Null).await;
+    assert_eq!(dashboard["guest"], false);
+    assert_eq!(dashboard["accounts"][0]["email"], "a@example.com");
+    assert_eq!(dashboard["machines"].as_array().unwrap().len(), 4);
+    let threads = || ask(&hub, Method::GET, "/conflux/api/threads", Value::Null);
+    assert_eq!(threads().await.0, 200);
+    *tailnet.status.lock().unwrap() = Value::Null;
+    assert_eq!(threads().await.0, 200);
+    hub.app.forget_identities();
+    assert_eq!(threads().await.0, StatusCode::SERVICE_UNAVAILABLE);
+    tailnet.calls_from(&hub, Value::Null);
+    assert_eq!(threads().await.0, 200);
 }
