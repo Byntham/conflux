@@ -6,6 +6,7 @@ pub mod cli;
 pub mod config;
 pub mod dashboard;
 pub mod fsutil;
+pub mod guests;
 pub mod hubmove;
 pub mod hubstate;
 pub mod lifecycle;

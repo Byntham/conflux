@@ -7,6 +7,7 @@ enum Phase: Equatable {
     case notSetUp
     case notRunning
     case waiting
+    case notApproved
     case hubUnreachable
     case problem(String)
     case ready
@@ -145,6 +146,11 @@ final class Model: ObservableObject {
         } else {
             node = nil
         }
+        if node?.notApproved == true {
+            dashboard = nil
+            phase = .notApproved
+            return
+        }
         switch await fetch(base.appendingPathComponent("conflux/api/dashboard")) {
         case .unreachable:
             dashboard = nil
@@ -225,7 +231,8 @@ final class Model: ObservableObject {
                 return .systemRed
             }
             let enabled = accounts.filter(\.enabled)
-            return !enabled.isEmpty && readyCount == 0 ? .systemOrange : nil
+            if !enabled.isEmpty && readyCount == 0 { return .systemOrange }
+            return guestsWaiting.isEmpty ? nil : .controlAccentColor
         case .waiting:
             return updateFailure == nil ? nil : .systemRed
         default:
@@ -240,6 +247,10 @@ final class Model: ObservableObject {
             return problems.count == 1 ? "1 needs login" : "\(problems.count) need login"
         }
         return problems.count == 1 ? "1 needs attention" : "\(problems.count) need attention"
+    }
+
+    var guestsWaiting: [Machine] {
+        dashboard?.machines.filter { $0.access == "pending" } ?? []
     }
 
     var isDown: Bool {
@@ -261,7 +272,7 @@ final class Model: ObservableObject {
 
     var showsRouting: Bool {
         switch phase {
-        case .ready, .hubUnreachable, .notRunning, .problem: return true
+        case .ready, .notApproved, .hubUnreachable, .notRunning, .problem: return true
         default: return false
         }
     }
@@ -311,7 +322,7 @@ final class Model: ObservableObject {
             let version = latestVersion == nil ? dashboard.map { " · v\($0.hub.version)" } ?? "" : ""
             if let node { return "Linked to \(node.hub)\(version)" }
             return "This Mac is the hub\(version)"
-        case .hubUnreachable:
+        case .hubUnreachable, .notApproved:
             return node.map { "Linked to \($0.hub)" } ?? "Linked to a hub"
         case .waiting:
             return "Waiting to be linked"
@@ -400,7 +411,7 @@ final class Model: ObservableObject {
         let (answer, response) = try await URLSession.shared.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         let fields = (try? JSONSerialization.jsonObject(with: answer)) as? [String: Any] ?? [:]
-        guard status == 200 else {
+        guard (200..<300).contains(status) else {
             throw Command.Failure(message: fields["error"] as? String ?? "conflux answered HTTP \(status).")
         }
         return fields
@@ -434,11 +445,25 @@ final class Model: ObservableObject {
             _ = try await self.post("conflux/api/join", ["address": hub.address])
             let node = self.local.base(port: self.local.port).appendingPathComponent("conflux/node")
             for _ in 0..<20 {
-                if case .answered(200, _) = await self.fetch(node) { break }
+                if case let .answered(200, body) = await self.fetch(node),
+                   hub.guest != true || (try? JSON.decoder.decode(NodeInfo.self, from: body))?.access != nil {
+                    break
+                }
                 try? await Task.sleep(nanoseconds: 250_000_000)
             }
             await self.refresh()
         }
+    }
+
+    func decide(_ guest: Machine, approve: Bool) {
+        guard let id = guest.id else { return }
+        perform(approve ? "Approving…" : "Turning down…") {
+            _ = try await self.post("conflux/api/guests/\(id)", ["approve": approve])
+        }
+    }
+
+    func askAgain() {
+        perform("Asking…") { _ = try await self.post("conflux/node/ask", [:]) }
     }
 
     func openDashboard() {

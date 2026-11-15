@@ -284,7 +284,7 @@ pub fn classify_claude_429(h: &HeaderMap, model: Option<&str>, now: DateTime<Utc
     }
     Rejection::Short {
         scope: model_scope_or_account(model),
-        until: retry_after(h, now).unwrap_or(now + chrono::Duration::seconds(30)),
+        until: retry_after(h, now).unwrap_or(now + router::SHORT_COOLDOWN),
     }
 }
 
@@ -325,7 +325,7 @@ pub fn classify_codex_429(h: &HeaderMap, body: &[u8], model: Option<&str>, now: 
     }
     Rejection::Short {
         scope: model_scope_or_account(model),
-        until: retry_after(h, now).unwrap_or(now + chrono::Duration::seconds(30)),
+        until: retry_after(h, now).unwrap_or(now + router::SHORT_COOLDOWN),
     }
 }
 
@@ -588,7 +588,9 @@ pub async fn handle(State(app): State<Arc<App>>, req: Request) -> Response {
             };
             match &rejection {
                 Rejection::Quota { scope, until, reason } => app.router.cool(&account.id, scope, *until, reason),
-                Rejection::Short { scope, until } => app.router.cool(&account.id, scope, *until, "short rate limit"),
+                Rejection::Short { scope, until } => {
+                    app.router.cool(&account.id, scope, *until, router::SHORT_THROTTLE)
+                }
             }
             log(&account, 429);
             last_rejection = Some(buffered_response(StatusCode::TOO_MANY_REQUESTS, &headers, bytes));

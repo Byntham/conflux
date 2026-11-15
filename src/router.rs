@@ -4,14 +4,17 @@ use std::sync::{Arc, Mutex};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tokio::sync::watch;
 
 use crate::accounts::{AccountEntry, Provider, Store};
 use crate::usage::{Snapshot, Usage};
 
 const PIN_TTL: chrono::Duration = chrono::Duration::hours(1);
 const MAX_WINDOW: chrono::Duration = chrono::Duration::hours(7 * 24 + 1);
+pub const SHORT_COOLDOWN: chrono::Duration = chrono::Duration::seconds(30);
 const ACCOUNT_SCOPE: &str = "account";
 const MODEL_SCOPE: &str = "model:";
+pub const SHORT_THROTTLE: &str = "short rate limit";
 
 pub fn model_scope(model: &str) -> String {
     format!("{MODEL_SCOPE}{model}")
@@ -74,6 +77,7 @@ pub struct Router {
     store: Arc<Store>,
     usage: Arc<Usage>,
     state: Mutex<State>,
+    cooled: watch::Sender<()>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -88,6 +92,7 @@ impl Router {
             store,
             usage,
             state: Mutex::default(),
+            cooled: watch::channel(()).0,
         })
     }
 
@@ -223,6 +228,7 @@ impl Router {
 
     pub fn cool(&self, account: &str, scope: &str, until: DateTime<Utc>, reason: &str) {
         let now = Utc::now();
+        let until = if until > now { until } else { now + SHORT_COOLDOWN };
         let mut st = self.state.lock().unwrap();
         if until - now > MAX_WINDOW {
             tracing::warn!(account, %until, "reset is past the longest window; blocking for billing");
@@ -233,18 +239,32 @@ impl Router {
                     at: now,
                 },
             );
-            return;
+        } else {
+            tracing::info!(account, scope, %until, reason, "cooldown");
+            st.cooldowns.entry(account.to_string()).or_default().insert(
+                scope.to_string(),
+                Cooldown {
+                    scope: scope.to_string(),
+                    until,
+                    reason: reason.to_string(),
+                    at: now,
+                },
+            );
         }
-        tracing::info!(account, scope, %until, reason, "cooldown");
-        st.cooldowns.entry(account.to_string()).or_default().insert(
-            scope.to_string(),
-            Cooldown {
-                scope: scope.to_string(),
-                until,
-                reason: reason.to_string(),
-                at: now,
-            },
-        );
+        drop(st);
+        self.cooled.send_replace(());
+    }
+
+    pub fn watch_cooldowns(&self) -> watch::Receiver<()> {
+        self.cooled.subscribe()
+    }
+
+    pub fn blocked_account_wide(&self, account: &str) -> bool {
+        self.billing_blocked(account).is_some()
+            || self
+                .cooldowns(account)
+                .iter()
+                .any(|c| c.scope == ACCOUNT_SCOPE && c.reason != SHORT_THROTTLE)
     }
 
     pub fn clear(&self, account: &str) {

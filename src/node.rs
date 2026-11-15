@@ -58,6 +58,7 @@ pub struct Node {
     clients: ClientPaths,
     tailscale: Tailscale,
     guest: AtomicBool,
+    access: Mutex<Value>,
     pub lifecycle: Arc<Lifecycle>,
     pub updater: Arc<Updater>,
 }
@@ -135,6 +136,7 @@ impl Node {
             clients,
             tailscale,
             guest: AtomicBool::new(false),
+            access: Mutex::default(),
             lifecycle: Arc::default(),
             updater: Updater::new(&Endpoints::from_env().releases),
         })
@@ -169,6 +171,7 @@ impl Node {
             .route("/", get(dashboard_redirect))
             .route("/conflux/node", get(node_status))
             .route("/conflux/node/report", post(report_now))
+            .route("/conflux/node/ask", post(ask_again))
             .route("/conflux/api/update", post(update))
             .fallback(forward)
             .layer(axum::middleware::from_fn_with_state(self.clone(), guard))
@@ -176,10 +179,12 @@ impl Node {
     }
 
     fn report(&self) -> Message {
+        let cfg = Config::load(&self.paths).unwrap_or_default();
         let report = json!({
             "hostname": self.hostname,
             "version": update::CURRENT,
-            "transcript_sync": Config::load(&self.paths).map(|c| c.transcript_sync).unwrap_or(false),
+            "transcript_sync": !self.is_guest() && cfg.transcript_sync,
+            "ask": cfg.ask,
             "routing": setup::routing(&self.paths.config_dir),
             "update": self.updater.status(),
             "has_battery": self.has_battery,
@@ -215,6 +220,21 @@ impl Node {
         Ok(true)
     }
 
+    fn route_while_approved(&self, approved: bool) -> Result<()> {
+        let mut cfg = Config::load(&self.paths)?;
+        let change = if approved {
+            cfg.route_once_approved
+        } else {
+            setup::routing(&self.paths.config_dir)
+        };
+        if change {
+            setup::set_routing(&self.clients, &self.paths.config_dir, self.port, approved)?;
+            cfg.route_once_approved = !approved;
+            cfg.save(&self.paths)?;
+        }
+        Ok(())
+    }
+
     pub fn is_guest(&self) -> bool {
         self.guest.load(Ordering::SeqCst)
     }
@@ -239,6 +259,13 @@ impl Node {
                 {
                     tracing::warn!("could not turn routing {}: {e:#}", if on { "on" } else { "off" });
                 }
+                false
+            }
+            (Some("access"), _, _) => {
+                if let Err(e) = self.route_while_approved(command["state"] == "approved") {
+                    tracing::warn!("could not change routing after the hub's decision: {e:#}");
+                }
+                *self.access.lock().unwrap() = command;
                 false
             }
             (Some("hub"), Some(hub), _) => match self.follow_redirect(hub).await {
@@ -424,6 +451,7 @@ async fn node_status(State(node): State<Arc<Node>>) -> Json<Value> {
         "pid": std::process::id(),
         "hub_link": node.hub_link.lock().unwrap().clone(),
         "guest": node.is_guest(),
+        "access": node.access.lock().unwrap().clone(),
         "update": node.updater.status(),
     }))
 }
@@ -431,6 +459,25 @@ async fn node_status(State(node): State<Arc<Node>>) -> Json<Value> {
 async fn report_now(State(node): State<Arc<Node>>) -> StatusCode {
     node.report_requested.notify_one();
     StatusCode::NO_CONTENT
+}
+
+async fn ask_again(State(node): State<Arc<Node>>) -> Response {
+    let asked = Config::load(&node.paths).and_then(|cfg| {
+        Config {
+            ask: Some(uuid::Uuid::new_v4().to_string()),
+            ..cfg
+        }
+        .save(&node.paths)
+    });
+    if let Err(e) = asked {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("{e:#}") })),
+        )
+            .into_response();
+    }
+    node.report_requested.notify_one();
+    StatusCode::NO_CONTENT.into_response()
 }
 
 async fn update(State(node): State<Arc<Node>>, req: Request) -> Response {
@@ -585,7 +632,10 @@ pub async fn serve(cfg: Config, paths: Paths) -> Result<()> {
         node.hostname.clone(),
         node.paths.clone(),
         &node.clients,
-        Arc::new(move || for_sync.hub_base("http")),
+        Arc::new(move || {
+            let owned = for_sync.hub_link.lock().unwrap().connected && !for_sync.is_guest();
+            owned.then(|| for_sync.hub_base("http"))
+        }),
     );
     let addr = SocketAddr::from(([127, 0, 0, 1], cfg.port));
     let listener = node.lifecycle.listen(addr).with_context(|| format!("bind {addr}"))?;

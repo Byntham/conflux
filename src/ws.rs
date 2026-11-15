@@ -19,6 +19,7 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 use crate::accounts::{AccountEntry, Provider};
 use crate::app::App;
+use crate::guests::ApprovedGuest;
 use crate::proxy::{self, Rejection};
 use crate::refresh::RefreshResult;
 use crate::requests::{self, TokenUsage};
@@ -36,11 +37,12 @@ pub async fn handle(app: Arc<App>, mut parts: http::request::Parts, path: String
     };
     let headers = parts.headers.clone();
     let query = parts.uri.query().map(str::to_string);
+    let guest = parts.extensions.get::<ApprovedGuest>().map(|g| g.0.clone());
     let in_flight = app.lifecycle.in_flight();
     upgrade
         .max_message_size(MAX_MESSAGE)
         .on_upgrade(move |socket| async move {
-            relay(app, socket, headers, path, query).await;
+            relay(app, socket, headers, path, query, guest).await;
             drop(in_flight);
         })
 }
@@ -206,7 +208,15 @@ pub async fn stop_requested(rx: &mut tokio::sync::watch::Receiver<bool>) {
     let _ = rx.wait_for(|stop| *stop).await;
 }
 
-async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, path: String, query: Option<String>) {
+async fn relay(
+    app: Arc<App>,
+    mut client: WebSocket,
+    headers: HeaderMap,
+    path: String,
+    query: Option<String>,
+    guest: Option<String>,
+) {
+    let mut access_changed = app.guests.watch();
     let first = loop {
         match client.recv().await {
             Some(Ok(ClientMsg::Text(t))) => break t.to_string(),
@@ -215,9 +225,14 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, path: S
             _ => return,
         }
     };
+    if guest.as_deref().is_some_and(|id| !app.guests.is_approved(id)) {
+        let _ = client.send(ClientMsg::Close(None)).await;
+        return;
+    }
     let route = first_frame_route(&headers, &first);
     let url = ws_url(&proxy::upstream_url(&app, Provider::Codex, &path, query.as_deref()));
     let started = Instant::now();
+    let mut cooldowns = app.router.watch_cooldowns();
 
     let mut tried = HashSet::new();
     let mut refreshed = HashSet::new();
@@ -309,6 +324,20 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, path: S
                 let _ = up_tx.send(UpstreamMsg::Close(None)).await;
                 break;
             }
+            Ok(()) = cooldowns.changed(), if turns.idle() => {
+                if app.router.blocked_account_wide(&account.id) {
+                    let _ = client.send(ClientMsg::Close(None)).await;
+                    let _ = up_tx.send(UpstreamMsg::Close(None)).await;
+                    break;
+                }
+            }
+            changed = access_changed.changed(), if guest.is_some() && turns.idle() => {
+                if changed.is_err() || guest.as_deref().is_some_and(|id| !app.guests.is_approved(id)) {
+                    let _ = client.send(ClientMsg::Close(None)).await;
+                    let _ = up_tx.send(UpstreamMsg::Close(None)).await;
+                    break;
+                }
+            }
             msg = client.recv() => {
                 let Some(Ok(msg)) = msg else {
                     let _ = up_tx.send(UpstreamMsg::Close(None)).await;
@@ -356,7 +385,7 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, path: S
 fn apply_rejection(app: &App, account: &AccountEntry, rejection: &Rejection) {
     match rejection {
         Rejection::Quota { scope, until, reason } => app.router.cool(&account.id, scope, *until, reason),
-        Rejection::Short { scope, until } => app.router.cool(&account.id, scope, *until, "short rate limit"),
+        Rejection::Short { scope, until } => app.router.cool(&account.id, scope, *until, router::SHORT_THROTTLE),
     }
 }
 

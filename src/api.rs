@@ -1,20 +1,22 @@
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use axum::Json;
-use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::extract::{ConnectInfo, Path, State};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::accounts::{AccountEntry, RefreshState};
 use crate::app::App;
+use crate::guests::{Access, Guest};
 use crate::hubstate::HubState;
 use crate::machines;
 use crate::oauth::{self, DevicePoll, Pkce};
-use crate::{setup, update};
+use crate::{dashboard, setup, update};
 
 const LOGIN_TTL: Duration = Duration::from_secs(15 * 60);
 
@@ -121,7 +123,19 @@ pub fn account_view(app: &App, e: &AccountEntry) -> AccountView {
     }
 }
 
-pub async fn status(State(app): State<Arc<App>>) -> Json<Value> {
+pub async fn status(
+    State(app): State<Arc<App>>,
+    ConnectInfo(from): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> Json<Value> {
+    if !app.identify(from.ip()).await.is_owner() {
+        let host = headers.get(header::HOST).and_then(|v| v.to_str().ok());
+        return Json(json!({
+            "role": app.cfg.role,
+            "version": update::CURRENT,
+            "hub": dashboard::hub_name(&app, host),
+        }));
+    }
     let accounts: Vec<_> = app
         .store
         .all()
@@ -129,11 +143,18 @@ pub async fn status(State(app): State<Arc<App>>) -> Json<Value> {
         .filter(|e| e.credentials().generation > 0)
         .map(|e| account_view(&app, e))
         .collect();
+    let waiting: Vec<_> = app
+        .fleet()
+        .into_iter()
+        .filter(|m| m.access == Some(Access::Pending))
+        .map(|m| json!({ "id": m.id, "hostname": m.hostname, "user": m.user }))
+        .collect();
     Json(json!({
         "role": app.cfg.role,
         "version": update::CURRENT,
         "pid": std::process::id(),
         "accounts": accounts,
+        "guests_waiting": waiting,
     }))
 }
 
@@ -410,4 +431,68 @@ pub async fn poll_usage(State(app): State<Arc<App>>, Path(id): Path<String>) -> 
     let e = account(&app, &id)?;
     app.usage.poll(&e).await?;
     Ok(Json(account_view(&app, &e)))
+}
+
+fn find_guest(app: &App, name: &str) -> ApiResult<(String, Guest)> {
+    let mut known: Vec<(String, Guest)> = app
+        .machines
+        .list()
+        .into_iter()
+        .filter(|m| m.guest)
+        .filter_map(|m| {
+            let guest = Guest {
+                login: m.user.unwrap_or_default(),
+                hostname: m.hostname,
+                approved: false,
+                ask: m.ask,
+            };
+            Some((m.id?, guest))
+        })
+        .collect();
+    for (id, guest) in app.guests.export() {
+        if !known.iter().any(|(k, _)| *k == id) {
+            known.push((id, guest));
+        }
+    }
+    if let Some(found) = known.iter().find(|(id, _)| id == name) {
+        return Ok(found.clone());
+    }
+    let mut named: Vec<_> = known.into_iter().filter(|(_, g)| g.hostname == name).collect();
+    match named.len() {
+        0 => Err(not_found("guest machine")),
+        1 => Ok(named.remove(0)),
+        _ => Err(ApiError(
+            StatusCode::CONFLICT,
+            format!(
+                "more than one guest machine is named {name}. Use its ID instead: {}",
+                named.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>().join(", ")
+            ),
+        )),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct GuestDecision {
+    approve: bool,
+}
+
+fn set_guest(app: &App, name: &str, approved: bool) -> ApiResult<Json<Value>> {
+    let (id, guest) = find_guest(app, name)?;
+    let hostname = guest.hostname.clone();
+    app.guests
+        .set(&id, Guest { approved, ..guest })
+        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
+    Ok(Json(json!({ "id": id, "hostname": hostname, "approved": approved })))
+}
+
+pub async fn decide_guest(
+    State(app): State<Arc<App>>,
+    Path(name): Path<String>,
+    Json(req): Json<GuestDecision>,
+) -> ApiResult<Json<Value>> {
+    set_guest(&app, &name, req.approve)
+}
+
+pub async fn remove_guest(State(app): State<Arc<App>>, Path(name): Path<String>) -> ApiResult<Json<Value>> {
+    set_guest(&app, &name, false)
 }

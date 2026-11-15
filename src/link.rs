@@ -63,6 +63,20 @@ struct Found {
 struct FoundHub {
     name: String,
     address: IpAddr,
+    guest: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    owner: Option<String>,
+}
+
+impl FoundHub {
+    fn new(peer: &Peer, address: IpAddr) -> Self {
+        Self {
+            name: peer_name(peer, address),
+            address,
+            guest: peer.guest,
+            owner: peer.owner.clone().filter(|_| peer.guest),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -543,32 +557,28 @@ async fn accept(State(w): State<Arc<Waiting>>, ConnectInfo(from): ConnectInfo<So
             "the hub must belong to the same Tailscale user as this machine",
         );
     }
-    w.link_to(&url_host(caller), json!({ "hostname": w.hostname })).await
+    w.link_to(&url_host(caller), false, json!({ "hostname": w.hostname }))
+        .await
 }
 
 async fn find_hubs(State(w): State<Arc<Waiting>>, ConnectInfo(from): ConnectInfo<SocketAddr>) -> Response {
     if !from.ip().is_loopback() {
         return refuse(StatusCode::FORBIDDEN, LOCAL_ONLY);
     }
-    let Some(peers) = w.same_user_peers().await else {
+    let Some(peers) = w.online_peers().await else {
         return no_tailscale();
     };
     let probes = peers.iter().filter_map(|peer| {
         let address = address(peer)?;
         let w = &w;
-        Some(async move {
-            w.is_hub(&url_host(address)).await.then(|| FoundHub {
-                name: peer_name(peer, address),
-                address,
-            })
-        })
+        Some(async move { w.is_hub(&url_host(address)).await.then(|| FoundHub::new(peer, address)) })
     });
     let mut hubs: Vec<FoundHub> = futures_util::future::join_all(probes)
         .await
         .into_iter()
         .flatten()
         .collect();
-    hubs.sort_by(|a, b| a.name.cmp(&b.name));
+    hubs.sort_by(|a, b| (a.guest, &a.name).cmp(&(b.guest, &b.name)));
     Json(json!({ "hubs": hubs })).into_response()
 }
 
@@ -580,18 +590,21 @@ async fn join_hub(
     if !from.ip().is_loopback() {
         return refuse(StatusCode::FORBIDDEN, LOCAL_ONLY);
     }
-    let Some(peers) = w.same_user_peers().await else {
+    let Some(peers) = w.online_peers().await else {
         return no_tailscale();
     };
     let Some(peer) = peers.iter().find(|p| p.machine.ips.contains(&req.address)) else {
-        return refuse(StatusCode::NOT_FOUND, "that machine is not one of yours on the tailnet");
+        return refuse(StatusCode::NOT_FOUND, "that machine is not online on your tailnet");
     };
-    let name = peer_name(peer, req.address);
+    let hub = FoundHub::new(peer, req.address);
     let by_address = url_host(req.address);
     if !w.is_hub(&by_address).await {
-        return refuse(StatusCode::BAD_GATEWAY, format!("{name} is not running a conflux hub"));
+        return refuse(
+            StatusCode::BAD_GATEWAY,
+            format!("{} is not running a conflux hub", hub.name),
+        );
     }
-    w.link_to(&by_address, json!({ "hub": name })).await
+    w.link_to(&by_address, hub.guest, json!({ "hub": hub.name })).await
 }
 
 fn no_tailscale() -> Response {
@@ -615,12 +628,12 @@ impl Waiting {
         }
     }
 
-    async fn same_user_peers(&self) -> Option<Vec<Peer>> {
+    async fn online_peers(&self) -> Option<Vec<Peer>> {
         let tailscale = self.tailscale.clone();
         let status = tokio::task::spawn_blocking(move || tailnet::status(&tailscale))
             .await
             .ok()??;
-        Some(tailnet::same_user_peers(&status))
+        Some(tailnet::online_peers(&status))
     }
 
     async fn is_hub(&self, host: &str) -> bool {
@@ -631,7 +644,7 @@ impl Waiting {
         resp.json::<Value>().await.is_ok_and(|v| v["role"] == "hub")
     }
 
-    async fn link_to(&self, hub: &str, linked: Value) -> Response {
+    async fn link_to(&self, hub: &str, guest: bool, linked: Value) -> Response {
         let _one_at_a_time = self.accepting.lock().await;
         if self.updater.status().as_ref().is_some_and(UpdateStatus::in_progress) {
             return refuse(
@@ -639,14 +652,14 @@ impl Waiting {
                 "this machine is updating conflux. Try again in a minute.",
             );
         }
-        match self.become_node(hub) {
+        match self.become_node(hub, guest) {
             Ok(None) => Json(linked).into_response(),
             Ok(Some(reason)) => refuse(StatusCode::CONFLICT, reason),
             Err(e) => refuse(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
         }
     }
 
-    fn become_node(&self, hub: &str) -> Result<Option<String>> {
+    fn become_node(&self, hub: &str, guest: bool) -> Result<Option<String>> {
         let mut cfg = Config::load(&self.paths)?;
         if cfg.role != Role::Waiting {
             return Ok(Some(format!(
@@ -657,9 +670,13 @@ impl Waiting {
         if self.paths.has_accounts() {
             return Ok(Some("this machine has logged-in accounts".into()));
         }
-        setup::apply(&self.clients, &self.paths.config_dir, self.port)?;
+        if !guest {
+            setup::apply(&self.clients, &self.paths.config_dir, self.port)?;
+        }
         cfg.role = Role::Node;
         cfg.hub = Some(hub.to_string());
+        cfg.ask = Some(uuid::Uuid::new_v4().to_string());
+        cfg.route_once_approved = guest;
         cfg.save(&self.paths)?;
         self.linked.send_replace(true);
         tracing::info!(hub, "linked to a hub");

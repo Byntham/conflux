@@ -1,7 +1,7 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use axum::Json;
@@ -17,6 +17,7 @@ use tokio::sync::mpsc;
 use crate::accounts::Store;
 use crate::api::{self, Logins};
 use crate::config::{Config, Endpoints, Paths};
+use crate::guests::{self, Access, ApprovedGuest, Guests};
 use crate::hubmove;
 use crate::hubstate::{HubState, HubStateStore};
 use crate::lifecycle::Lifecycle;
@@ -34,6 +35,7 @@ use crate::usage::Usage;
 use crate::{access, dashboard, fsutil, link, management, proxy};
 
 const TRANSCRIPT_BODY_LIMIT: usize = 64 * 1024 * 1024;
+const IDENTITY_TTL: Duration = Duration::from_secs(60);
 
 pub struct App {
     pub cfg: Config,
@@ -47,6 +49,7 @@ pub struct App {
     pub logins: Logins,
     pub allowed_hosts: RwLock<Vec<String>>,
     pub machines: Machines,
+    pub guests: Guests,
     pub tailnet: RwLock<TailnetSelf>,
     pub hostname: String,
     pub paths: Paths,
@@ -63,6 +66,7 @@ pub struct App {
     pub installing: Mutex<HashSet<IpAddr>>,
     pub clients: ClientPaths,
     pub routing_change: Mutex<()>,
+    identities: Mutex<HashMap<IpAddr, (Instant, Caller)>>,
 }
 
 pub fn proxy_client() -> reqwest::Client {
@@ -125,6 +129,7 @@ impl App {
             logins: Logins::default(),
             allowed_hosts: RwLock::new(allowed_hosts),
             machines: Machines::default(),
+            guests: Guests::load(&guests::guests_file(paths))?,
             tailnet: RwLock::new(tailnet),
             hostname: tailnet::hostname(),
             paths: paths.clone(),
@@ -141,6 +146,7 @@ impl App {
             installing: Mutex::default(),
             clients: ClientPaths::from_env()?,
             routing_change: Mutex::default(),
+            identities: Mutex::default(),
         }))
     }
 
@@ -204,10 +210,37 @@ impl App {
     }
 
     pub async fn identify(&self, caller: IpAddr) -> Caller {
+        if let Some((at, known)) = self.identities.lock().unwrap().get(&caller)
+            && at.elapsed() < IDENTITY_TTL
+        {
+            return known.clone();
+        }
         let tailscale = self.tailscale.clone();
-        tokio::task::spawn_blocking(move || tailnet::identify(&tailscale, caller))
+        let found = tokio::task::spawn_blocking(move || tailnet::identify(&tailscale, caller))
             .await
-            .unwrap_or(Caller::Unknown)
+            .unwrap_or(Caller::Unknown);
+        let mut identities = self.identities.lock().unwrap();
+        if found == Caller::Unknown {
+            let Some(entry) = identities.get_mut(&caller) else {
+                return Caller::Unknown;
+            };
+            entry.0 = Instant::now();
+            return entry.1.clone();
+        }
+        identities.insert(caller, (Instant::now(), found.clone()));
+        found
+    }
+
+    pub fn forget_identities(&self) {
+        self.identities.lock().unwrap().clear();
+    }
+
+    pub fn waiting_for_owner(&self) -> String {
+        let owner = self.tailnet.read().unwrap().owner.clone();
+        format!(
+            "Waiting for {} to approve this machine",
+            owner.as_deref().unwrap_or("the hub's owner")
+        )
     }
 
     pub fn accepting_requests(&self) -> bool {
@@ -236,9 +269,23 @@ impl App {
             guest: false,
             tailnet_name: self.tailnet.read().unwrap().dns_name.clone(),
             has_battery: false,
+            id: None,
+            user: None,
+            access: None,
+            ask: String::new(),
         };
+        let nodes = self.machines.list().into_iter().filter_map(|mut m| {
+            if let Some(id) = m.id.as_deref().filter(|_| m.guest) {
+                let access = self.guests.access(id, &m.ask);
+                if access == Access::Denied {
+                    return None;
+                }
+                m.access = Some(access);
+            }
+            Some(m)
+        });
         std::iter::once(hub)
-            .chain(self.machines.list())
+            .chain(nodes)
             .map(|mut m| {
                 m.outdated = latest.as_deref().is_some_and(|l| update::is_newer(l, &m.version));
                 m
@@ -281,13 +328,6 @@ impl App {
                 management::require_key,
             ));
         let owner_only = axum::Router::new()
-            .route("/conflux/api/hub/resume", post(hubmove::resume))
-            .route("/conflux/api/hub/move", post(hubmove::start))
-            .layer(axum::middleware::from_fn_with_state(self.clone(), require_owner));
-        axum::Router::new()
-            .merge(t3)
-            .merge(owner_only)
-            .route("/", get(dashboard::page))
             .route(
                 "/conflux/transcripts",
                 post(transcripts::upload).layer(DefaultBodyLimit::max(TRANSCRIPT_BODY_LIMIT)),
@@ -295,17 +335,12 @@ impl App {
             .route("/conflux/api/threads", get(transcripts::list))
             .route("/conflux/api/threads/{id}", get(transcripts::thread))
             .route("/conflux/api/transcripts/search", get(transcripts::search))
-            .route("/conflux/move/commit", post(hubmove::commit))
-            .route("/conflux/move/abort", post(hubmove::abort))
-            .route("/conflux/api/dashboard", get(dashboard::data))
-            .route("/conflux/control", get(machines::control))
             .route("/conflux/api/update", post(api::update))
-            .route("/conflux/api/machines/{hostname}", patch(api::update_machine))
             .route("/conflux/api/update/check", post(api::check_update))
+            .route("/conflux/api/machines/{hostname}", patch(api::update_machine))
             .route("/conflux/api/discover", get(link::discover))
             .route("/conflux/api/link", post(link::link))
             .route("/conflux/api/install", post(link::install))
-            .route("/conflux/api/status", get(api::status))
             .route("/conflux/api/login/claude/start", post(api::claude_start))
             .route("/conflux/api/login/claude/finish", post(api::claude_finish))
             .route("/conflux/api/login/codex/start", post(api::codex_start))
@@ -315,8 +350,27 @@ impl App {
                 patch(api::update_account).delete(api::remove_account),
             )
             .route("/conflux/api/accounts/{id}/usage", post(api::poll_usage))
+            .route("/conflux/api/hub/resume", post(hubmove::resume))
+            .route("/conflux/api/hub/move", post(hubmove::start))
+            .route(
+                "/conflux/api/guests/{id}",
+                post(api::decide_guest).delete(api::remove_guest),
+            )
+            .layer(axum::middleware::from_fn_with_state(self.clone(), require_owner));
+        let proxied = axum::Router::new()
             .route("/v1/{*rest}", any(proxy::handle))
             .route("/backend-api/{*rest}", any(proxy::handle))
+            .layer(axum::middleware::from_fn_with_state(self.clone(), require_approved));
+        axum::Router::new()
+            .merge(t3)
+            .merge(owner_only)
+            .merge(proxied)
+            .route("/", get(dashboard::page))
+            .route("/conflux/move/commit", post(hubmove::commit))
+            .route("/conflux/move/abort", post(hubmove::abort))
+            .route("/conflux/api/dashboard", get(dashboard::data))
+            .route("/conflux/control", get(machines::control))
+            .route("/conflux/api/status", get(api::status))
             .layer(axum::middleware::from_fn_with_state(self.clone(), hubmove::state_guard))
             .layer(axum::middleware::from_fn_with_state(self.clone(), access::guard))
             .with_state(self.clone())
@@ -329,6 +383,47 @@ impl App {
             tokio::spawn(self.transcripts.clone().run_maintenance()),
         ]
     }
+}
+
+async fn require_approved(
+    State(app): State<Arc<App>>,
+    ConnectInfo(from): ConnectInfo<SocketAddr>,
+    mut req: Request,
+    next: Next,
+) -> Response {
+    let ua = req
+        .headers()
+        .get("user-agent")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let provider = proxy::provider_for(req.uri().path(), ua);
+    let refuse = |status: StatusCode, message: &str| match provider {
+        Some(p) => proxy::provider_error(p, status, "permission_error", message),
+        None => (status, Json(json!({ "error": message }))).into_response(),
+    };
+    match app.identify(from.ip()).await {
+        Caller::Local => {}
+        Caller::Peer(p) if p.owner => {}
+        Caller::Peer(p) if app.guests.is_approved(&p.node) => {
+            req.extensions_mut().insert(ApprovedGuest(p.node));
+        }
+        Caller::Peer(_) => {
+            return refuse(
+                StatusCode::FORBIDDEN,
+                &format!(
+                    "conflux: {}. Run `conflux off` to use your own logins until then.",
+                    app.waiting_for_owner()
+                ),
+            );
+        }
+        Caller::Unknown => {
+            return refuse(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "conflux: the hub could not ask Tailscale who this machine is. Try again in a minute.",
+            );
+        }
+    }
+    next.run(req).await
 }
 
 pub async fn require_owner(
@@ -433,7 +528,7 @@ pub async fn serve(cfg: Config, paths: Paths, ep: Endpoints) -> Result<()> {
         app.hostname.clone(),
         paths.clone(),
         &app.clients,
-        Arc::new(move || local.clone()),
+        Arc::new(move || Some(local.clone())),
     );
     background.extend([
         tokio::spawn(app.clone().watch_tailnet(bound)),

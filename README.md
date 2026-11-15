@@ -88,7 +88,9 @@ The machine now waits to be linked. Link it from either side. conflux then point
 - On the new machine, run `conflux join`. conflux finds the hub on your tailnet and links to it. On a Mac, the menu bar app shows a "Link to" button with the hub's name instead.
 - On the hub's dashboard, open Machines, click "Find machines", and click "Link" next to the machine. Or run `conflux add <machine>` on the hub.
 
-Both ways find only machines that are online and owned by the same Tailscale user.
+The hub finds only machines that are online and owned by the same Tailscale user.
+
+A machine signed in to Tailscale as another user can join as a guest. On that machine, run `conflux join` to list the hubs, then `conflux join <hub>`. On a Mac, click "Join <owner>'s hub as a guest". The hub's owner then approves the machine. Until then, the guest keeps using its own logins.
 
 To skip linking, or for a machine that isn't found, end the install command with the hub's name: `sh -s -- <hub>` instead of `sh`. On Windows, run `conflux join <hub>` after the installer. The "Add a machine" panel on the same page shows these commands with your hub's name filled in.
 

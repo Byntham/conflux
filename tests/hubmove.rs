@@ -217,8 +217,10 @@ async fn the_hub_refuses_a_target_that_cannot_take_over_without_touching_state()
     assert_eq!(start_move(&h, "nowhere", false).await.status(), StatusCode::NOT_FOUND);
 
     *h.caller.lock().unwrap() = whois(2);
+    h.app.forget_identities();
     let _guest = fake_node(&h, json!({ "hostname": "theirs", "version": update::CURRENT })).await;
     *h.caller.lock().unwrap() = whois(1);
+    h.app.forget_identities();
     let message = refused(start_move(&h, "theirs", true).await, StatusCode::FORBIDDEN).await;
     assert!(message.contains("guest"), "{message}");
 
@@ -281,6 +283,7 @@ async fn only_the_owner_can_start_a_move() {
     let h = hub().await;
     let _node = fake_node(&h, report()).await;
     *h.caller.lock().unwrap() = whois(2);
+    h.app.forget_identities();
     assert_eq!(start_move(&h, "node-one", false).await.status(), StatusCode::FORBIDDEN);
     assert_eq!(h.app.hub_state.get(), HubState::Active);
 }
@@ -389,17 +392,20 @@ async fn resume_works_from_moving_only() {
     );
     moving(&h).await;
     *caller.lock().unwrap() = whois(2);
+    h.app.forget_identities();
     assert_eq!(
         post(&h, "/conflux/api/hub/resume", json!({})).await.status(),
         StatusCode::FORBIDDEN
     );
     *status.lock().unwrap() = Value::Null;
+    h.app.forget_identities();
     assert_eq!(
         post(&h, "/conflux/api/hub/resume", json!({})).await.status(),
         StatusCode::SERVICE_UNAVAILABLE
     );
     *status.lock().unwrap() = json!({ "Self": { "UserID": 1 } });
     *caller.lock().unwrap() = Value::Null;
+    h.app.forget_identities();
     assert_eq!(post(&h, "/conflux/api/hub/resume", json!({})).await.status(), 200);
     assert_eq!(h.app.hub_state.get(), HubState::Active);
 }
@@ -495,6 +501,13 @@ async fn a_node_takes_over_the_accounts_and_becomes_the_hub() {
             },
         )
         .unwrap();
+    let guest = conflux::guests::Guest {
+        login: "friend@example.com".into(),
+        hostname: "guest-box".into(),
+        approved: true,
+        ask: "x".into(),
+    };
+    h.app.guests.set("nGuest", guest).unwrap();
 
     let dir = tempfile::tempdir().unwrap();
     let new_paths = Paths::under(dir.path());
@@ -541,6 +554,7 @@ async fn a_node_takes_over_the_accounts_and_becomes_the_hub() {
         RefreshState::RetryAt { retries: 1, .. }
     ));
     assert_eq!(new_app.management_key, h.app.management_key);
+    assert!(new_app.guests.is_approved("nGuest"));
     assert_eq!(new_app.hub_state.get(), HubState::Active);
 }
 
