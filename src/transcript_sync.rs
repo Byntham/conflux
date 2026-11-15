@@ -174,7 +174,8 @@ impl TranscriptSync {
     }
 
     pub async fn send(&self, up: &Upload) -> Result<u64> {
-        let hub = (self.destination)().context("this machine no longer sends transcripts to the hub")?;
+        let hub =
+            (self.destination)().context("the hub link is down or this machine is a guest, so transcripts wait")?;
         let resp = self
             .http
             .post(format!("{hub}/conflux/transcripts"))
