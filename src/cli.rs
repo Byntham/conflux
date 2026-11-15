@@ -166,6 +166,19 @@ pub enum Command {
                       the hub. Transcripts hold everything your agents have read."
     )]
     Sync { setting: SyncSetting },
+    #[command(
+        about = "Approve, deny, or remove a machine of another Tailscale user",
+        long_about = "Approve, deny, or remove a machine of another Tailscale user.\n\n\
+                      A guest is a machine signed in to Tailscale as another user, or a tagged \
+                      machine. It asks to use the hub when it joins. approve lets it send requests \
+                      through the hub. deny turns down its request, and remove takes away an \
+                      approval. The guest can ask again with `conflux join`."
+    )]
+    Guest {
+        action: GuestAction,
+        #[arg(help = "The machine's name as the dashboard shows it, or its Tailscale ID")]
+        machine: String,
+    },
     #[command(about = "Print the URL and key that T3 Code needs to show your pooled usage")]
     T3Key,
     #[command(about = "Move the hub to another machine")]
@@ -231,6 +244,16 @@ pub enum SyncSetting {
     Off,
     #[value(help = "Show whether sync is on")]
     Status,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+pub enum GuestAction {
+    #[value(help = "Let the machine send requests through the hub")]
+    Approve,
+    #[value(help = "Turn down the machine's request")]
+    Deny,
+    #[value(help = "Take away the machine's approval")]
+    Remove,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -443,7 +466,29 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Login {
             provider: LoginProvider::Codex,
         } => login_codex(&daemon).await,
-        Command::Status => print_status(&daemon.get("/conflux/api/status").await?),
+        Command::Status => {
+            if cfg.role == Role::Node
+                && let Ok(node) = daemon.get("/conflux/node").await
+            {
+                print_access(&node);
+            }
+            print_status(&daemon.get("/conflux/api/status").await?)
+        }
+        Command::Guest { action, machine } => {
+            let path = format!("/conflux/api/guests/{machine}");
+            let done = match action {
+                GuestAction::Approve => daemon.post(&path, json!({ "approve": true })).await?,
+                GuestAction::Deny => daemon.post(&path, json!({ "approve": false })).await?,
+                GuestAction::Remove => daemon.call(reqwest::Method::DELETE, &path, None).await?,
+            };
+            let name = done["hostname"].as_str().unwrap_or(&machine);
+            match action {
+                GuestAction::Approve => println!("Approved {name}. Its requests go through the hub now."),
+                GuestAction::Deny => println!("Turned down {name}. It can ask again with `conflux join`."),
+                GuestAction::Remove => println!("Removed {name}. Its requests no longer go through the hub."),
+            }
+            Ok(())
+        }
         Command::Enable { account } => patch(&daemon, &account, json!({ "enabled": true })).await,
         Command::Disable { account } => patch(&daemon, &account, json!({ "enabled": false })).await,
         Command::Overage { account, setting } => {
@@ -618,8 +663,11 @@ async fn join(mut cfg: Config, paths: Paths, hub: &str, no_service: bool, force:
              Move them with `conflux hub take-over` on the new hub, or pass --force."
         );
     }
+    let guest = !becoming_hub && hub_is_guest(hub, cfg.port).await;
     cfg.role = if becoming_hub { Role::Hub } else { Role::Node };
     cfg.hub = (!becoming_hub).then(|| hub.to_string());
+    cfg.ask = (!becoming_hub).then(|| uuid::Uuid::new_v4().to_string());
+    cfg.route_once_approved = guest;
     cfg.save(&paths)?;
 
     if !becoming_hub {
@@ -645,9 +693,31 @@ async fn join(mut cfg: Config, paths: Paths, hub: &str, no_service: bool, force:
         println!("Installed {}.", service::install()?);
     }
 
+    if guest {
+        println!(
+            "{hub} belongs to another Tailscale user, who must approve this machine. \
+             Until then, Claude Code and Codex keep using this machine's own logins. \
+             `conflux status` shows when the hub approves it."
+        );
+        return Ok(());
+    }
     setup::apply(&ClientPaths::from_env()?, &paths.config_dir, cfg.port)?;
     print_joined(&cfg);
     Ok(())
+}
+
+async fn hub_is_guest(hub: &str, port: u16) -> bool {
+    let Some(address) = tokio::net::lookup_host((hub, port))
+        .await
+        .ok()
+        .and_then(|mut found| found.next())
+    else {
+        return false;
+    };
+    let tailscale = tailnet::system_tailscale();
+    tokio::task::spawn_blocking(move || tailnet::identify(&tailscale, address.ip()))
+        .await
+        .is_ok_and(|caller| matches!(caller, tailnet::Caller::Peer(p) if !p.owner))
 }
 
 fn print_joined(cfg: &Config) {
@@ -681,15 +751,24 @@ async fn join_found_hub(cfg: Config, paths: Paths, daemon: &Daemon) -> Result<()
     let hubs = found["hubs"].as_array().cloned().unwrap_or_default();
     let name = |hub: &Value| hub["name"].as_str().unwrap_or("?").to_string();
     let hub = match hubs.as_slice() {
-        [hub] => hub,
+        [hub] if hub["guest"] != true => hub,
         [] => bail!(
-            "found no hub on your tailnet. The hub must be on, and signed in to Tailscale as the same user \
-             as this machine. To name it yourself, run `conflux join <hub>`."
+            "found no hub on your tailnet. The hub must be on and signed in to Tailscale. \
+             To name it yourself, run `conflux join <hub>`."
         ),
-        _ => bail!(
-            "found more than one hub: {}. Pick one with `conflux join <hub>`.",
-            hubs.iter().map(name).collect::<Vec<_>>().join(", ")
-        ),
+        _ => {
+            println!("Found these hubs on your tailnet:");
+            for hub in &hubs {
+                let address = hub["address"].as_str().unwrap_or("?");
+                println!("  {:<24} {:<16} {}", name(hub), address, found_hub(hub));
+            }
+            let guests = if hubs.iter().any(|hub| hub["guest"] == true) {
+                " A guest's Claude Code and Codex prompts go through the owner's hub."
+            } else {
+                ""
+            };
+            bail!("pick one with `conflux join <hub>`, using its name or address.{guests}")
+        }
     };
     daemon
         .post("/conflux/api/join", json!({ "address": hub["address"] }))
@@ -697,6 +776,14 @@ async fn join_found_hub(cfg: Config, paths: Paths, daemon: &Daemon) -> Result<()
     println!("Found the hub {}.", name(hub));
     print_joined(&Config::load(&paths)?);
     Ok(())
+}
+
+fn found_hub(hub: &Value) -> String {
+    match (hub["guest"] == true, hub["owner"].as_str()) {
+        (false, _) => "your hub".into(),
+        (true, Some(owner)) => format!("join {owner}'s hub as a guest"),
+        (true, None) => "join this tagged hub as a guest".into(),
+    }
 }
 
 fn found_state(machine: &Value) -> &'static str {
@@ -896,11 +983,46 @@ fn pct(v: &Value) -> String {
     v.as_f64().map(|p| format!("{p:.0}%")).unwrap_or_else(|| "-".into())
 }
 
+fn print_access(node: &Value) {
+    let owner = node["access"]["owner"].as_str().unwrap_or("the hub's owner");
+    match node["access"]["state"].as_str() {
+        Some("pending") => println!("Waiting for {owner} to approve this machine.\n"),
+        Some("denied") => println!(
+            "{owner} did not approve this machine. To ask again, run `conflux join {}`.\n",
+            node["hub"].as_str().unwrap_or("<hub>")
+        ),
+        _ => {}
+    }
+}
+
 fn print_status(v: &Value) -> Result<()> {
     if v["role"] == "waiting" {
         println!("This machine is waiting to be linked to a hub.");
         println!("{HOW_TO_LINK}");
         return Ok(());
+    }
+    if v["accounts"].is_null() {
+        println!(
+            "This machine is a guest of the hub {}. Only the hub's owner can see its accounts.",
+            v["hub"].as_str().unwrap_or("?")
+        );
+        return Ok(());
+    }
+    if let Some(waiting) = v["guests_waiting"].as_array().filter(|w| !w.is_empty()) {
+        let names: Vec<String> = waiting
+            .iter()
+            .map(|g| {
+                format!(
+                    "{} ({})",
+                    g["hostname"].as_str().unwrap_or("?"),
+                    g["user"].as_str().unwrap_or("tagged")
+                )
+            })
+            .collect();
+        println!(
+            "Waiting for your approval: {}. Run `conflux guest approve <machine>` or `conflux guest deny <machine>`.\n",
+            names.join(", ")
+        );
     }
     let accounts = v["accounts"].as_array().cloned().unwrap_or_default();
     if accounts.is_empty() {

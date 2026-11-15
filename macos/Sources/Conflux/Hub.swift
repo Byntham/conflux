@@ -24,8 +24,15 @@ struct FoundHubs: Decodable {
 struct FoundHub: Decodable, Identifiable {
     let name: String
     let address: String
+    let guest: Bool?
+    let owner: String?
 
     var id: String { address }
+
+    var linkTitle: String {
+        guard guest == true else { return "Link to \(name)" }
+        return owner.map { "Join \($0)'s hub as a guest" } ?? "Join \(name) as a guest"
+    }
 }
 
 struct Account: Decodable, Identifiable {
@@ -76,6 +83,10 @@ struct Machine: Decodable {
     let online: Bool
     let outdated: Bool
     let update: Update?
+    let guest: Bool?
+    let id: String?
+    let user: String?
+    let access: String?
 
     var isUpdating: Bool {
         update.map { $0.state != "failed" } ?? false
@@ -88,9 +99,24 @@ struct NodeInfo: Decodable {
         let lastError: String?
     }
 
+    struct Access: Decodable {
+        let state: String
+        let owner: String?
+    }
+
     let hub: String
     let hostname: String
     let hubLink: Link
+    let guest: Bool?
+    let access: Access?
+
+    var notApproved: Bool {
+        access.map { $0.state != "approved" } ?? false
+    }
+
+    var owner: String? {
+        access?.owner
+    }
 }
 
 enum Fetched {

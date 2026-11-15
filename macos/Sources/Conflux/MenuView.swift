@@ -18,7 +18,7 @@ struct MenuView: View {
                     .padding(.horizontal, 14)
                     .padding(.top, 6)
             }
-            if (model.phase == .ready || model.phase == .waiting) && model.showsUpdateCard {
+            if (model.phase == .ready || model.phase == .waiting) && (model.showsUpdateCard || !model.guestsWaiting.isEmpty) {
                 Spacer().frame(height: 10)
             } else {
                 Separator()
@@ -66,7 +66,7 @@ struct MenuView: View {
             Notice(title: "Waiting to be linked", detail: waitingDetail) {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(model.hubs ?? []) { hub in
-                        Button("Link to \(hub.name)") { model.link(to: hub) }.glassButton(prominent: true)
+                        Button(hub.linkTitle) { model.link(to: hub) }.glassButton(prominent: true)
                     }
                     Button("Make this the hub") { model.setUp(asHub: true) }.glassButton()
                 }
@@ -80,8 +80,23 @@ struct MenuView: View {
                 title: "Can't reach the hub",
                 detail: "\(model.node?.hub ?? "The hub") isn't answering. To keep working, turn off routing below, then restart Claude Code or Codex."
             )
+        case .notApproved:
+            if model.node?.access?.state == "pending" {
+                Notice(
+                    title: "Waiting for \(model.node?.owner ?? "the hub's owner") to approve this Mac",
+                    detail: "Claude Code and Codex use this Mac's own logins until then."
+                )
+            } else {
+                Notice(
+                    title: "\(model.node?.owner ?? "The hub's owner") didn't approve this Mac",
+                    detail: "Claude Code and Codex use this Mac's own logins. You can ask again."
+                ) {
+                    Button("Ask again") { model.askAgain() }.glassButton(prominent: true)
+                }
+            }
         case .ready:
             Accounts()
+            GuestBanner()
             UpdateBanner()
         }
     }
@@ -92,6 +107,8 @@ extension MenuView {
         guard let hubs = model.hubs else { return "Looking for your hub on the tailnet…" }
         switch hubs.count {
         case 0: return "No hub found on your tailnet. On your hub's dashboard, open Machines and click Find machines."
+        case 1 where hubs[0].guest == true:
+            return "Found \(hubs[0].name) on your tailnet. Joining sends Claude Code and Codex on this Mac through \(hubs[0].owner ?? "its owner")'s hub, once they approve."
         case 1: return "Found your hub, \(hubs[0].name), on your tailnet. Linking sends Claude Code and Codex on this Mac through it."
         default: return "Found \(hubs.count) hubs on your tailnet. Pick the one to link this Mac to."
         }
@@ -150,7 +167,7 @@ struct StatusDot: View {
             let ready = "\(model.readyCount) of \(model.accounts.count) ready"
             switch model.attention {
             case .systemRed?: return (Color(nsColor: .systemRed), model.problemSummary ?? ready)
-            case .some: return (Color(nsColor: .systemOrange), ready)
+            case let color?: return (Color(nsColor: color), ready)
             case nil: return (Palette.ok, ready)
             }
         case .notRunning:
@@ -379,21 +396,44 @@ enum Countdown {
     }
 }
 
+struct GuestBanner: View {
+    @EnvironmentObject var model: Model
+
+    var body: some View {
+        let waiting = model.guestsWaiting
+        if waiting.count == 1 {
+            Banner(icon: "person.badge.plus", title: "\(waiting[0].hostname) wants to join", detail: waiting[0].user ?? "Tagged machine", detailLines: 1) {
+                Button("Deny") { model.decide(waiting[0], approve: false) }.glassButton()
+                Button("Approve") { model.decide(waiting[0], approve: true) }.glassButton(prominent: true)
+            }
+        } else if !waiting.isEmpty {
+            Banner(
+                icon: "person.badge.plus",
+                title: "\(waiting.count) machines want to join",
+                detail: waiting.map(\.hostname).joined(separator: ", ")
+            ) {
+                Button("Review") { model.openDashboard() }.glassButton()
+            }
+        }
+    }
+}
+
 struct UpdateBanner: View {
     @EnvironmentObject var model: Model
 
     var body: some View {
         if model.updating {
-            banner(title: "Updating…", detail: "Machines switch over as they finish their current requests.") {
+            Banner(icon: "arrow.down.circle", title: "Updating…", detail: "Machines switch over as they finish their current requests.") {
                 ProgressView().controlSize(.small)
             }
         } else if let failure = model.updateFailure {
-            banner(title: "An update failed", detail: failure) {
+            Banner(icon: "arrow.down.circle", title: "An update failed", detail: failure) {
                 Button("Try again") { model.updateAll() }.glassButton()
             }
         } else if let latest = model.latestVersion {
             let behind = model.outdatedMachines
-            banner(
+            Banner(
+                icon: "arrow.down.circle",
                 title: "Update available",
                 detail: behind.count == 1
                     ? "\(model.isThisMac(behind[0]) ? "This Mac" : behind[0].hostname) · v\(behind[0].version) → v\(latest)"
@@ -404,10 +444,18 @@ struct UpdateBanner: View {
             }
         }
     }
+}
 
-    private func banner<Trailing: View>(title: String, detail: String, @ViewBuilder trailing: () -> Trailing) -> some View {
+struct Banner<Trailing: View>: View {
+    let icon: String
+    let title: String
+    let detail: String
+    var detailLines: Int?
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "arrow.down.circle")
+            Image(systemName: icon)
                 .font(.system(size: 16))
                 .foregroundStyle(Palette.muted)
                 .frame(width: 22)
@@ -416,10 +464,12 @@ struct UpdateBanner: View {
                 Text(detail)
                     .font(.system(size: 11))
                     .foregroundStyle(Palette.muted)
+                    .lineLimit(detailLines)
+                    .truncationMode(.middle)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
-            trailing()
+            trailing
         }
         .padding(.leading, 8)
         .padding(.trailing, 10)
@@ -452,10 +502,12 @@ struct Actions: View {
             }
             let showsDashboard = [.ready, .hubUnreachable].contains(model.phase)
             let showsRestart = model.local.serviceInstalled && model.phase != .notRunning
-            let showsUpdateCheck = [.ready, .waiting].contains(model.phase)
+            let showsUpdateCheck = [.ready, .waiting].contains(model.phase) && model.node?.guest != true
             if showsDashboard {
                 MenuRow(title: "Open dashboard", action: model.openDashboard)
-                MenuRow(title: "Add account…", action: model.openDashboard)
+                if model.node?.guest != true {
+                    MenuRow(title: "Add account…", action: model.openDashboard)
+                }
             }
             if showsUpdateCheck {
                 MenuRow(title: "Check for updates", action: model.checkForUpdates) {

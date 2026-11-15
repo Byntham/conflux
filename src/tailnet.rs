@@ -7,6 +7,8 @@ use serde_json::Value;
 
 const TAILSCALE_COMMANDS: &[&str] = &[
     "tailscale",
+    "/opt/homebrew/bin/tailscale",
+    "/usr/local/bin/tailscale",
     "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
     r"C:\Program Files\Tailscale\tailscale.exe",
 ];
@@ -37,9 +39,11 @@ pub fn status(tailscale: &Tailscale) -> Option<Value> {
 pub struct Peer {
     pub machine: TailnetSelf,
     pub os: String,
+    pub guest: bool,
+    pub owner: Option<String>,
 }
 
-pub fn same_user_peers(status: &Value) -> Vec<Peer> {
+pub fn online_peers(status: &Value) -> Vec<Peer> {
     let me = &status["Self"]["UserID"];
     if me.is_null() {
         return Vec::new();
@@ -48,28 +52,78 @@ pub fn same_user_peers(status: &Value) -> Vec<Peer> {
         .as_object()
         .into_iter()
         .flat_map(|peers| peers.values())
-        .filter(|p| p["UserID"] == *me && p["Online"] == true)
-        .filter(|p| p["Tags"].as_array().is_none_or(|tags| tags.is_empty()))
+        .filter(|p| p["Online"] == true)
         .filter_map(|p| {
             let os = p["OS"].as_str().filter(|os| INSTALLABLE_OS.contains(os))?;
+            let tagged = p["Tags"].as_array().is_some_and(|tags| !tags.is_empty());
+            let owner = status["User"][p["UserID"].to_string()]["LoginName"].as_str();
             Some(Peer {
                 machine: TailnetSelf::from_peer(p),
                 os: os.to_string(),
+                guest: p["UserID"] != *me || tagged,
+                owner: owner.filter(|_| !tagged).map(str::to_string),
             })
         })
         .collect()
 }
 
-pub fn is_same_user(tailscale: &Tailscale, caller: IpAddr) -> bool {
-    let Some(status) = status(tailscale) else {
-        return false;
+pub fn same_user_peers(status: &Value) -> Vec<Peer> {
+    online_peers(status).into_iter().filter(|p| !p.guest).collect()
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Identity {
+    pub node: String,
+    pub name: Option<String>,
+    pub user: Option<String>,
+    pub tagged: bool,
+    pub owner: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Caller {
+    Local,
+    Peer(Identity),
+    Unknown,
+}
+
+impl Caller {
+    pub fn is_owner(&self) -> bool {
+        match self {
+            Caller::Local => true,
+            Caller::Peer(identity) => identity.owner,
+            Caller::Unknown => false,
+        }
+    }
+}
+
+pub fn identify(tailscale: &Tailscale, caller: IpAddr) -> Caller {
+    let whois = tailscale(&["whois", "--json", &caller.to_string()]);
+    let Some((whois, node)) = whois.as_ref().and_then(|w| Some((w, w["Node"]["StableID"].as_str()?))) else {
+        return if caller.is_loopback() {
+            Caller::Local
+        } else {
+            Caller::Unknown
+        };
     };
-    let Some(whois) = tailscale(&["whois", "--json", &caller.to_string()]) else {
-        return false;
+    let Some(me) = status(tailscale)
+        .map(|s| s["Self"].clone())
+        .filter(|me| !me["UserID"].is_null())
+    else {
+        return Caller::Unknown;
     };
-    let me = &status["Self"]["UserID"];
-    let tagged = whois["Node"]["Tags"].as_array().is_some_and(|t| !t.is_empty());
-    !me.is_null() && whois["UserProfile"]["ID"] == *me && !tagged
+    let has_tags = |node: &Value| node["Tags"].as_array().is_some_and(|t| !t.is_empty());
+    let tagged = has_tags(&whois["Node"]);
+    Caller::Peer(Identity {
+        node: node.to_string(),
+        name: whois["Node"]["Name"]
+            .as_str()
+            .map(|n| n.trim_end_matches('.').to_lowercase())
+            .filter(|n| !n.is_empty()),
+        user: whois["UserProfile"]["LoginName"].as_str().map(str::to_string),
+        tagged,
+        owner: whois["UserProfile"]["ID"] == me["UserID"] && !tagged && !has_tags(&me),
+    })
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -77,6 +131,8 @@ pub struct TailnetSelf {
     pub ips: Vec<IpAddr>,
     pub host_name: Option<String>,
     pub dns_name: Option<String>,
+    #[serde(default)]
+    pub owner: Option<String>,
 }
 
 impl TailnetSelf {
@@ -87,7 +143,11 @@ impl TailnetSelf {
     }
 
     pub fn from_status(v: &Value) -> Self {
-        Self::from_peer(&v["Self"])
+        let me = v["Self"]["UserID"].to_string();
+        Self {
+            owner: v["User"][me]["LoginName"].as_str().map(str::to_string),
+            ..Self::from_peer(&v["Self"])
+        }
     }
 
     pub fn from_peer(me: &Value) -> Self {
@@ -107,6 +167,7 @@ impl TailnetSelf {
             ips,
             host_name: s("HostName"),
             dns_name: s("DNSName"),
+            owner: None,
         }
     }
 

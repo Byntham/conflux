@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -126,7 +126,7 @@ pub fn find_sources(claude_projects: &Path, codex_sessions: &Path) -> Vec<Source
     out
 }
 
-pub type Destination = Arc<dyn Fn() -> String + Send + Sync>;
+pub type Destination = Arc<dyn Fn() -> Option<String> + Send + Sync>;
 
 pub struct TranscriptSync {
     machine: String,
@@ -174,9 +174,11 @@ impl TranscriptSync {
     }
 
     pub async fn send(&self, up: &Upload) -> Result<u64> {
+        let hub =
+            (self.destination)().context("the hub link is down or this machine is a guest, so transcripts wait")?;
         let resp = self
             .http
-            .post(format!("{}/conflux/transcripts", (self.destination)()))
+            .post(format!("{hub}/conflux/transcripts"))
             .json(up)
             .send()
             .await?
@@ -217,7 +219,9 @@ impl TranscriptSync {
     }
 
     pub async fn pass(&mut self) -> Result<()> {
-        let destination = (self.destination)();
+        let Some(destination) = (self.destination)() else {
+            return Ok(());
+        };
         if destination != self.saved.destination {
             self.saved.offsets.clear();
             self.saved.destination = destination;

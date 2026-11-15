@@ -438,6 +438,7 @@ async fn tailnet_names_are_allowed_once_tailscale_appears() {
         ips: vec!["100.101.102.103".parse().unwrap()],
         host_name: Some("hub-box".into()),
         dns_name: Some("hub-box.example.ts.net".into()),
+        ..Default::default()
     });
     let r = h.claude(json!({})).header("host", &host).send().await.unwrap();
     assert_eq!(r.status(), 200);

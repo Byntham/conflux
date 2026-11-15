@@ -18,6 +18,7 @@ use serde_json::json;
 use crate::app::App;
 use crate::config::Paths;
 use crate::fsutil;
+use crate::guests::{self, GuestList};
 use crate::hubstate::HubState;
 use crate::proxy;
 
@@ -78,6 +79,8 @@ pub struct Bundle {
     pub id: String,
     pub files: Vec<BundleFile>,
     pub management_key: String,
+    #[serde(default)]
+    pub guests: GuestList,
 }
 
 fn collect_files(root: &Path, dir: &Path, out: &mut Vec<BundleFile>) -> Result<()> {
@@ -181,6 +184,7 @@ pub async fn prepare(State(app): State<Arc<App>>, Json(req): Json<Prepare>) -> R
             id: req.id,
             files,
             management_key: app.management_key.clone(),
+            guests: app.guests.export(),
         })
         .into_response(),
         Err(e) => {
@@ -238,10 +242,7 @@ pub async fn abort(State(app): State<Arc<App>>, Json(req): Json<Abort>) -> Respo
     }
 }
 
-pub async fn resume(State(app): State<Arc<App>>, ConnectInfo(addr): ConnectInfo<SocketAddr>) -> Response {
-    if !addr.ip().is_loopback() {
-        return local_only();
-    }
+pub async fn resume(State(app): State<Arc<App>>) -> Response {
     let HubState::Moving { id } = app.hub_state.get() else {
         return fail(StatusCode::CONFLICT, "the hub is not in the middle of a move");
     };
@@ -322,6 +323,8 @@ pub struct Pending {
     pub old_hub: String,
     pub port: u16,
     pub management_key: String,
+    #[serde(default)]
+    pub guests: GuestList,
 }
 
 fn incoming_root(paths: &Paths) -> PathBuf {
@@ -368,6 +371,7 @@ pub fn import_bundle(paths: &Paths, bundle: &Bundle, old_hub: &str, port: u16) -
         old_hub: old_hub.to_string(),
         port,
         management_key: bundle.management_key.clone(),
+        guests: bundle.guests.clone(),
     };
     fsutil::write_json_durable(&transfer_file(&dir), &pending)?;
     Ok((dir, pending))
@@ -390,6 +394,7 @@ pub fn activate(paths: &Paths, dir: &Path, pending: &Pending) -> Result<()> {
     }
     fsutil::ensure_private_dir(&paths.config_dir)?;
     fsutil::write_durable(&paths.management_key_file(), pending.management_key.as_bytes())?;
+    fsutil::write_json_durable(&guests::guests_file(paths), &pending.guests)?;
     Ok(())
 }
 
@@ -419,6 +424,7 @@ mod tests {
                 },
             ],
             management_key: "key".into(),
+            guests: GuestList::default(),
         }
     }
 

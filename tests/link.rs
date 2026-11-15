@@ -4,25 +4,12 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use common::Harness;
+use common::{Harness, fake_tailscale, whois};
 use conflux::config::{Config, Paths, Role};
 use conflux::link::{self, Waiting};
 use conflux::node::Node;
 use conflux::setup::ClientPaths;
-use conflux::tailnet::Tailscale;
 use serde_json::{Value, json};
-
-fn whois(user: u64, tags: &[&str]) -> Value {
-    json!({ "Node": { "Name": "hub.example.ts.net.", "Tags": tags }, "UserProfile": { "ID": user } })
-}
-
-fn fake_tailscale(status: Arc<Mutex<Value>>, caller: Arc<Mutex<Value>>) -> Tailscale {
-    Arc::new(move |args: &[&str]| match args.first() {
-        Some(&"status") => Some(status.lock().unwrap().clone()),
-        Some(&"whois") => Some(caller.lock().unwrap().clone()),
-        _ => None,
-    })
-}
 
 struct Machine {
     paths: Paths,
@@ -83,6 +70,7 @@ async fn connects_as_a_node(hub: &Harness, machine: &mut Machine, name: &str) {
         node_port,
         machine.paths.clone(),
         machine.clients.clone(),
+        Arc::new(|_: &[&str]| None),
     );
     tokio::spawn(node.run_control());
 }
@@ -231,6 +219,8 @@ async fn a_waiting_machine_refuses_links_it_should_not_take() {
     assert_eq!(ask_to_link(&machine).await, 403);
     *machine.caller.lock().unwrap() = whois(1, &["tag:server"]);
     assert_eq!(ask_to_link(&machine).await, 403);
+    *machine.caller.lock().unwrap() = Value::Null;
+    assert_eq!(ask_to_link(&machine).await, 403);
     *machine.caller.lock().unwrap() = whois(1, &[]);
 
     let accounts = machine.paths.accounts_dir();
@@ -269,25 +259,41 @@ async fn ask_to_join(machine: &Machine, address: &str) -> reqwest::StatusCode {
 
 #[tokio::test]
 async fn a_waiting_machine_finds_its_hub_and_links_itself_to_it() {
-    let hub = Harness::new().await;
+    let hub_tailnet = Arc::new(Mutex::new(json!({ "Self": { "UserID": 1 } })));
+    let hub = Harness::on_tailnet(
+        tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap(),
+        fake_tailscale(hub_tailnet, Arc::new(Mutex::new(whois(2, &[])))),
+        "false",
+    )
+    .await;
     let machine = waiting_machine(tokio::net::TcpListener::bind(("::1", hub.port)).await.unwrap()).await;
     let tailnet = |hub_owner: u64, hub_tags: &[&str]| {
         let mut hub = peer("localhost", "linux", hub_owner, "127.0.0.1");
         hub["Tags"] = json!(hub_tags);
-        json!({ "Self": { "UserID": 1 }, "Peer": { "a": hub, "b": peer("fresh", "linux", 1, "::1") } })
+        json!({
+            "Self": { "UserID": 1 },
+            "User": { "1": { "LoginName": "me@example.com" }, "2": { "LoginName": "friend@example.com" } },
+            "Peer": { "a": hub, "b": peer("fresh", "linux", 1, "::1") },
+        })
     };
 
     *machine.tailnet.lock().unwrap() = tailnet(2, &[]);
-    assert_eq!(find_hubs(&machine).await, json!([]));
-    assert_eq!(ask_to_join(&machine, "127.0.0.1").await, 404);
+    assert_eq!(
+        find_hubs(&machine).await,
+        json!([{ "name": "localhost", "address": "127.0.0.1", "guest": true, "owner": "friend@example.com" }])
+    );
     *machine.tailnet.lock().unwrap() = tailnet(1, &["tag:server"]);
-    assert_eq!(find_hubs(&machine).await, json!([]));
+    assert_eq!(
+        find_hubs(&machine).await,
+        json!([{ "name": "localhost", "address": "127.0.0.1", "guest": true }])
+    );
 
     *machine.tailnet.lock().unwrap() = tailnet(1, &[]);
     assert_eq!(
         find_hubs(&machine).await,
-        json!([{ "name": "localhost", "address": "127.0.0.1" }])
+        json!([{ "name": "localhost", "address": "127.0.0.1", "guest": false }])
     );
+    assert_eq!(ask_to_join(&machine, "192.0.2.9").await, 404);
     assert_eq!(ask_to_join(&machine, "::1").await, 502);
     assert_eq!(Config::load(&machine.paths).unwrap().role, Role::Waiting);
 
@@ -299,8 +305,32 @@ async fn a_waiting_machine_finds_its_hub_and_links_itself_to_it() {
     let cfg = Config::load(&machine.paths).unwrap();
     assert_eq!(cfg.role, Role::Node);
     assert_eq!(cfg.hub.as_deref(), Some("127.0.0.1"));
+    assert!(!cfg.route_once_approved);
     let claude = std::fs::read_to_string(&machine.clients.claude_settings).unwrap();
     assert!(claude.contains(&format!("http://127.0.0.1:{}", hub.port)));
+
+    let mut guest = waiting_machine(tokio::net::TcpListener::bind(("::1", hub.port)).await.unwrap()).await;
+    *guest.tailnet.lock().unwrap() = tailnet(2, &[]);
+    assert_eq!(ask_to_join(&guest, "127.0.0.1").await, 200);
+    let cfg = Config::load(&guest.paths).unwrap();
+    assert!(cfg.route_once_approved);
+    assert!(cfg.ask.is_some());
+    connects_as_a_node(&hub, &mut guest, "guest-box").await;
+    assert!(!guest.clients.claude_settings.exists());
+    let access = || {
+        hub.app
+            .fleet()
+            .into_iter()
+            .find(|m| m.hostname == "guest-box")
+            .and_then(|m| m.access)
+    };
+    for _ in 0..200 {
+        if access().is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(access(), Some(conflux::guests::Access::Pending));
 }
 
 #[test]

@@ -1,10 +1,10 @@
 mod common;
 
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use common::Harness;
+use common::{Harness, fake_tailscale, whois};
 use conflux::accounts::{Provider, Receipt, RefreshState};
 use conflux::app::App;
 use conflux::config::{Config, Endpoints, Paths};
@@ -183,12 +183,32 @@ async fn abort_returns_to_service() {
 
 #[tokio::test]
 async fn resume_works_from_moving_only() {
-    let h = Harness::new().await;
+    let status = Arc::new(Mutex::new(json!({ "Self": { "UserID": 1 } })));
+    let caller = Arc::new(Mutex::new(whois(2, &[])));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let h = Harness::on_tailnet(listener, fake_tailscale(status.clone(), caller.clone()), "false").await;
+    prepare(&h).await;
+    assert_eq!(
+        post(&h, "/conflux/api/hub/resume", json!({})).await.status(),
+        StatusCode::FORBIDDEN
+    );
+    *status.lock().unwrap() = Value::Null;
+    h.app.forget_identities();
+    assert_eq!(
+        post(&h, "/conflux/api/hub/resume", json!({})).await.status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    *status.lock().unwrap() = json!({ "Self": { "UserID": 1 } });
+    *caller.lock().unwrap() = whois(1, &[]);
+    h.app.forget_identities();
+    assert_eq!(post(&h, "/conflux/api/hub/resume", json!({})).await.status(), 200);
     assert_eq!(
         post(&h, "/conflux/api/hub/resume", json!({})).await.status(),
         StatusCode::CONFLICT
     );
     prepare(&h).await;
+    *caller.lock().unwrap() = Value::Null;
+    h.app.forget_identities();
     assert_eq!(post(&h, "/conflux/api/hub/resume", json!({})).await.status(), 200);
     assert_eq!(h.app.hub_state.get(), HubState::Active);
 }
@@ -287,6 +307,13 @@ async fn accounts_arrive_intact_on_the_new_hub() {
             },
         )
         .unwrap();
+    let guest = conflux::guests::Guest {
+        login: "friend@example.com".into(),
+        hostname: "guest-box".into(),
+        approved: true,
+        ask: "x".into(),
+    };
+    h.app.guests.set("nGuest", guest).unwrap();
     let bundle = prepare(&h).await;
 
     let new_dir = tempfile::tempdir().unwrap();
@@ -304,6 +331,7 @@ async fn accounts_arrive_intact_on_the_new_hub() {
         RefreshState::RetryAt { retries: 1, .. }
     ));
     assert_eq!(new_app.management_key, h.app.management_key);
+    assert!(new_app.guests.is_approved("nGuest"));
     assert_eq!(new_app.hub_state.get(), HubState::Active);
 }
 

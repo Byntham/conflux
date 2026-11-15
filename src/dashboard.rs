@@ -1,13 +1,15 @@
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::Json;
-use axum::extract::State;
-use axum::http::{HeaderMap, header};
+use axum::extract::{ConnectInfo, State};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
 use serde_json::{Value, json};
 
 use crate::api::account_view;
 use crate::app::App;
+use crate::tailnet::Caller;
 use crate::update;
 
 const PAGE: &str = include_str!("dashboard.html");
@@ -47,10 +49,29 @@ pub fn add_machine(hub: &str) -> Value {
     json!({ "command": command, "windows_command": windows_command, "agent_prompt": agent_prompt })
 }
 
-pub async fn data(State(app): State<Arc<App>>, headers: HeaderMap) -> Json<Value> {
+pub async fn data(
+    State(app): State<Arc<App>>,
+    ConnectInfo(from): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> Response {
     let host = headers.get(header::HOST).and_then(|v| v.to_str().ok());
     let name = hub_name(&app, host);
-    let accounts: Vec<_> = app
+    let caller = app.identify(from.ip()).await;
+    let owner = caller.is_owner();
+    let refused = match &caller {
+        Caller::Unknown => Some((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "the hub could not ask Tailscale who you are. Try again in a minute.".to_string(),
+        )),
+        Caller::Peer(guest) if !owner && !app.guests.is_approved(&guest.node) => {
+            Some((StatusCode::FORBIDDEN, app.waiting_for_owner()))
+        }
+        _ => None,
+    };
+    if let Some((status, message)) = refused {
+        return (status, Json(json!({ "error": message }))).into_response();
+    }
+    let mut accounts: Vec<_> = app
         .store
         .all()
         .iter()
@@ -59,15 +80,33 @@ pub async fn data(State(app): State<Arc<App>>, headers: HeaderMap) -> Json<Value
         .collect();
     let mut history = app.usage.history();
     history.retain(|id, _| accounts.iter().any(|a| &a.id == id));
+    let mut machines = app.fleet();
+    let mut state = json!(app.hub_state.get());
+    if !owner {
+        state = json!({ "state": state["state"] });
+        for account in &mut accounts {
+            account.email = None;
+        }
+        let own = match &caller {
+            Caller::Peer(identity) => identity.name.clone(),
+            Caller::Local | Caller::Unknown => None,
+        };
+        machines.retain(|m| m.role == "hub" || (own.is_some() && m.tailnet_name == own));
+        for m in &mut machines {
+            m.outdated &= m.role != "hub";
+        }
+    }
     Json(json!({
-        "hub": { "name": name, "port": app.cfg.port, "version": update::CURRENT, "state": app.hub_state.get() },
+        "hub": { "name": name, "port": app.cfg.port, "version": update::CURRENT, "state": state },
+        "guest": !owner,
         "latest_version": app.updater.latest(),
         "accounts": accounts,
         "usage_history": history,
-        "machines": app.fleet(),
-        "requests": app.requests.recent(),
-        "add_machine": add_machine(&name),
+        "machines": machines,
+        "requests": if owner { json!(app.requests.recent()) } else { json!([]) },
+        "add_machine": owner.then(|| add_machine(&name)),
     }))
+    .into_response()
 }
 
 #[cfg(test)]
