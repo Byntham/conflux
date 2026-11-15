@@ -251,7 +251,8 @@ final class Model: ObservableObject {
     }
 
     func isThisMac(_ machine: Machine) -> Bool {
-        node.map { machine.hostname == $0.hostname } ?? (machine.role == "hub" || machine.role == "waiting")
+        node.map { machine.hostname == $0.hostname && (machine.guest ?? false) == ($0.guest ?? false) }
+            ?? (machine.role == "hub" || machine.role == "waiting")
     }
 
     var machines: [Machine] {

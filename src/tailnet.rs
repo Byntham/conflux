@@ -7,6 +7,8 @@ use serde_json::Value;
 
 const TAILSCALE_COMMANDS: &[&str] = &[
     "tailscale",
+    "/opt/homebrew/bin/tailscale",
+    "/usr/local/bin/tailscale",
     "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
     r"C:\Program Files\Tailscale\tailscale.exe",
 ];
@@ -60,7 +62,7 @@ pub fn same_user_peers(status: &Value) -> Vec<Peer> {
         .collect()
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Identity {
     pub node: String,
     pub name: Option<String>,
@@ -96,12 +98,13 @@ pub fn identify(tailscale: &Tailscale, caller: IpAddr) -> Caller {
         };
     };
     let Some(me) = status(tailscale)
-        .map(|s| s["Self"]["UserID"].clone())
-        .filter(|me| !me.is_null())
+        .map(|s| s["Self"].clone())
+        .filter(|me| !me["UserID"].is_null())
     else {
         return Caller::Unknown;
     };
-    let tagged = whois["Node"]["Tags"].as_array().is_some_and(|t| !t.is_empty());
+    let has_tags = |node: &Value| node["Tags"].as_array().is_some_and(|t| !t.is_empty());
+    let tagged = has_tags(&whois["Node"]);
     Caller::Peer(Identity {
         node: node.to_string(),
         name: whois["Node"]["Name"]
@@ -110,7 +113,7 @@ pub fn identify(tailscale: &Tailscale, caller: IpAddr) -> Caller {
             .filter(|n| !n.is_empty()),
         user: whois["UserProfile"]["LoginName"].as_str().map(str::to_string),
         tagged,
-        owner: whois["UserProfile"]["ID"] == me && !tagged,
+        owner: whois["UserProfile"]["ID"] == me["UserID"] && !tagged && !has_tags(&me),
     })
 }
 

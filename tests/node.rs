@@ -223,7 +223,22 @@ async fn the_dashboard_turns_routing_on_and_off_for_each_machine() {
     setup::apply(&n.clients, &node_config, n.port).unwrap();
     setup::restore(&n.clients, &node_config, n.port).unwrap();
     setup::apply(&hub.app.clients, &Paths::under(hub.dir.path()).config_dir, hub.port).unwrap();
+    let before_update = json!({ "hostname": "node-one", "version": "0.1.0" });
+    hub.app
+        .machines
+        .import(&json!([[before_update, "2026-01-01T00:00:00Z"]]));
+    assert!(
+        hub.app
+            .machines
+            .list()
+            .iter()
+            .any(|m| m.hostname == "node-one" && !m.online)
+    );
+    *tailnet.caller.lock().unwrap() = whois(1, &[]);
     let control = connect(&hub, &n).await;
+    *tailnet.caller.lock().unwrap() = Value::Null;
+    assert_eq!(online_named(&hub, "node-one").len(), 1);
+    assert_eq!(hub.app.machines.list().len(), 1);
     assert_eq!(hub.app.machines.list()[0].hostname, "node-one");
     assert_eq!(
         fleet_routing(&hub),
@@ -359,9 +374,10 @@ async fn the_dashboard_turns_routing_on_and_off_for_each_machine() {
 #[tokio::test]
 async fn nodes_follow_a_hub_move_at_once() {
     let hub = Harness::new().await;
-    let other_user = Tailnet::new();
-    *other_user.caller.lock().unwrap() = whois(2, &[]);
-    let before = start_node_on(hub.port, other_user.fake()).await;
+    let tagged = Tailnet::new();
+    *tagged.status.lock().unwrap() = json!({ "Self": { "UserID": 1, "Tags": ["tag:server"] } });
+    *tagged.caller.lock().unwrap() = whois(1, &[]);
+    let before = start_node_on(hub.port, tagged.fake()).await;
     connect(&hub, &before).await;
     let status: Value = before
         .http
@@ -373,6 +389,22 @@ async fn nodes_follow_a_hub_move_at_once() {
         .await
         .unwrap();
     assert_eq!(status["guest"], true);
+    before
+        .http
+        .post(format!("{}/conflux/api/update", before.base))
+        .json(&json!({ "machines": ["someone-else"] }))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        !hub.fake
+            .hits
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(path, _)| path.starts_with("/releases")),
+        "a guest updates itself instead of asking the hub"
+    );
     assert!(hub.app.machines.send("node-one", machines::set_routing(true)));
     assert!(
         hub.app

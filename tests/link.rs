@@ -219,6 +219,8 @@ async fn a_waiting_machine_refuses_links_it_should_not_take() {
     assert_eq!(ask_to_link(&machine).await, 403);
     *machine.caller.lock().unwrap() = whois(1, &["tag:server"]);
     assert_eq!(ask_to_link(&machine).await, 403);
+    *machine.caller.lock().unwrap() = Value::Null;
+    assert_eq!(ask_to_link(&machine).await, 403);
     *machine.caller.lock().unwrap() = whois(1, &[]);
 
     let accounts = machine.paths.accounts_dir();

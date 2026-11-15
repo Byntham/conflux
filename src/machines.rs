@@ -106,7 +106,7 @@ impl Machines {
         let key = entry.key();
         let mut map = self.map.lock().unwrap();
         if !entry.guest {
-            map.retain(|_, e| e.link.is_some() || e.report.hostname != entry.report.hostname);
+            map.retain(|_, e| e.link.is_some() || e.guest || e.report.hostname != entry.report.hostname);
         }
         map.insert(key.clone(), entry);
         drop(map);

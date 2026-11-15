@@ -534,9 +534,9 @@ async fn not_linked() -> Response {
 async fn accept(State(w): State<Arc<Waiting>>, ConnectInfo(from): ConnectInfo<SocketAddr>) -> Response {
     let tailscale = w.tailscale.clone();
     let caller = from.ip();
-    let owner = tokio::task::spawn_blocking(move || tailnet::identify(&tailscale, caller).is_owner())
+    let owner = tokio::task::spawn_blocking(move || tailnet::identify(&tailscale, caller))
         .await
-        .unwrap_or(false);
+        .is_ok_and(|caller| matches!(caller, tailnet::Caller::Peer(p) if p.owner));
     if !owner {
         return refuse(
             StatusCode::FORBIDDEN,
