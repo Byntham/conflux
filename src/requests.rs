@@ -200,7 +200,7 @@ fn is_interesting(line: &[u8]) -> bool {
     fn has(line: &[u8], needle: &[u8]) -> bool {
         line.windows(needle.len()).any(|w| w == needle)
     }
-    has(line, b"usage") || has(line, b"response.created")
+    has(line, b"usage")
 }
 
 impl BodyScanner {
