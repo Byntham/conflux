@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
@@ -6,7 +7,7 @@ use anyhow::{Context, Result, bail};
 use axum::Json;
 use axum::body::Body;
 use axum::extract::ws::{Message as ClientMsg, WebSocket, WebSocketUpgrade};
-use axum::extract::{FromRequestParts, Request, State};
+use axum::extract::{FromRequest, FromRequestParts, Request, State};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
@@ -15,16 +16,19 @@ use http::{HeaderMap, HeaderValue, StatusCode};
 use serde::Serialize;
 use serde_json::{Value, json};
 use tokio::sync::{Notify, mpsc};
+use tokio_tungstenite::MaybeTlsStream;
 use tokio_tungstenite::tungstenite::{self, Message, client::IntoClientRequest};
 
 use crate::access::{self, Verdict};
+use crate::api::UpdateRequest;
 use crate::config::{Config, Endpoints, Paths};
 use crate::lifecycle::{InFlight, Lifecycle};
 use crate::setup::{self, ClientPaths};
+use crate::tailnet::{Caller, Tailscale};
 use crate::transcript_sync::TranscriptSync;
 use crate::update::{self, Updater};
 use crate::ws::TurnTracker;
-use crate::{proxy, tailnet, ws};
+use crate::{link, proxy, tailnet, ws};
 
 pub const NODE_HEADER: &str = "x-conflux-node";
 const REPORT_EVERY: Duration = Duration::from_secs(20);
@@ -50,6 +54,8 @@ pub struct Node {
     hub_link: Mutex<HubLink>,
     report_requested: Notify,
     clients: ClientPaths,
+    tailscale: Tailscale,
+    guest: AtomicBool,
     pub lifecycle: Arc<Lifecycle>,
     pub updater: Arc<Updater>,
 }
@@ -93,7 +99,15 @@ pub fn hub_port(port: u16) -> u16 {
 
 impl Node {
     pub fn new(hub: String, port: u16, paths: Paths, clients: ClientPaths) -> Arc<Self> {
-        Self::named(tailnet::hostname(), hub, hub_port(port), port, paths, clients)
+        Self::named(
+            tailnet::hostname(),
+            hub,
+            hub_port(port),
+            port,
+            paths,
+            clients,
+            tailnet::system_tailscale(),
+        )
     }
 
     pub fn named(
@@ -103,6 +117,7 @@ impl Node {
         port: u16,
         paths: Paths,
         clients: ClientPaths,
+        tailscale: Tailscale,
     ) -> Arc<Self> {
         Arc::new(Self {
             port,
@@ -115,6 +130,8 @@ impl Node {
             hub_link: Mutex::default(),
             report_requested: Notify::new(),
             clients,
+            tailscale,
+            guest: AtomicBool::new(false),
             lifecycle: Arc::default(),
             updater: Updater::new(&Endpoints::from_env().releases),
         })
@@ -149,6 +166,7 @@ impl Node {
             .route("/", get(dashboard_redirect))
             .route("/conflux/node", get(node_status))
             .route("/conflux/node/report", post(report_now))
+            .route("/conflux/api/update", post(update))
             .fallback(forward)
             .layer(axum::middleware::from_fn_with_state(self.clone(), guard))
             .with_state(self.clone())
@@ -181,8 +199,19 @@ impl Node {
         Ok(true)
     }
 
+    pub fn is_guest(&self) -> bool {
+        self.guest.load(Ordering::SeqCst)
+    }
+
     async fn obey(self: &Arc<Self>, command: &str) -> bool {
         let command: Value = serde_json::from_str(command).unwrap_or(Value::Null);
+        if self.is_guest() && matches!(command["type"].as_str(), Some("routing" | "update")) {
+            tracing::warn!(
+                "ignoring a {} command, because this machine is a guest of the hub",
+                command["type"]
+            );
+            return false;
+        }
         match (
             command["type"].as_str(),
             command["hub"].as_str(),
@@ -220,6 +249,16 @@ impl Node {
         let (mut hub, _) = tokio::time::timeout(CONNECT_TIMEOUT, tokio_tungstenite::connect_async(url))
             .await
             .context("the hub did not answer")??;
+        let MaybeTlsStream::Plain(socket) = hub.get_ref() else {
+            bail!("the hub connection is not plain TCP");
+        };
+        let address = socket.peer_addr()?.ip();
+        let tailscale = self.tailscale.clone();
+        let guest = match tokio::task::spawn_blocking(move || tailnet::identify(&tailscale, address)).await? {
+            Caller::Unknown => bail!("could not ask Tailscale who runs the hub"),
+            caller => !caller.is_owner(),
+        };
+        self.guest.store(guest, Ordering::SeqCst);
         hub.send(self.report()).await?;
         *self.hub_link.lock().unwrap() = HubLink {
             connected: true,
@@ -306,6 +345,7 @@ async fn node_status(State(node): State<Arc<Node>>) -> Json<Value> {
         "version": update::CURRENT,
         "pid": std::process::id(),
         "hub_link": node.hub_link.lock().unwrap().clone(),
+        "guest": node.is_guest(),
         "update": node.updater.status(),
     }))
 }
@@ -313,6 +353,27 @@ async fn node_status(State(node): State<Arc<Node>>) -> Json<Value> {
 async fn report_now(State(node): State<Arc<Node>>) -> StatusCode {
     node.report_requested.notify_one();
     StatusCode::NO_CONTENT
+}
+
+async fn update(State(node): State<Arc<Node>>, req: Request) -> Response {
+    if !node.is_guest() {
+        return forward(State(node), req).await;
+    }
+    let Json(asked) = match Json::<UpdateRequest>::from_request(req, &()).await {
+        Ok(asked) => asked,
+        Err(e) => return e.into_response(),
+    };
+    let version = match crate::api::latest_release(&node.updater).await {
+        Ok(version) => version,
+        Err(e) => return e.into_response(),
+    };
+    let lifecycle = node.lifecycle.clone();
+    let updater = node.updater.clone();
+    let hostname = node.hostname.clone();
+    Json(link::update_this_machine(
+        &updater, &lifecycle, node, &hostname, &version, &asked,
+    ))
+    .into_response()
 }
 
 async fn forward(State(node): State<Arc<Node>>, req: Request) -> Response {

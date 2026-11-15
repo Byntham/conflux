@@ -459,51 +459,69 @@ async fn check_update(State(w): State<Arc<Waiting>>) -> Result<Json<Value>, ApiE
 }
 
 async fn update_self(State(w): State<Arc<Waiting>>, Json(req): Json<UpdateRequest>) -> Response {
-    let version = match w.updater.check_latest().await {
+    let version = match crate::api::latest_release(&w.updater).await {
         Ok(version) => version,
-        Err(e) => {
-            return refuse(
-                StatusCode::BAD_GATEWAY,
-                format!("could not check for a new release: {e:#}"),
-            );
-        }
+        Err(e) => return e.into_response(),
     };
+    let _one_at_a_time = w.accepting.lock().await;
+    if *w.linked.borrow() {
+        return refuse(
+            StatusCode::CONFLICT,
+            "this machine was just linked to a hub. Run the update again.",
+        );
+    }
+    Json(update_this_machine(
+        &w.updater,
+        &w.lifecycle,
+        w.clone(),
+        &w.hostname,
+        &version,
+        &req,
+    ))
+    .into_response()
+}
+
+pub fn update_this_machine<H: update::Handoff>(
+    updater: &Arc<Updater>,
+    lifecycle: &Arc<Lifecycle>,
+    handoff: Arc<H>,
+    hostname: &str,
+    version: &str,
+    req: &UpdateRequest,
+) -> Value {
     let mut skipped: Vec<Value> = req
         .machines
         .iter()
         .flatten()
-        .filter(|name| **name != w.hostname)
+        .filter(|name| *name != hostname)
         .map(|name| json!({ "machine": name, "reason": "unknown machine" }))
         .collect();
     let mut started = Vec::new();
-    if req.machines.as_ref().is_none_or(|only| only.contains(&w.hostname)) {
-        let _one_at_a_time = w.accepting.lock().await;
-        if *w.linked.borrow() {
-            return refuse(
-                StatusCode::CONFLICT,
-                "this machine was just linked to a hub. Run the update again.",
-            );
-        }
-        let obstacle = if !update::is_newer(&version, update::CURRENT) {
+    if req
+        .machines
+        .as_ref()
+        .is_none_or(|only| only.iter().any(|name| name == hostname))
+    {
+        let obstacle = if !update::is_newer(version, update::CURRENT) {
             Some("already up to date")
-        } else if !w.updater.claim(&version) {
+        } else if !updater.claim(version) {
             Some("already updating")
         } else {
             None
         };
         match obstacle {
-            Some(reason) => skipped.push(json!({ "machine": w.hostname, "reason": reason })),
+            Some(reason) => skipped.push(json!({ "machine": hostname, "reason": reason })),
             None => {
-                started.push(w.hostname.clone());
+                started.push(hostname.to_string());
                 tokio::spawn(
-                    w.updater
+                    updater
                         .clone()
-                        .run_claimed(version.clone(), w.lifecycle.clone(), w.clone()),
+                        .run_claimed(version.to_string(), lifecycle.clone(), handoff),
                 );
             }
         }
     }
-    Json(json!({ "version": version, "started": started, "skipped": skipped })).into_response()
+    json!({ "version": version, "started": started, "skipped": skipped })
 }
 
 async fn not_linked() -> Response {

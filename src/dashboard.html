@@ -963,7 +963,7 @@ function updating(m) {
 }
 
 function updatable(d) {
-  return d.machines.filter((m) => m.outdated && m.online && !updating(m));
+  return d.machines.filter((m) => m.outdated && m.online && !m.guest && !updating(m));
 }
 
 function renderUpdateAll(d) {
@@ -982,15 +982,17 @@ function updateCell(m, version) {
     return `<span class="muted">${sized(`${step} v${esc(m.update.version)}`, step)}</span>`;
   }
   const failed = updateFailed(m) ? `<span class="pill bad" data-tip="${esc(m.update.error)}">${sized("Update failed", "Failed")}</span>` : "";
-  if (!m.outdated) return failed;
+  if (!m.outdated || m.guest) return failed;
   if (!m.online) return `<span class="pill warn">${sized("Update available", "Update")}</span>`;
   return `${failed}<button class="btn small" data-update="${esc(m.hostname)}">${failed ? "Retry" : sized(`Update to v${esc(version)}`, "Update")}</button>`;
 }
 
+const roleBadge = (m) => m.role === "hub" ? '<span class="badge">Hub</span>' : m.guest ? '<span class="badge" data-tip="Signs in to Tailscale as another user. It can use the hub, but the hub does not change its settings or update it.">Guest</span>' : "";
+
 const routingPill = (off) => `<span class="pill warn${off ? "" : " reserve"}"${off ? ' data-tip="Uses its own logins"' : ' aria-hidden="true"'}>Routing off</span>`;
 
 function machineMenuButton(m) {
-  if (!m.online) return "";
+  if (!m.online || m.guest) return "";
   return `<button class="icon-btn" data-menu data-machine="${esc(m.hostname)}" title="More actions" aria-label="More actions for ${esc(m.hostname)}" aria-haspopup="menu">${icon("more")}</button>`;
 }
 
@@ -999,10 +1001,10 @@ function renderMachines(d) {
   $("nav-machines").textContent = `${online}/${d.machines.length}`;
   $("machines-sub").textContent = `${online} of ${d.machines.length} online`;
   setHtml("machine-list", `<thead><tr><th>Machine</th><th>Status</th><th class="hide-sm">Version</th><th class="hide-sm">Transcript sync</th><th class="num hide-sm">Last seen</th><th class="num">Update</th><th aria-label="Actions"></th></tr></thead><tbody>${d.machines.map((m) =>
-    `<tr class="${m.online ? "" : "offline"}"><td><span class="machine-name">${esc(m.hostname)}${m.role === "hub" ? '<span class="badge">Hub</span>' : ""}</span><div class="cell-sub show-sm">v${esc(m.version)} · sync ${m.transcript_sync ? "on" : "off"}</div></td><td class="${m.online ? "" : "muted"}"><span class="status-cell${m.online && m.routing === false ? " routing-off" : ""}"><span class="state"><span class="dot ${m.online ? "on" : ""}"></span>${m.online ? "Online" : "Offline"}</span>${routingPill(m.online && m.routing === false)}</span></td><td class="mono hide-sm">${esc(m.version)}</td><td class="hide-sm ${m.transcript_sync ? "" : "muted"}">${m.transcript_sync ? "On" : "Off"}</td><td class="num when hide-sm">${esc(ago(m.last_seen))}</td><td class="num"><span class="update-cell">${updateCell(m, d.latest_version)}</span></td><td class="row-actions">${machineMenuButton(m)}</td></tr>`
+    `<tr class="${m.online ? "" : "offline"}"><td><span class="machine-name">${esc(m.hostname)}${roleBadge(m)}</span><div class="cell-sub show-sm">v${esc(m.version)} · sync ${m.transcript_sync ? "on" : "off"}</div></td><td class="${m.online ? "" : "muted"}"><span class="status-cell${m.online && m.routing === false ? " routing-off" : ""}"><span class="state"><span class="dot ${m.online ? "on" : ""}"></span>${m.online ? "Online" : "Offline"}</span>${routingPill(m.online && m.routing === false)}</span></td><td class="mono hide-sm">${esc(m.version)}</td><td class="hide-sm ${m.transcript_sync ? "" : "muted"}">${m.transcript_sync ? "On" : "Off"}</td><td class="num when hide-sm">${esc(ago(m.last_seen))}</td><td class="num"><span class="update-cell">${updateCell(m, d.latest_version)}</span></td><td class="row-actions">${machineMenuButton(m)}</td></tr>`
   ).join("")}</tbody>`);
   setHtml("fleet", d.machines.map((m) =>
-    `<li class="${m.online ? "" : "offline"}" title="${esc(m.hostname)}${m.online && m.routing === false ? " · routing off" : ""}"><span class="dot ${m.online ? "on" : ""} ${m.online && m.routing === false ? "routing-off" : ""}"></span><span class="truncate">${esc(m.hostname)}</span>${m.role === "hub" ? '<span class="badge">Hub</span>' : ""}</li>`
+    `<li class="${m.online ? "" : "offline"}" title="${esc(m.hostname)}${m.online && m.routing === false ? " · routing off" : ""}"><span class="dot ${m.online ? "on" : ""} ${m.online && m.routing === false ? "routing-off" : ""}"></span><span class="truncate">${esc(m.hostname)}</span>${roleBadge(m)}</li>`
   ).join(""));
   setHtml("takeover-command", commandHtml(`conflux hub take-over ${d.hub.name} --code <code>`));
   renderInstall();
@@ -1592,7 +1594,7 @@ function openMenu(button) {
   const machine = button.dataset.machine;
   const target = machine === undefined
     ? latest.accounts.find((x) => x.id === button.dataset.menu)
-    : latest.machines.find((m) => m.hostname === machine);
+    : latest.machines.find((m) => m.hostname === machine && !m.guest);
   if (!target) return;
   const menu = $("menu");
   menu.innerHTML = machine === undefined ? accountMenu(target) : machineMenu(target);

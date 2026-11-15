@@ -14,7 +14,7 @@ use conflux::accounts::Provider;
 use conflux::app::App;
 use conflux::config::{Config, Endpoints, Paths};
 use conflux::oauth::LoginTokens;
-use serde_json::json;
+use serde_json::{Value, json};
 
 #[derive(Clone)]
 pub enum Reply {
@@ -345,4 +345,19 @@ impl Harness {
             .header("authorization", "Bearer conflux")
             .json(&body)
     }
+}
+
+pub fn whois(user: u64, tags: &[&str]) -> Value {
+    json!({
+        "Node": { "StableID": format!("n{user}"), "Name": "peer.example.ts.net.", "Tags": tags },
+        "UserProfile": { "ID": user, "LoginName": format!("user{user}@example.com") },
+    })
+}
+
+pub fn fake_tailscale(status: Arc<Mutex<Value>>, caller: Arc<Mutex<Value>>) -> conflux::tailnet::Tailscale {
+    Arc::new(move |args: &[&str]| match args.first() {
+        Some(&"status") => Some(status.lock().unwrap().clone()),
+        Some(&"whois") => Some(caller.lock().unwrap().clone()),
+        _ => None,
+    })
 }

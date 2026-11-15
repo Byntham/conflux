@@ -143,7 +143,7 @@ pub struct UpdateRequest {
     pub machines: Option<Vec<String>>,
 }
 
-async fn latest_release(updater: &update::Updater) -> ApiResult<String> {
+pub async fn latest_release(updater: &update::Updater) -> ApiResult<String> {
     updater.check_latest().await.map_err(|e| {
         ApiError(
             StatusCode::BAD_GATEWAY,
