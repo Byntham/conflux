@@ -557,7 +557,8 @@ async fn accept(State(w): State<Arc<Waiting>>, ConnectInfo(from): ConnectInfo<So
             "the hub must belong to the same Tailscale user as this machine",
         );
     }
-    w.link_to(&url_host(caller), json!({ "hostname": w.hostname })).await
+    w.link_to(&url_host(caller), false, json!({ "hostname": w.hostname }))
+        .await
 }
 
 async fn find_hubs(State(w): State<Arc<Waiting>>, ConnectInfo(from): ConnectInfo<SocketAddr>) -> Response {
@@ -605,6 +606,7 @@ async fn join_hub(
     }
     w.link_to(
         &by_address,
+        hub.guest,
         json!({ "hub": hub.name, "guest": hub.guest, "owner": hub.owner }),
     )
     .await
@@ -647,7 +649,7 @@ impl Waiting {
         resp.json::<Value>().await.is_ok_and(|v| v["role"] == "hub")
     }
 
-    async fn link_to(&self, hub: &str, linked: Value) -> Response {
+    async fn link_to(&self, hub: &str, guest: bool, linked: Value) -> Response {
         let _one_at_a_time = self.accepting.lock().await;
         if self.updater.status().as_ref().is_some_and(UpdateStatus::in_progress) {
             return refuse(
@@ -655,14 +657,14 @@ impl Waiting {
                 "this machine is updating conflux. Try again in a minute.",
             );
         }
-        match self.become_node(hub) {
+        match self.become_node(hub, guest) {
             Ok(None) => Json(linked).into_response(),
             Ok(Some(reason)) => refuse(StatusCode::CONFLICT, reason),
             Err(e) => refuse(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
         }
     }
 
-    fn become_node(&self, hub: &str) -> Result<Option<String>> {
+    fn become_node(&self, hub: &str, guest: bool) -> Result<Option<String>> {
         let mut cfg = Config::load(&self.paths)?;
         if cfg.role != Role::Waiting {
             return Ok(Some(format!(
@@ -673,9 +675,13 @@ impl Waiting {
         if self.paths.has_accounts() {
             return Ok(Some("this machine has logged-in accounts".into()));
         }
-        setup::apply(&self.clients, &self.paths.config_dir, self.port)?;
+        if !guest {
+            setup::apply(&self.clients, &self.paths.config_dir, self.port)?;
+        }
         cfg.role = Role::Node;
         cfg.hub = Some(hub.to_string());
+        cfg.ask = Some(uuid::Uuid::new_v4().to_string());
+        cfg.route_once_approved = guest;
         cfg.save(&self.paths)?;
         self.linked.send_replace(true);
         tracing::info!(hub, "linked to a hub");

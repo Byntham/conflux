@@ -259,7 +259,14 @@ async fn ask_to_join(machine: &Machine, address: &str) -> reqwest::StatusCode {
 
 #[tokio::test]
 async fn a_waiting_machine_finds_its_hub_and_links_itself_to_it() {
-    let hub = Harness::new().await;
+    let hub_sees = Arc::new(Mutex::new(whois(2, &[])));
+    let hub_tailnet = Arc::new(Mutex::new(json!({ "Self": { "UserID": 1 } })));
+    let hub = Harness::on_tailnet(
+        tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap(),
+        fake_tailscale(hub_tailnet, hub_sees.clone()),
+        "false",
+    )
+    .await;
     let machine = waiting_machine(tokio::net::TcpListener::bind(("::1", hub.port)).await.unwrap()).await;
     let tailnet = |hub_owner: u64, hub_tags: &[&str]| {
         let mut hub = peer("localhost", "linux", hub_owner, "127.0.0.1");
@@ -299,8 +306,49 @@ async fn a_waiting_machine_finds_its_hub_and_links_itself_to_it() {
     let cfg = Config::load(&machine.paths).unwrap();
     assert_eq!(cfg.role, Role::Node);
     assert_eq!(cfg.hub.as_deref(), Some("127.0.0.1"));
+    assert!(!cfg.route_once_approved);
     let claude = std::fs::read_to_string(&machine.clients.claude_settings).unwrap();
     assert!(claude.contains(&format!("http://127.0.0.1:{}", hub.port)));
+
+    let mut guest = waiting_machine(tokio::net::TcpListener::bind(("::1", hub.port)).await.unwrap()).await;
+    *guest.tailnet.lock().unwrap() = tailnet(2, &[]);
+    assert_eq!(ask_to_join(&guest, "127.0.0.1").await, 200);
+    assert!(Config::load(&guest.paths).unwrap().route_once_approved);
+    connects_as_a_node(&hub, &mut guest, "guest-box").await;
+    assert!(!guest.clients.claude_settings.exists());
+    let access = || {
+        hub.app
+            .fleet()
+            .into_iter()
+            .find(|m| m.hostname == "guest-box")
+            .and_then(|m| m.access)
+    };
+    for _ in 0..200 {
+        if access().is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(access(), Some(conflux::guests::Access::Pending));
+
+    *hub_sees.lock().unwrap() = whois(1, &[]);
+    hub.app.forget_identities();
+    let r = hub
+        .http
+        .post(format!("{}/conflux/api/guests/guest-box", hub.base))
+        .json(&json!({ "approve": true }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200, "{}", r.text().await.unwrap());
+    for _ in 0..200 {
+        if guest.clients.claude_settings.exists() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(guest.clients.claude_settings.exists());
+    assert!(!Config::load(&guest.paths).unwrap().route_once_approved);
 }
 
 #[test]

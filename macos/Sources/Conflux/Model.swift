@@ -445,7 +445,10 @@ final class Model: ObservableObject {
             _ = try await self.post("conflux/api/join", ["address": hub.address])
             let node = self.local.base(port: self.local.port).appendingPathComponent("conflux/node")
             for _ in 0..<20 {
-                if case .answered(200, _) = await self.fetch(node) { break }
+                if case let .answered(200, body) = await self.fetch(node),
+                   hub.guest != true || (try? JSON.decoder.decode(NodeInfo.self, from: body))?.access != nil {
+                    break
+                }
                 try? await Task.sleep(nanoseconds: 250_000_000)
             }
             await self.refresh()

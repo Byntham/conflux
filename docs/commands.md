@@ -79,7 +79,6 @@ Makes this machine the hub, or a node of a hub.
 - `conflux join self` makes this machine the hub. `localhost`, `127.0.0.1`, and this machine's own name also work.
 - `conflux join <hub>` makes this machine a node. `<hub>` is the hub's name in `tailscale status`. conflux checks that it can reach the hub and warns you if it can't.
 - `conflux join` with no name finds the hub for you. It works on a machine that is waiting to be linked. conflux asks each online machine on your tailnet whether it is a hub. If it finds one hub, and that hub belongs to your Tailscale user, it links to it. Otherwise it lists the hubs it found, and you name one yourself. A hub that belongs to another Tailscale user shows as "join <owner>'s hub as a guest". The background service is already running, so `--no-service` and `--force` do not apply.
-- A guest's Claude Code and Codex prompts go through the owner's hub. After a guest joins, the owner must approve it. Until then, `conflux status` shows "Waiting for <owner> to approve", and Claude Code and Codex keep using this machine's own logins.
 
 `join` with a name then does three things:
 
