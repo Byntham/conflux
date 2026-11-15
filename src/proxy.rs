@@ -284,7 +284,7 @@ pub fn classify_claude_429(h: &HeaderMap, model: Option<&str>, now: DateTime<Utc
     }
     Rejection::Short {
         scope: model_scope_or_account(model),
-        until: retry_after(h, now).unwrap_or(now + chrono::Duration::seconds(30)),
+        until: retry_after(h, now).unwrap_or(now + router::SHORT_COOLDOWN),
     }
 }
 
@@ -325,7 +325,7 @@ pub fn classify_codex_429(h: &HeaderMap, body: &[u8], model: Option<&str>, now: 
     }
     Rejection::Short {
         scope: model_scope_or_account(model),
-        until: retry_after(h, now).unwrap_or(now + chrono::Duration::seconds(30)),
+        until: retry_after(h, now).unwrap_or(now + router::SHORT_COOLDOWN),
     }
 }
 

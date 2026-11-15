@@ -12,7 +12,11 @@ use http::StatusCode;
 use serde_json::json;
 
 fn quota_429_5h() -> Reply {
-    let reset = (Utc::now() + chrono::Duration::hours(2)).timestamp().to_string();
+    quota_429_5h_resetting_in(chrono::Duration::hours(2))
+}
+
+fn quota_429_5h_resetting_in(wait: chrono::Duration) -> Reply {
+    let reset = (Utc::now() + wait).timestamp().to_string();
     Reply::Json(
         429,
         vec![
@@ -65,22 +69,27 @@ async fn passes_compressed_bytes_through_unchanged() {
 
 #[tokio::test]
 async fn quota_rejection_fails_over_and_cools_the_account() {
-    let h = Harness::new().await;
-    let a = h.add(Provider::Claude, "a").await;
-    let b = h.add(Provider::Claude, "b").await;
-    let first = if a < b { "at-a" } else { "at-b" };
-    let first_id = if a < b { a.clone() } else { b.clone() };
-    let second = if a < b { "at-b" } else { "at-a" };
-    h.reply(first, quota_429_5h());
-    let r = h.claude(json!({"model": "claude-sonnet-5-5"})).send().await.unwrap();
-    assert_eq!(r.status(), 200);
-    let v: serde_json::Value = r.json().await.unwrap();
-    assert_eq!(v["token"], second);
-    assert_eq!(h.app.router.cooldowns(&first_id).len(), 1);
+    for reset_in in [chrono::Duration::hours(2), chrono::Duration::minutes(-1)] {
+        let h = Harness::new().await;
+        let a = h.add(Provider::Claude, "a").await;
+        let b = h.add(Provider::Claude, "b").await;
+        let first = if a < b { "at-a" } else { "at-b" };
+        let first_id = if a < b { a.clone() } else { b.clone() };
+        let second = if a < b { "at-b" } else { "at-a" };
+        h.reply(first, quota_429_5h_resetting_in(reset_in));
+        let r = h.claude(json!({"model": "claude-sonnet-5-5"})).send().await.unwrap();
+        assert_eq!(r.status(), 200);
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert_eq!(v["token"], second);
+        assert_eq!(h.app.router.cooldowns(&first_id).len(), 1);
 
-    let r = h.claude(json!({"model": "claude-sonnet-5-5"})).send().await.unwrap();
-    let v: serde_json::Value = r.json().await.unwrap();
-    assert_eq!(v["token"], second, "cooled account is skipped");
+        let r = h.claude(json!({"model": "claude-sonnet-5-5"})).send().await.unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert_eq!(
+            v["token"], second,
+            "cooled account is skipped when the reset is {reset_in} away"
+        );
+    }
 }
 
 #[tokio::test]
