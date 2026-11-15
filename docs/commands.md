@@ -190,10 +190,9 @@ The hub refuses the move, and changes nothing, if:
 
 - the hub or the machine is updating,
 - the machine is offline, a guest machine, or on another version,
-- the machine already holds accounts,
 - the machine has a battery and you did not pass `--force`.
 
-If the new machine does not confirm the move within 2 minutes, the old hub goes back to serving requests. The Machines page shows a Cancel button while the move runs.
+If the machine already holds accounts, it refuses after the move starts, and the hub goes back to serving requests. If the new machine does not confirm the move within 2 minutes, the old hub goes back to serving requests. While the move runs, the Overview page shows a Cancel button.
 
 Options:
 

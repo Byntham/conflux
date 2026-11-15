@@ -61,3 +61,5 @@ Joining another hub would strand this machine's accounts. To move them, make thi
 If the new machine stops before it confirms the move, the old hub goes back into service after 2 minutes. To cancel sooner, click Cancel on the dashboard or run `conflux hub resume` on the old hub.
 
 If the new machine already has the accounts, restart conflux there. It confirms the move with the old hub again and finishes it, or drops the accounts if the move was cancelled.
+
+If the old hub confirmed the move but the new hub never comes up, the old hub keeps refusing requests and waits for it. Restart conflux on the new machine. If that machine is gone, the old hub still has a copy of the accounts in the `retired-*` folder under its data directory.

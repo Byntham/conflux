@@ -1347,7 +1347,8 @@ async function refresh() {
     setConnection(true);
   } catch (e) {
     setConnection(false, e.message);
-    if (e.message.includes("the hub moved to")) location.reload();
+    const moving = latest && latest.hub.state && latest.hub.state.state === "moving";
+    if (moving && !e.message.includes("the hub moved to")) location.href = `http://${latest.hub.state.hub}:${location.port}/`;
   }
 }
 

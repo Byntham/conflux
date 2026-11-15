@@ -25,6 +25,8 @@ pub enum HubState {
     Retired {
         id: String,
         hub: String,
+        #[serde(default)]
+        address: Option<IpAddr>,
     },
 }
 
@@ -82,6 +84,7 @@ mod tests {
                         HubState::Retired {
                             id: "x".into(),
                             hub: "new".into(),
+                            address: None,
                         }
                     } else {
                         HubState::Aborted { id: "x".into() }

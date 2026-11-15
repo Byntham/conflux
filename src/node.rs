@@ -191,6 +191,13 @@ impl Node {
         if new_hub == self.hub() {
             return Ok(false);
         }
+        if hubmove::find_pending(&self.paths)?.is_some() {
+            tracing::warn!(
+                new_hub,
+                "ignoring a hub redirect while this machine is taking over as hub"
+            );
+            return Ok(false);
+        }
         if !tailnet::resolves_to_tailnet(new_hub, self.hub_port).await {
             tracing::warn!(new_hub, "ignoring a hub redirect that is not a tailnet address");
             return Ok(false);
@@ -253,8 +260,11 @@ impl Node {
         let Ok(bundle) = serde_json::from_value::<hubmove::Bundle>(command) else {
             return false;
         };
+        let updating = self.updater.status().is_some_and(|s| s.in_progress());
         let imported = if self.is_guest() {
             Err(anyhow::anyhow!("the hub belongs to another Tailscale user"))
+        } else if updating || self.lifecycle.is_draining() {
+            Err(anyhow::anyhow!("this machine is updating"))
         } else if self.paths.has_accounts() {
             Err(anyhow::anyhow!("this machine already holds accounts"))
         } else {

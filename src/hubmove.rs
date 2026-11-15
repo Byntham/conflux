@@ -177,6 +177,7 @@ pub async fn start(State(app): State<Arc<App>>, Json(req): Json<MoveRequest>) ->
         Ok(false) => return fail(StatusCode::CONFLICT, "the hub is not active"),
         Err(e) => return fail(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
     }
+    tokio::spawn(resume_after(app.clone(), id.clone(), MOVE_TIMEOUT));
     app.refresher.close_gate().await;
     app.usage.set_paused(true);
     let _ = app.ws_shutdown.send(true);
@@ -201,7 +202,6 @@ pub async fn start(State(app): State<Arc<App>>, Json(req): Json<MoveRequest>) ->
         let _ = restore_service(&app, &id).await;
         return failure;
     }
-    tokio::spawn(resume_after(app.clone(), id, MOVE_TIMEOUT));
     Json(json!({ "status": "moving", "hub": target.hub })).into_response()
 }
 
@@ -223,30 +223,28 @@ pub async fn commit(
     ConnectInfo(from): ConnectInfo<SocketAddr>,
     Json(req): Json<Commit>,
 ) -> Response {
-    let ok = match app.hub_state.get() {
-        HubState::Moving { id, hub, address } if id == req.id => {
-            if address != Some(from.ip()) {
-                return not_the_target();
-            }
-            let moving = HubState::Moving {
-                id: id.clone(),
-                hub: hub.clone(),
-                address,
-            };
-            match app.hub_state.compare_and_set(&moving, HubState::Retired { id, hub }) {
-                Ok(true) => {
-                    tokio::spawn(follow_new_hub(app.clone()));
-                    true
-                }
-                Ok(false) => matches!(app.hub_state.get(), HubState::Retired { id, .. } if id == req.id),
-                Err(e) => return fail(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
-            }
-        }
-        HubState::Retired { id, .. } => id == req.id,
-        _ => false,
-    };
-    if !ok {
+    let state = app.hub_state.get();
+    let (HubState::Moving { id, hub, address } | HubState::Retired { id, hub, address }) = state.clone() else {
         return commit_response(false);
+    };
+    if id != req.id {
+        return commit_response(false);
+    }
+    if address != Some(from.ip()) {
+        return not_the_target();
+    }
+    if matches!(state, HubState::Moving { .. }) {
+        match app
+            .hub_state
+            .compare_and_set(&state, HubState::Retired { id, hub, address })
+        {
+            Ok(true) => {
+                tokio::spawn(follow_new_hub(app.clone()));
+            }
+            Ok(false) if matches!(app.hub_state.get(), HubState::Retired { id, .. } if id == req.id) => {}
+            Ok(false) => return commit_response(false),
+            Err(e) => return fail(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
+        }
     }
     if let Err(e) = finish_retirement(&app.paths, &req.id) {
         return fail(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));
@@ -447,10 +445,21 @@ pub fn find_pending(paths: &Paths) -> Result<Option<(PathBuf, Pending)>> {
 }
 
 pub fn import_bundle(paths: &Paths, bundle: &Bundle, old_hub: &str, port: u16) -> Result<(PathBuf, Pending)> {
+    uuid::Uuid::parse_str(&bundle.id).context("the move has an invalid id")?;
     let dir = incoming_root(paths).join(&bundle.id);
+    let imported = write_bundle(&dir, bundle, old_hub, port);
+    if imported.is_err() && dir.exists() {
+        let _ = discard_incoming(&dir);
+    }
+    imported.map(|pending| (dir, pending))
+}
+
+fn write_bundle(dir: &Path, bundle: &Bundle, old_hub: &str, port: u16) -> Result<Pending> {
     let files = dir.join("files");
-    fsutil::ensure_private_dir(&incoming_root(paths))?;
-    fsutil::ensure_private_dir(&dir)?;
+    if let Some(root) = dir.parent() {
+        fsutil::ensure_private_dir(root)?;
+    }
+    fsutil::ensure_private_dir(dir)?;
     fsutil::ensure_private_dir(&files)?;
     for f in &bundle.files {
         let rel = Path::new(&f.path);
@@ -469,8 +478,8 @@ pub fn import_bundle(paths: &Paths, bundle: &Bundle, old_hub: &str, port: u16) -
         port,
         management_key: bundle.management_key.clone(),
     };
-    fsutil::write_json_durable(&transfer_file(&dir), &pending)?;
-    Ok((dir, pending))
+    fsutil::write_json_durable(&transfer_file(dir), &pending)?;
+    Ok(pending)
 }
 
 pub fn activate(paths: &Paths, dir: &Path, pending: &Pending) -> Result<()> {
@@ -574,8 +583,16 @@ mod tests {
     fn unsafe_paths_are_refused() {
         let d = tempfile::tempdir().unwrap();
         let mut b = bundle();
-        b.files[0].path = "../../evil".into();
-        assert!(import_bundle(&Paths::under(d.path()), &b, "hub-box", 8317).is_err());
+        b.files[1].path = "../../evil".into();
+        let paths = Paths::under(d.path());
+        assert!(import_bundle(&paths, &b, "hub-box", 8317).is_err());
+        assert!(
+            !incoming_root(&paths).join(&b.id).exists(),
+            "a failed import leaves no tokens behind"
+        );
+        let mut b = bundle();
+        b.id = "../../evil".into();
+        assert!(import_bundle(&paths, &b, "hub-box", 8317).is_err());
     }
 
     #[test]

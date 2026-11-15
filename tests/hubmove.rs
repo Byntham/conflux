@@ -328,18 +328,22 @@ async fn only_the_target_can_commit_or_abort() {
     let routes = h.app.routes().into_make_service_with_connect_info::<SocketAddr>();
     tokio::spawn(async move { axum::serve(other, routes).await.unwrap() });
     let (_ws, bundle) = moving(&h).await;
-    for action in ["commit", "abort"] {
-        let r = h
-            .http
+    let from_elsewhere = |action: &'static str| {
+        h.http
             .post(format!("{other_base}/conflux/move/{action}"))
             .json(&json!({ "id": bundle.id }))
             .send()
-            .await
-            .unwrap();
-        assert_eq!(r.status(), StatusCode::FORBIDDEN, "{action}");
+    };
+    for action in ["commit", "abort"] {
+        let status = from_elsewhere(action).await.unwrap().status();
+        assert_eq!(status, StatusCode::FORBIDDEN, "{action}");
     }
     assert!(matches!(h.app.hub_state.get(), HubState::Moving { .. }));
     assert!(paths(&h).accounts_dir().exists());
+
+    assert_eq!(commit(&h, &bundle.id).await["status"], "ok");
+    let status = from_elsewhere("commit").await.unwrap().status();
+    assert_eq!(status, StatusCode::FORBIDDEN, "a retired hub still checks who retries");
 }
 
 #[tokio::test]
@@ -516,7 +520,7 @@ async fn a_node_takes_over_the_accounts_and_becomes_the_hub() {
     );
     tokio::spawn(node.clone().run_control());
     eventually(|| h.app.machines.list().into_iter().find(|m| m.online)).await;
-    assert_eq!(start_move(&h, "node-one", false).await.status(), 200);
+    assert_eq!(start_move(&h, "node-one", true).await.status(), 200);
 
     eventually(|| node.lifecycle.is_draining().then_some(())).await;
     assert!(matches!(h.app.hub_state.get(), HubState::Retired { .. }));
@@ -565,7 +569,7 @@ async fn a_node_refuses_to_become_the_hub_it_cannot_safely_be() {
         );
         tokio::spawn(node.clone().run_control());
         eventually(|| h.app.machines.list().into_iter().find(|m| m.online)).await;
-        assert_eq!(start_move(&h, "node-one", false).await.status(), 200);
+        assert_eq!(start_move(&h, "node-one", true).await.status(), 200);
         eventually(|| (h.app.hub_state.get() == HubState::Active).then_some(())).await;
         assert!(hubmove::find_pending(&new_paths).unwrap().is_none());
         assert_eq!(new_paths.has_accounts(), holds_accounts);
@@ -630,6 +634,7 @@ async fn restart_after_commit_finishes_retiring_and_becomes_a_node() {
         HubState::Retired {
             id: ID.into(),
             hub: NEW_HUB.into(),
+            address: Some(LOCAL),
         },
     );
     let port = free_port().await;

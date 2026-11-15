@@ -18,7 +18,7 @@ A machine gets its role in one of these ways:
 - `conflux join <hub>` sets the role to node. If `<hub>` names this machine, it sets the role to hub instead.
 - `conflux wait` sets the role to waiting. It leaves the role alone if the machine has already joined or holds accounts.
 - A hub links a waiting machine, or a waiting machine links itself to a hub. It then becomes a node. See "Linking waiting machines".
-- `conflux hub take-over` makes the new machine a hub. See "Hub move".
+- A hub move makes one of the hub's nodes the hub. See "Hub move".
 - With no `config.toml`, the role defaults to hub.
 
 ## Process model
