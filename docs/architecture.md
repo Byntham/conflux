@@ -111,7 +111,7 @@ A cooldown or billing block lifts early when a usage reading taken after it show
 
 Commit and abort accept only the target's saved address and the move's id. Neither machine edits Claude Code or Codex settings, so routing stays as it was on both.
 
-A restart in the middle resumes where the move was. A hub that restarts while moving starts the 2 minute timer again. A retired hub starts polling the new hub again. A node that restarts with `incoming/` calls commit again, then finishes the move or drops the files. While moving or retired, the hub refuses proxy traffic with a clear error. A node follows a new hub address only if it resolves to a tailnet IP. `conflux hub resume`, or Cancel on the dashboard, cancels a move.
+A restart in the middle resumes where the move was. A hub that restarts while moving starts the 2 minute timer again. A retired hub starts polling the new hub again. A node that restarts with `incoming/` calls commit again, then finishes the move or drops the files. While moving or retired, the hub refuses proxy traffic with a clear error. A node follows a new hub address only if it resolves to a tailnet IP and does not name the node itself. `conflux hub resume`, or Cancel on the dashboard, cancels a move.
 
 ## Linking waiting machines
 

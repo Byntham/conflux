@@ -1344,17 +1344,20 @@ function render(d) {
 let movingTo = null;
 
 async function refresh() {
+  let d;
   try {
-    const d = await api("GET", "/conflux/api/dashboard");
-    movingTo = d.hub.state && d.hub.state.state === "moving" ? d.hub.state.hub : null;
-    render(d);
-    setConnection(true);
+    d = await api("GET", "/conflux/api/dashboard");
   } catch (e) {
     setConnection(false, e.message);
     const moved = e.message.match(/the hub moved to (\S+?)\.\s/);
     if (moved) movingTo = moved[1];
-    if (movingTo && e instanceof TypeError) location.href = `http://${movingTo}:${location.port}/`;
+    const next = `http://${movingTo}:${location.port}/`;
+    if (movingTo && e instanceof TypeError) fetch(next, { mode: "no-cors" }).then(() => { location.href = next; }, () => {});
+    return;
   }
+  movingTo = d.hub.state && d.hub.state.state === "moving" ? d.hub.state.hub : null;
+  render(d);
+  setConnection(true);
 }
 
 function toast(message, bad = false) {
@@ -1610,6 +1613,7 @@ async function cancelMove(button) {
   button.disabled = true;
   try {
     await api("POST", "/conflux/api/hub/resume", {});
+    movingTo = null;
     toast("The move was cancelled");
     await refresh();
   } catch (e) { showError(e); button.disabled = false; }

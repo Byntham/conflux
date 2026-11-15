@@ -197,7 +197,8 @@ impl Node {
             .ok()
             .flatten()
             .unwrap_or_default();
-        if me.names().contains(&new_hub.to_lowercase()) {
+        let named_me = me.names().contains(&new_hub.to_lowercase());
+        if named_me || me.ips.iter().any(|ip| ip.to_string() == new_hub) {
             tracing::warn!(new_hub, "ignoring a hub redirect to this machine");
             return Ok(false);
         }
