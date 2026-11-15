@@ -14,6 +14,7 @@ const MAX_WINDOW: chrono::Duration = chrono::Duration::hours(7 * 24 + 1);
 pub const SHORT_COOLDOWN: chrono::Duration = chrono::Duration::seconds(30);
 const ACCOUNT_SCOPE: &str = "account";
 const MODEL_SCOPE: &str = "model:";
+pub const SHORT_THROTTLE: &str = "short rate limit";
 
 pub fn model_scope(model: &str) -> String {
     format!("{MODEL_SCOPE}{model}")
@@ -79,12 +80,6 @@ pub struct Router {
     cooled: watch::Sender<()>,
 }
 
-enum Standing {
-    Ready,
-    Overage,
-    Out(Option<DateTime<Utc>>),
-}
-
 #[derive(Debug, PartialEq)]
 pub enum NoAccount {
     NoneConfigured,
@@ -113,51 +108,6 @@ impl Router {
         until
     }
 
-    fn configured(e: &AccountEntry) -> bool {
-        e.credentials().generation != 0 && e.settings().enabled && e.needs_login().is_none()
-    }
-
-    fn standing(&self, st: &mut State, e: &AccountEntry, model: Option<&str>, now: DateTime<Utc>) -> Standing {
-        let snap = self.usage.get(&e.id);
-        if let Some(block) = st.billing_blocked.get(&e.id) {
-            if !block.cleared_by(&snap, now) {
-                return Standing::Out(None);
-            }
-            st.billing_blocked.remove(&e.id);
-        }
-        if let Some(cds) = st.cooldowns.get_mut(&e.id) {
-            cds.retain(|_, c| {
-                let lifted = c.until > now && c.lifted_by(&snap, now);
-                if lifted {
-                    tracing::info!(account = %e.id, scope = %c.scope, reason = %c.reason, until = %c.until, "usage shows room again; cooldown lifted");
-                }
-                !lifted
-            });
-        }
-        if let Some(until) = Self::cooling(st, &e.id, model, now) {
-            return Standing::Out(Some(until));
-        }
-        let fresh = snap.is_fresh(now);
-        let exhausted = fresh && snap.exhausted(now);
-        if exhausted || (fresh && snap.overage_in_use) {
-            if e.settings().allow_overage {
-                return Standing::Overage;
-            }
-            let full = snap.shared_windows().filter(|w| w.used_pct >= 100.0);
-            return Standing::Out(full.filter_map(|w| w.resets_at).max());
-        }
-        Standing::Ready
-    }
-
-    pub fn serves_account_wide(&self, account: &AccountEntry) -> bool {
-        let mut st = self.state.lock().unwrap();
-        Self::configured(account) && !matches!(self.standing(&mut st, account, None, Utc::now()), Standing::Out(_))
-    }
-
-    pub fn watch_cooldowns(&self) -> watch::Receiver<()> {
-        self.cooled.subscribe()
-    }
-
     pub fn pick(&self, req: &RouteRequest, tried: &HashSet<String>) -> Result<Arc<AccountEntry>, NoAccount> {
         let now = Utc::now();
         let model = req.model.as_deref();
@@ -170,19 +120,51 @@ impl Router {
         let mut overage_pool = Vec::new();
 
         for e in self.store.all() {
-            if req.provider != e.provider || !Self::configured(&e) {
+            if req.provider != e.provider {
+                continue;
+            }
+            if e.credentials().generation == 0 || !e.settings().enabled || e.needs_login().is_some() {
                 continue;
             }
             any_configured = true;
             if tried.contains(&e.id) {
                 continue;
             }
-            match self.standing(&mut st, &e, model, now) {
-                Standing::Ready => eligible.push(e),
-                Standing::Overage => overage_pool.push(e),
-                Standing::Out(Some(until)) => soonest = Some(soonest.map_or(until, |s| s.min(until))),
-                Standing::Out(None) => {}
+            let snap = self.usage.get(&e.id);
+            if let Some(block) = st.billing_blocked.get(&e.id) {
+                if !block.cleared_by(&snap, now) {
+                    continue;
+                }
+                st.billing_blocked.remove(&e.id);
             }
+            if let Some(cds) = st.cooldowns.get_mut(&e.id) {
+                cds.retain(|_, c| {
+                    let lifted = c.until > now && c.lifted_by(&snap, now);
+                    if lifted {
+                        tracing::info!(account = %e.id, scope = %c.scope, reason = %c.reason, until = %c.until, "usage shows room again; cooldown lifted");
+                    }
+                    !lifted
+                });
+            }
+            if let Some(until) = Self::cooling(&st, &e.id, model, now) {
+                soonest = Some(soonest.map_or(until, |s| s.min(until)));
+                continue;
+            }
+            let fresh = snap.is_fresh(now);
+            let exhausted = fresh && snap.exhausted(now);
+            if exhausted {
+                let full = snap.shared_windows().filter(|w| w.used_pct >= 100.0);
+                if let Some(r) = full.filter_map(|w| w.resets_at).max() {
+                    soonest = Some(soonest.map_or(r, |s| s.min(r)));
+                }
+            }
+            if exhausted || (fresh && snap.overage_in_use) {
+                if e.settings().allow_overage {
+                    overage_pool.push(e);
+                }
+                continue;
+            }
+            eligible.push(e);
         }
 
         if eligible.is_empty() {
@@ -271,6 +253,18 @@ impl Router {
         }
         drop(st);
         self.cooled.send_replace(());
+    }
+
+    pub fn watch_cooldowns(&self) -> watch::Receiver<()> {
+        self.cooled.subscribe()
+    }
+
+    pub fn blocked_account_wide(&self, account: &str) -> bool {
+        self.billing_blocked(account).is_some()
+            || self
+                .cooldowns(account)
+                .iter()
+                .any(|c| c.scope == ACCOUNT_SCOPE && c.reason != SHORT_THROTTLE)
     }
 
     pub fn clear(&self, account: &str) {
