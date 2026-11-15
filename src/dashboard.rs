@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{ConnectInfo, State};
-use axum::http::{HeaderMap, header};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
 use serde_json::{Value, json};
 
@@ -53,11 +53,24 @@ pub async fn data(
     State(app): State<Arc<App>>,
     ConnectInfo(from): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
-) -> Json<Value> {
+) -> Response {
     let host = headers.get(header::HOST).and_then(|v| v.to_str().ok());
     let name = hub_name(&app, host);
     let caller = app.identify(from.ip()).await;
     let owner = caller.is_owner();
+    let refused = match &caller {
+        Caller::Unknown => Some((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "the hub could not ask Tailscale who you are. Try again in a minute.".to_string(),
+        )),
+        Caller::Peer(guest) if !owner && !app.guests.is_approved(&guest.node) => {
+            Some((StatusCode::FORBIDDEN, app.waiting_for_owner()))
+        }
+        _ => None,
+    };
+    if let Some((status, message)) = refused {
+        return (status, Json(json!({ "error": message }))).into_response();
+    }
     let mut accounts: Vec<_> = app
         .store
         .all()
@@ -93,6 +106,7 @@ pub async fn data(
         "requests": if owner { json!(app.requests.recent()) } else { json!([]) },
         "add_machine": owner.then(|| add_machine(&name)),
     }))
+    .into_response()
 }
 
 #[cfg(test)]

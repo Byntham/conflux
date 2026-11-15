@@ -122,6 +122,8 @@ pub struct TailnetSelf {
     pub ips: Vec<IpAddr>,
     pub host_name: Option<String>,
     pub dns_name: Option<String>,
+    #[serde(default)]
+    pub owner: Option<String>,
 }
 
 impl TailnetSelf {
@@ -132,7 +134,11 @@ impl TailnetSelf {
     }
 
     pub fn from_status(v: &Value) -> Self {
-        Self::from_peer(&v["Self"])
+        let me = v["Self"]["UserID"].to_string();
+        Self {
+            owner: v["User"][me]["LoginName"].as_str().map(str::to_string),
+            ..Self::from_peer(&v["Self"])
+        }
     }
 
     pub fn from_peer(me: &Value) -> Self {
@@ -152,6 +158,7 @@ impl TailnetSelf {
             ips,
             host_name: s("HostName"),
             dns_name: s("DNSName"),
+            owner: None,
         }
     }
 

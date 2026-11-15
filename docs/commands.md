@@ -10,7 +10,7 @@ An account ID looks like `claude-1a2b3c4d5e6f` or `codex-1a2b3c4d5e6f`. `conflux
 
 - [Accounts](#accounts): `status`, `login`, `usage`, `enable`, `disable`, `overage`, `remove`
 - [This machine](#this-machine): `join`, `wait`, `off`, `on`, `leave`, `sync`, `serve`
-- [Every machine](#every-machine): `add`, `update`
+- [Every machine](#every-machine): `add`, `update`, `guest`
 - [Moving the hub](#moving-the-hub): `hub move-code`, `hub take-over`, `hub resume`
 - [Other](#other): `t3-key`
 
@@ -37,6 +37,8 @@ STATUS is `ok`, or one or more of these:
 - `overage allowed`. You turned on paid extra usage with `conflux overage`.
 
 On a machine that is waiting to be linked, `status` says so and tells you how to link it.
+
+On the hub's owner's machines, `status` also lists machines that wait for your approval. See [`conflux guest`](#conflux-guest-approvedenyremove-machine). On a guest machine, it says whether the hub's owner has approved it yet.
 
 ### `conflux login claude`, `conflux login codex`
 
@@ -96,6 +98,8 @@ Options:
 - `--force` joins another hub even though this machine holds logged-in accounts. Without it, `join` refuses, because those accounts would be stranded. To move accounts to a new hub, use [`conflux hub take-over`](#conflux-hub-take-over-old-hub---code-code) instead.
 
 `join` refuses while this machine is in the middle of a hub move. Finish the move, or run `conflux hub resume`.
+
+If the hub belongs to another Tailscale user, this machine is a guest, and the hub's owner must approve it first. `join` installs the service but leaves Claude Code and Codex alone. Once the owner approves the machine, conflux points them at the hub. Until then they keep using this machine's own logins. If the owner turns the machine down, run `join` again to ask again.
 
 ### `conflux wait`
 
@@ -171,6 +175,24 @@ Each machine downloads the release and starts it next to the running version. Th
 The command waits up to 5 minutes and prints each machine's result. A machine that is offline or already updating is skipped. If a machine fails, or is still updating after 5 minutes, the command exits with an error. Check the dashboard for details.
 
 A system without a prebuilt binary can't update this way. Run `cargo install` on it again.
+
+### `conflux guest approve|deny|remove <machine>`
+
+Decides whether a guest may send requests through the hub. A guest is a machine signed in to Tailscale as another user, or a tagged machine. Run it on any of the hub owner's machines.
+
+```sh
+conflux guest approve studio
+```
+
+- `approve` lets the machine send requests through the hub, starting with its next request.
+- `deny` turns down the machine's request.
+- `remove` takes away an approval. Requests already running finish, and a Codex WebSocket closes after its current turn.
+
+`<machine>` is the name the dashboard shows. If two guests share a name, use the Tailscale ID that the error lists.
+
+While a guest is not approved, conflux points its Claude Code and Codex back at its own logins, and points them at the hub again once it is approved. A guest asks when it joins, and the dashboard shows it under Machines as "Wants to join". A guest that was turned down or removed asks again only when someone runs `conflux join` on it, or clicks "Ask again" in its Mac menu bar app. Reconnecting does not ask again.
+
+The hub keeps its approvals in `guests.json` in its config folder. They move with the hub.
 
 ## Moving the hub
 

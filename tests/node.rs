@@ -326,6 +326,7 @@ async fn the_dashboard_turns_routing_on_and_off_for_each_machine() {
     tailnet.calls_from(&hub, whois(2, &[]));
     let impostor = json!({ "hostname": "node-one", "version": "0.1.0", "routing": true });
     let mut guest = open_control(&hub, impostor.clone()).await.unwrap();
+    assert_eq!(next_command(&mut guest).await["state"], "pending");
     eventually(|| (online_named(&hub, "node-one").len() == 2).then_some(())).await;
     tailnet.calls_from(&hub, Value::Null);
     assert!(online_named(&hub, "node-one").contains(&(false, Some(false))));
@@ -347,6 +348,7 @@ async fn the_dashboard_turns_routing_on_and_off_for_each_machine() {
     )
     .await
     .unwrap();
+    assert_eq!(next_command(&mut guest).await["state"], "pending");
     eventually(|| (online_named(&hub, "guest-only") == [(true, Some(true))]).then_some(())).await;
     tailnet.calls_from(&hub, Value::Null);
     assert_eq!(
@@ -450,6 +452,7 @@ async fn update_reaches_connected_nodes_and_shows_their_failures() {
     let mut guest = open_control(&hub, json!({ "hostname": "node-one", "version": "0.1.0" }))
         .await
         .unwrap();
+    assert_eq!(next_command(&mut guest).await["state"], "pending");
     eventually(|| (online_named(&hub, "node-one").len() == 2).then_some(())).await;
     tailnet.calls_from(&hub, Value::Null);
 
@@ -667,6 +670,14 @@ async fn guests_see_the_hub_and_their_own_machines_and_change_nothing() {
     let _guest_box = open_control(&hub, report("guest-box")).await.unwrap();
     eventually(|| (hub.app.machines.list().len() == 3).then_some(())).await;
 
+    let (status, refused) = ask(&hub, Method::GET, "/conflux/api/dashboard", Value::Null).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(refused["error"].as_str().unwrap().contains("approve"), "{refused}");
+    let approved = conflux::guests::Guest {
+        approved: true,
+        ..Default::default()
+    };
+    hub.app.guests.set("n2", approved).unwrap();
     let (status, dashboard) = ask(&hub, Method::GET, "/conflux/api/dashboard", Value::Null).await;
     assert_eq!(status, 200);
     assert_eq!(dashboard["guest"], true);
@@ -726,7 +737,227 @@ async fn guests_see_the_hub_and_their_own_machines_and_change_nothing() {
 
     let moving = HubState::Moving { id: "secret".into() };
     assert!(hub.app.hub_state.compare_and_set(&HubState::Active, moving).unwrap());
+    *tailnet.status.lock().unwrap() = json!({ "Self": { "UserID": 1 } });
     tailnet.calls_from(&hub, whois(2, &[]));
     let (_, dashboard) = ask(&hub, Method::GET, "/conflux/api/dashboard", Value::Null).await;
     assert_eq!(dashboard["hub"]["state"], json!({ "state": "moving" }));
+}
+
+async fn as_owner(hub: &Harness, tailnet: &Tailnet, req: reqwest::RequestBuilder) -> Value {
+    let guest = tailnet.caller.lock().unwrap().clone();
+    tailnet.calls_from(hub, whois(1, &[]));
+    let r = req.send().await.unwrap();
+    tailnet.calls_from(hub, guest);
+    assert_eq!(r.status(), 200);
+    r.json().await.unwrap()
+}
+
+fn guest_rows(hub: &Harness) -> Vec<(String, Option<conflux::guests::Access>)> {
+    hub.app
+        .fleet()
+        .into_iter()
+        .filter(|m| m.guest)
+        .map(|m| (m.hostname, m.access))
+        .collect()
+}
+
+async fn node_access(n: &NodeHarness, state: &str) {
+    for _ in 0..200 {
+        let v: Value = n
+            .http
+            .get(format!("{}/conflux/node", n.base))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        if v["access"]["state"] == state {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("the node never reached access {state}");
+}
+
+async fn open_codex(n: &NodeHarness) -> Result<ControlSocket, tokio_tungstenite::tungstenite::Error> {
+    let mut req = format!("ws://127.0.0.1:{}/v1/responses", n.port)
+        .into_client_request()
+        .unwrap();
+    req.headers_mut()
+        .insert("user-agent", "codex_cli_rs/0.200.0".parse().unwrap());
+    Ok(tokio_tungstenite::connect_async(req).await?.0)
+}
+
+async fn codex_ws(n: &NodeHarness) -> Result<ControlSocket, tokio_tungstenite::tungstenite::Error> {
+    let mut ws = open_codex(n).await?;
+    ws.send(Message::Text(
+        json!({"type": "response.create", "model": "m"}).to_string().into(),
+    ))
+    .await?;
+    while next_command(&mut ws).await["type"] != "response.completed" {}
+    Ok(ws)
+}
+
+#[tokio::test]
+async fn a_guest_uses_the_hub_only_while_the_owner_approves_it() {
+    use conflux::guests::Access;
+
+    let tailnet = Tailnet::new();
+    *tailnet.caller.lock().unwrap() = whois(2, &[]);
+    let hub = hub_on(&tailnet).await;
+    hub.add(Provider::Claude, "a").await;
+    hub.add(Provider::Codex, "c").await;
+    let guest_api = |method: reqwest::Method, name: &str| {
+        hub.http
+            .request(method, format!("{}/conflux/api/guests/{name}", hub.base))
+            .header("content-type", "application/json")
+    };
+
+    let r = hub.claude(json!({})).send().await.unwrap();
+    assert_eq!(r.status(), StatusCode::FORBIDDEN);
+    assert!(guest_rows(&hub).is_empty());
+
+    let mut raw = open_control(&hub, json!({ "hostname": "guest-box", "version": "0.1.0", "ask": "x" }))
+        .await
+        .unwrap();
+    assert_eq!(next_command(&mut raw).await["state"], "pending");
+    assert_eq!(guest_rows(&hub), [("guest-box".to_string(), Some(Access::Pending))]);
+    let status = as_owner(&hub, &tailnet, hub.http.get(format!("{}/conflux/api/status", hub.base))).await;
+    assert_eq!(status["guests_waiting"][0]["hostname"], "guest-box");
+    let status: Value = hub
+        .http
+        .get(format!("{}/conflux/api/status", hub.base))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(status["guests_waiting"].is_null());
+
+    as_owner(
+        &hub,
+        &tailnet,
+        guest_api(reqwest::Method::POST, "guest-box").json(&json!({ "approve": true })),
+    )
+    .await;
+    assert_eq!(next_command(&mut raw).await["state"], "approved");
+    as_owner(&hub, &tailnet, guest_api(reqwest::Method::DELETE, "guest-box")).await;
+    assert_eq!(next_command(&mut raw).await["state"], "denied");
+    let closed = tokio::time::timeout(Duration::from_secs(5), raw.next()).await.unwrap();
+    assert!(
+        matches!(closed, None | Some(Ok(Message::Close(_))) | Some(Err(_))),
+        "{closed:?}"
+    );
+
+    let reconnect = json!({ "hostname": "guest-box", "version": "0.1.0", "ask": "x" });
+    let mut raw = open_control(&hub, reconnect.clone()).await.unwrap();
+    assert_eq!(next_command(&mut raw).await["state"], "denied");
+    assert!(guest_rows(&hub).is_empty());
+    raw.send(Message::Text(
+        json!({ "hostname": "guest-box", "version": "0.1.0", "ask": "y" })
+            .to_string()
+            .into(),
+    ))
+    .await
+    .unwrap();
+    assert_eq!(next_command(&mut raw).await["state"], "pending");
+    as_owner(
+        &hub,
+        &tailnet,
+        guest_api(reqwest::Method::POST, "guest-box").json(&json!({ "approve": false })),
+    )
+    .await;
+    assert_eq!(next_command(&mut raw).await["state"], "denied");
+    drop(raw);
+
+    let hub_owner = Tailnet::new();
+    *hub_owner.caller.lock().unwrap() = whois(2, &[]);
+    let n = start_node_on(hub.port, hub_owner.fake()).await;
+    Config {
+        role: Role::Node,
+        ask: Some("first".into()),
+        route_once_approved: true,
+        ..Config::default()
+    }
+    .save(&Paths::under(n.dir.path()))
+    .unwrap();
+    tokio::spawn(n.node.clone().run_control());
+    node_access(&n, "pending").await;
+    let r = claude(&n).send().await.unwrap();
+    assert_eq!(r.status(), StatusCode::FORBIDDEN);
+    let v: Value = r.json().await.unwrap();
+    assert!(v["error"]["message"].as_str().unwrap().contains("conflux off"), "{v}");
+    let refused = codex_ws(&n).await;
+    assert!(
+        matches!(&refused, Err(tokio_tungstenite::tungstenite::Error::Http(r)) if r.status() == 403),
+        "{refused:?}"
+    );
+    assert_eq!(claude_base_url(&n.clients), None);
+
+    as_owner(
+        &hub,
+        &tailnet,
+        guest_api(reqwest::Method::POST, "node-one").json(&json!({ "approve": true })),
+    )
+    .await;
+    node_access(&n, "approved").await;
+    assert_eq!(
+        claude_base_url(&n.clients),
+        Some(format!("http://127.0.0.1:{}", n.port))
+    );
+    assert!(!Config::load(&Paths::under(n.dir.path())).unwrap().route_once_approved);
+    assert_eq!(claude(&n).send().await.unwrap().status(), 200);
+    let mut open_socket = codex_ws(&n).await.unwrap();
+    let mut idle_socket = open_codex(&n).await.unwrap();
+
+    as_owner(&hub, &tailnet, guest_api(reqwest::Method::DELETE, "node-one")).await;
+    assert_eq!(claude(&n).send().await.unwrap().status(), StatusCode::FORBIDDEN);
+    let closed = tokio::time::timeout(Duration::from_secs(5), open_socket.next())
+        .await
+        .unwrap();
+    assert!(
+        matches!(closed, None | Some(Ok(Message::Close(_))) | Some(Err(_))),
+        "{closed:?}"
+    );
+    let turn = json!({"type": "response.create", "model": "m"}).to_string();
+    let _ = idle_socket.send(Message::Text(turn.into())).await;
+    let refused = tokio::time::timeout(Duration::from_secs(5), idle_socket.next())
+        .await
+        .unwrap();
+    assert!(
+        matches!(refused, None | Some(Ok(Message::Close(_))) | Some(Err(_))),
+        "{refused:?}"
+    );
+    node_access(&n, "denied").await;
+    assert_eq!(claude_base_url(&n.clients), None);
+    let r = n
+        .http
+        .post(format!("{}/conflux/node/ask", n.base))
+        .header("content-type", "application/json")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::NO_CONTENT);
+    node_access(&n, "pending").await;
+    assert_eq!(guest_rows(&hub), [("node-one".to_string(), Some(Access::Pending))]);
+    as_owner(
+        &hub,
+        &tailnet,
+        guest_api(reqwest::Method::POST, "n2").json(&json!({ "approve": true })),
+    )
+    .await;
+    node_access(&n, "approved").await;
+    assert!(claude_base_url(&n.clients).is_some());
+
+    *tailnet.status.lock().unwrap() = Value::Null;
+    hub.app.forget_identities();
+    let r = hub
+        .http
+        .get(format!("{}/conflux/api/dashboard", hub.base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::SERVICE_UNAVAILABLE);
 }
