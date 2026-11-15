@@ -24,8 +24,15 @@ struct FoundHubs: Decodable {
 struct FoundHub: Decodable, Identifiable {
     let name: String
     let address: String
+    let guest: Bool?
+    let owner: String?
 
     var id: String { address }
+
+    var linkTitle: String {
+        guard guest == true else { return "Link to \(name)" }
+        return owner.map { "Join \($0)'s hub as a guest" } ?? "Join \(name) as a guest"
+    }
 }
 
 struct Account: Decodable, Identifiable {

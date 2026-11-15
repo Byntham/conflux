@@ -77,8 +77,8 @@ These commands change only the machine you run them on.
 Makes this machine the hub, or a node of a hub.
 
 - `conflux join self` makes this machine the hub. `localhost`, `127.0.0.1`, and this machine's own name also work.
-- `conflux join <hub>` makes this machine a node. `<hub>` is the hub's name in `tailscale status`. conflux checks that it can reach the hub and warns you if it can't.
-- `conflux join` with no name finds the hub for you. It works on a machine that is waiting to be linked. conflux asks each online machine owned by the same Tailscale user whether it is a hub, then links to the one it finds. If it finds none, or more than one, it tells you, and you name the hub yourself. The background service is already running, so `--no-service` and `--force` do not apply.
+- `conflux join <hub>` makes this machine a node. `<hub>` is the hub's name in `tailscale status`, or its Tailscale address. conflux checks that it can reach the hub and warns you if it can't.
+- `conflux join` with no name finds the hub for you. It works on a machine that is waiting to be linked. conflux asks each online machine on your tailnet whether it is a hub. If it finds one hub, and that hub belongs to your Tailscale user, it links to it. Otherwise it lists the hubs it found, and you name one yourself. A hub that belongs to another Tailscale user shows as "join <owner>'s hub as a guest". The background service is already running, so `--no-service` and `--force` do not apply.
 
 `join` with a name then does three things:
 
