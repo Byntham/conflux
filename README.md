@@ -170,13 +170,13 @@ To turn routing on or off for another machine, open Machines on the dashboard, c
 
 ## Move the hub
 
-Your logins move with the hub, and your other machines follow on their own. The new machine needs conflux installed.
+Your logins move with the hub, and your other machines follow on their own. The new machine must be one of your nodes. On the dashboard, open Machines, click the ⋯ button on its row, and pick Make hub. Or run this on the hub:
 
 ```sh
-conflux hub move-code                               # on the current hub
-conflux hub take-over <old-hub> --code <code>       # on the new machine, within 10 minutes
-conflux join <new-hub>                              # back on the old machine, a minute later
+conflux hub move <machine>
 ```
+
+The old hub becomes a node of the new one.
 
 See [Moving the hub](docs/commands.md#moving-the-hub) for details.
 

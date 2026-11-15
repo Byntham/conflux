@@ -99,14 +99,19 @@ A cooldown or billing block lifts early when a usage reading taken after it show
 
 ## Hub move
 
-`src/hubmove.rs` moves the accounts to a new hub.
+`src/hubmove.rs` moves the accounts to one of the hub's nodes. The hub drives the move.
 
-1. On the old hub, `conflux hub move-code` prints a one-time code. It works only from loopback and expires in 10 minutes.
-2. On the new machine, `conflux hub take-over <old-hub> --code <code>` calls `/conflux/move/prepare`. The old hub enters the moving state. It stops refresh and usage polling, closes WebSocket sessions, and returns its account files and management key.
-3. The new machine stores the files under `incoming/` and calls `/conflux/move/commit`. The old hub becomes retired, moves its account store aside, and tells every connected node about the new hub.
-4. The new machine moves the accounts into place, sets its role to hub, restarts its service, and points its own clients at conflux.
+1. The dashboard's Make hub item and `conflux hub move <machine>` call `POST /conflux/api/hub/move`. Only the owner can call it.
+2. The hub checks the move before it changes anything. The hub must be active and not updating. The target must be an owner machine that is online, not updating, and on the hub's version. It must report no battery, unless the request sets `force`. The node computes `has_battery` once at start and sends it in each report.
+3. The hub enters the moving state. It saves the target's tailnet name and the address of its control connection in `hub-state.json`. It stops refresh and usage polling and closes WebSocket sessions. It sends `become_hub` with its account files and management key over that exact control connection. If the move does not finish in 2 minutes, the hub goes back into service.
+4. The node handles `become_hub` before it reads the next command. It refuses, and calls `/conflux/move/abort`, if the hub belongs to another Tailscale user, if the node already holds accounts, or if it cannot store the files. Otherwise it stores them under `incoming/` and calls `/conflux/move/commit`, retrying until it gets an answer.
+5. On commit, the old hub becomes retired. It moves its account store aside and tells every connected node about the new hub.
+6. The node moves the accounts into place, deletes `hub-state.json`, and saves its role as hub. It then hands its listener to a new conflux process, as an update does, and finishes the requests it was running. The new process starts as the hub.
+7. The old hub polls the new hub's `/conflux/api/status`. Once it answers with the hub role, the old hub saves its role as node, deletes `hub-state.json`, and hands off to a new process, which starts as a node. The old process closes its tailnet listeners and finishes its running requests.
 
-The hub state lives in `hub-state.json` (`src/hubstate.rs`), so a restart in the middle of a move resumes in the right state. While moving or retired, the hub refuses proxy traffic with a clear error. A node follows a new hub address only if it resolves to a tailnet IP. `conflux hub resume` cancels a move on the old hub.
+Commit and abort accept only the target's saved address and the move's id. Neither machine edits Claude Code or Codex settings, so routing stays as it was on both.
+
+A restart in the middle resumes where the move was. A hub that restarts while moving starts the 2 minute timer again. A retired hub starts polling the new hub again. A node that restarts with `incoming/` calls commit again, then finishes the move or drops the files. While moving or retired, the hub refuses proxy traffic with a clear error. A node follows a new hub address only if it resolves to a tailnet IP. `conflux hub resume`, or Cancel on the dashboard, cancels a move.
 
 ## Linking waiting machines
 
@@ -125,7 +130,7 @@ A waiting machine can also start the link itself. `conflux join` with no name an
 
 ## Control channel
 
-Each node keeps a WebSocket open to `/conflux/control` on the hub (`src/machines.rs`). The node reports its hostname, version, sync setting, routing setting (`conflux on` or `off`), and update status every 20 seconds. The hub uses the socket to send three commands: "the hub moved", "update to version X", and "turn routing on or off". The node reports again right after each command. The dashboard's machine list comes from these reports.
+Each node keeps a WebSocket open to `/conflux/control` on the hub (`src/machines.rs`). The node reports its hostname, version, sync setting, routing setting (`conflux on` or `off`), and update status every 20 seconds. The node also reports whether it has a battery. The hub uses the socket to send four commands: "the hub moved", "update to version X", "turn routing on or off", and "become the hub", which carries the accounts during a hub move. The node reports again right after each command. The dashboard's machine list comes from these reports.
 
 The dashboard's routing switch calls `PATCH /conflux/api/machines/<hostname>`. For the hub's own row, the hub edits its own client config. For a node, the hub sends the routing command and waits up to 5 seconds for a report with the new setting. A node older than this command reports no routing setting, so the hub refuses the request and asks for an update.
 

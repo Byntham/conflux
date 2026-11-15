@@ -256,7 +256,7 @@
   .chip:has(input:checked) { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 500; }
   .chip:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-  .panels { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 12px; margin-top: 12px; }
+  .panels { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin-top: 12px; }
   .panel { padding: 15px 16px; min-width: 0; }
   .panel p { margin: 3px 0 0; font-size: 12.5px; color: var(--muted); }
   .panel .seg { margin-top: 12px; }
@@ -423,7 +423,6 @@
     .stats { grid-template-columns: repeat(6, minmax(0, 1fr)); row-gap: 16px; }
     .stat { grid-column: span 2; }
     .stat:nth-child(n+4) { grid-column: span 3; }
-    .panels { grid-template-columns: minmax(0, 1fr); }
   }
   @media (max-width: 760px) {
     .app { display: block; }
@@ -603,14 +602,6 @@
               <button data-install="agent_prompt" aria-pressed="false">Agent prompt</button>
             </div>
             <div class="code-block"><span class="code-text" id="install-text"></span><button class="icon-btn" id="install-copy" title="Copy" aria-label="Copy"><svg class="i" aria-hidden="true"><use href="#i-copy"/></svg></button></div>
-          </div>
-          <div class="card panel">
-            <h2>Move the hub</h2>
-            <p>Logins move with the hub. Other machines follow within a minute.</p>
-            <ol class="steps">
-              <li>On this hub, run:<div class="code-block"><span class="code-text" id="move-command">conflux hub move-code</span><button class="icon-btn" data-copy="move-command" title="Copy" aria-label="Copy"><svg class="i" aria-hidden="true"><use href="#i-copy"/></svg></button></div></li>
-              <li>On the new machine, run:<div class="code-block"><span class="code-text" id="takeover-command"></span><button class="icon-btn" data-copy="takeover-command" title="Copy" aria-label="Copy"><svg class="i" aria-hidden="true"><use href="#i-copy"/></svg></button></div></li>
-            </ol>
           </div>
         </div>
       </section>
@@ -855,7 +846,7 @@ function renderAlerts(d) {
   const rows = [];
   const moving = d.hub.state && d.hub.state.state === "moving";
   $("hub-alert").hidden = !moving;
-  setHtml("hub-alert", moving ? `<div class="alert-row warn" role="status">${icon("alert")}<div class="alert-text"><div class="alert-title">The hub is moving</div><div class="alert-detail">Requests are paused until it finishes.</div></div></div>` : "");
+  setHtml("hub-alert", moving ? `<div class="alert-row warn" role="status">${icon("alert")}<div class="alert-text"><div class="alert-title">The hub is moving to ${esc(d.hub.state.hub)}</div><div class="alert-detail">Requests are paused until it finishes.</div></div><button class="btn" data-cancel-move>Cancel</button></div>` : "");
   for (const a of d.accounts.filter((x) => x.needs_login)) {
     rows.push(`<div class="alert-row">${icon("alert")}<div class="alert-text"><div class="alert-title">${esc(accountKind(a))} account needs a new login</div><div class="alert-detail">${breakableEmail(a.email || a.id)}</div></div>${loginButton(a, true)}</div>`);
   }
@@ -1006,7 +997,6 @@ function renderMachines(d) {
   setHtml("fleet", d.machines.map((m) =>
     `<li class="${m.online ? "" : "offline"}" title="${esc(m.hostname)}${m.online && m.routing === false ? " · routing off" : ""}"><span class="dot ${m.online ? "on" : ""} ${m.online && m.routing === false ? "routing-off" : ""}"></span><span class="truncate">${esc(m.hostname)}</span>${roleBadge(m)}</li>`
   ).join(""));
-  setHtml("takeover-command", commandHtml(`conflux hub take-over ${d.hub.name} --code <code>`));
   renderInstall();
 }
 
@@ -1357,6 +1347,7 @@ async function refresh() {
     setConnection(true);
   } catch (e) {
     setConnection(false, e.message);
+    if (e.message.includes("the hub moved to")) location.reload();
   }
 }
 
@@ -1587,7 +1578,35 @@ function accountMenu(a) {
 function machineMenu(m) {
   const on = m.routing !== false;
   const item = `<button role="menuitem" data-routing="${esc(m.hostname)}" data-on="${!on}" ${m.routing === null ? "disabled" : ""}>${on ? "Turn routing off" : "Turn routing on"}</button>`;
-  return m.routing === null ? `${item}<div class="menu-note">Update ${esc(m.hostname)} to change its routing from here.</div>` : item;
+  const routing = m.routing === null ? `${item}<div class="menu-note">Update ${esc(m.hostname)} to change its routing from here.</div>` : item;
+  const makeHub = m.role === "hub" || m.guest ? "" : `<hr><button role="menuitem" data-make-hub="${esc(m.hostname)}">Make hub</button>`;
+  return routing + makeHub;
+}
+
+function confirmMakeHub(name) {
+  closeMenu();
+  const m = latest.machines.find((x) => x.hostname === name && !x.guest);
+  if (!m) return;
+  const battery = m.has_battery ? `<p>${esc(name)} has a battery. If it leaves home or changes its IP address, your other machines lose the hub.</p>` : "";
+  openModal(`<h2>Make ${esc(name)} the hub?</h2><p>Your accounts move to ${esc(name)}, and this machine becomes its node. Requests pause for a few seconds. Codex sessions reconnect.</p>${battery}<div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn primary" id="confirm-make-hub">${m.has_battery ? "Make hub anyway" : "Make hub"}</button></div>`);
+  $("confirm-make-hub").onclick = async (ev) => {
+    ev.currentTarget.disabled = true;
+    try {
+      await api("POST", "/conflux/api/hub/move", { machine: name, force: m.has_battery });
+      closeModal();
+      toast(`Moving the hub to ${name}`);
+      await refresh();
+    } catch (e) { closeModal(); showError(e); }
+  };
+}
+
+async function cancelMove(button) {
+  button.disabled = true;
+  try {
+    await api("POST", "/conflux/api/hub/resume", {});
+    toast("The move was cancelled");
+    await refresh();
+  } catch (e) { showError(e); button.disabled = false; }
 }
 
 function openMenu(button) {
@@ -1811,6 +1830,10 @@ document.addEventListener("click", (ev) => {
   if (thread) return openThread(thread.dataset.thread);
   const routing = ev.target.closest("[data-routing]");
   if (routing) return setRouting(routing);
+  const makeHub = ev.target.closest("[data-make-hub]");
+  if (makeHub) return confirmMakeHub(makeHub.dataset.makeHub);
+  const cancel = ev.target.closest("[data-cancel-move]");
+  if (cancel) return cancelMove(cancel);
   const action = ev.target.closest("[data-act]");
   if (action) return accountAction(action);
   const installButton = ev.target.closest("[data-install-on]");

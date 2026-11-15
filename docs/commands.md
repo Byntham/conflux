@@ -11,7 +11,7 @@ An account ID looks like `claude-1a2b3c4d5e6f` or `codex-1a2b3c4d5e6f`. `conflux
 - [Accounts](#accounts): `status`, `login`, `usage`, `enable`, `disable`, `overage`, `remove`
 - [This machine](#this-machine): `join`, `wait`, `off`, `on`, `leave`, `sync`, `serve`
 - [Every machine](#every-machine): `add`, `update`
-- [Moving the hub](#moving-the-hub): `hub move-code`, `hub take-over`, `hub resume`
+- [Moving the hub](#moving-the-hub): `hub move`, `hub resume`
 - [Other](#other): `t3-key`
 
 ## Accounts
@@ -93,9 +93,9 @@ Open Claude Code and Codex sessions keep their old settings. Restart them to go 
 Options:
 
 - `--no-service` skips the background service. Run `conflux serve` yourself.
-- `--force` joins another hub even though this machine holds logged-in accounts. Without it, `join` refuses, because those accounts would be stranded. To move accounts to a new hub, use [`conflux hub take-over`](#conflux-hub-take-over-old-hub---code-code) instead.
+- `--force` joins another hub even though this machine holds logged-in accounts. Without it, `join` refuses, because those accounts would be stranded. To move accounts to a new hub, use [`conflux hub move`](#conflux-hub-move-machine) on the hub instead.
 
-`join` refuses while this machine is in the middle of a hub move. Finish the move, or run `conflux hub resume`.
+`join` refuses while this machine is in the middle of a hub move. Wait for the move to finish, or run `conflux hub resume`.
 
 ### `conflux wait`
 
@@ -174,38 +174,36 @@ A system without a prebuilt binary can't update this way. Run `cargo install` on
 
 ## Moving the hub
 
-Your logins move with the hub, and your nodes follow on their own. The new machine needs conflux installed. Any node is ready.
+Your logins move with the hub, and your nodes follow on their own. Any node of yours that is online and on the hub's version can become the hub. Start the move on the dashboard: open Machines, click the ⋯ button on the machine's row, and pick Make hub. Or run this on the hub:
 
 ```sh
-conflux hub move-code                               # on the current hub
-conflux hub take-over <old-hub> --code <code>       # on the new machine, within 10 minutes
-conflux join <new-hub>                              # back on the old machine
+conflux hub move <machine>
 ```
 
-### `conflux hub move-code`
+### `conflux hub move <machine>`
 
-Run it on the current hub. It prints a one-time code and the exact `take-over` command to run on the new machine. The code works for 10 minutes.
+Run it on the current hub. `<machine>` is the name the dashboard shows for that node. The hub checks the move first, then stops taking requests and sends its accounts to that machine over the node's connection. Codex WebSocket sessions close when the move starts.
 
-### `conflux hub take-over <old-hub> --code <code>`
+The new machine stores the accounts, confirms the move with the old hub, and restarts as the hub. Requests already running on it keep running. The old hub then waits until the new hub answers, and restarts as its node. Your other nodes switch to the new hub on their own. A node that was off during the move must run `conflux join <new-hub>` itself.
 
-Run it on the new machine. It asks the old hub to stop taking requests and send its accounts, then makes this machine the hub. Codex WebSocket sessions close when the move starts.
+The hub refuses the move, and changes nothing, if:
 
-When it finishes, your nodes switch to the new hub on their own. Wait about a minute, with the old hub still running, then run `conflux join <new-hub>` on the old machine. A node that was off during the move can run `conflux join <new-hub>` itself.
+- the hub or the machine is updating,
+- the machine is offline, a guest machine, or on another version,
+- the machine already holds accounts,
+- the machine has a battery and you did not pass `--force`.
 
-If the move stops after the accounts reached the new machine, run `conflux hub take-over <old-hub>` again without `--code` to finish it. If it stops before that, `take-over` asks for a code. Run `conflux hub resume` on the old hub, then start again with a new code.
+If the new machine does not confirm the move within 2 minutes, the old hub goes back to serving requests. The Machines page shows a Cancel button while the move runs.
 
 Options:
 
-- `--code <code>` is the code from `conflux hub move-code`. You need it to start a move, but not to finish one that already has the accounts.
-- `--force` lets a machine with a battery become the hub. Without it, `take-over` refuses on a laptop, because a laptop may leave home and change IP address.
-
-`take-over` refuses if this machine already holds accounts.
+- `--force` lets a machine with a battery become the hub. Without it, the hub refuses a laptop, because a laptop may leave home and change IP address.
 
 After a move, the old hub keeps a copy of the accounts in a `retired-*` folder under its data directory. Delete it once the move has worked.
 
 ### `conflux hub resume`
 
-Run it on the old hub when a move got stuck before it finished. The old hub goes back to serving requests as if the move never started.
+Run it on the hub to cancel a move that has not finished. The hub goes back to serving requests as if the move never started.
 
 ## Other
 
