@@ -1003,7 +1003,7 @@ impl Ctx {
     }
 
     async fn check_limited(&self, kind: &str, provider: Provider, conflux_said: bool) -> Outcome {
-        const KIND: &str = "client told every account is used up while one had room";
+        const KIND: &str = "client told no account is free while one had room";
         let Some(free) = self.fake.any_available(provider) else {
             return Outcome::Limited;
         };
