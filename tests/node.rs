@@ -723,4 +723,10 @@ async fn guests_see_the_hub_and_their_own_machines_and_change_nothing() {
     assert_eq!(threads().await.0, StatusCode::SERVICE_UNAVAILABLE);
     tailnet.calls_from(&hub, Value::Null);
     assert_eq!(threads().await.0, 200);
+
+    let moving = HubState::Moving { id: "secret".into() };
+    assert!(hub.app.hub_state.compare_and_set(&HubState::Active, moving).unwrap());
+    tailnet.calls_from(&hub, whois(2, &[]));
+    let (_, dashboard) = ask(&hub, Method::GET, "/conflux/api/dashboard", Value::Null).await;
+    assert_eq!(dashboard["hub"]["state"], json!({ "state": "moving" }));
 }

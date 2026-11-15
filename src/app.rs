@@ -220,9 +220,11 @@ impl App {
             .unwrap_or(Caller::Unknown);
         let mut identities = self.identities.lock().unwrap();
         if found == Caller::Unknown {
-            return identities
-                .get(&caller)
-                .map_or(Caller::Unknown, |(_, known)| known.clone());
+            let Some(entry) = identities.get_mut(&caller) else {
+                return Caller::Unknown;
+            };
+            entry.0 = Instant::now();
+            return entry.1.clone();
         }
         identities.insert(caller, (Instant::now(), found.clone()));
         found

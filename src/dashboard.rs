@@ -68,7 +68,9 @@ pub async fn data(
     let mut history = app.usage.history();
     history.retain(|id, _| accounts.iter().any(|a| &a.id == id));
     let mut machines = app.fleet();
+    let mut state = json!(app.hub_state.get());
     if !owner {
+        state = json!({ "state": state["state"] });
         for account in &mut accounts {
             account.email = None;
         }
@@ -82,7 +84,7 @@ pub async fn data(
         }
     }
     Json(json!({
-        "hub": { "name": name, "port": app.cfg.port, "version": update::CURRENT, "state": app.hub_state.get() },
+        "hub": { "name": name, "port": app.cfg.port, "version": update::CURRENT, "state": state },
         "guest": !owner,
         "latest_version": app.updater.latest(),
         "accounts": accounts,

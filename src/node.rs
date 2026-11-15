@@ -167,7 +167,6 @@ impl Node {
             .route("/conflux/node", get(node_status))
             .route("/conflux/node/report", post(report_now))
             .route("/conflux/api/update", post(update))
-            .route("/conflux/api/update/check", post(check_update))
             .fallback(forward)
             .layer(axum::middleware::from_fn_with_state(self.clone(), guard))
             .with_state(self.clone())
@@ -177,7 +176,7 @@ impl Node {
         let report = json!({
             "hostname": self.hostname,
             "version": update::CURRENT,
-            "transcript_sync": Config::load(&self.paths).map(|c| c.transcript_sync).unwrap_or(false),
+            "transcript_sync": !self.is_guest() && Config::load(&self.paths).map(|c| c.transcript_sync).unwrap_or(false),
             "routing": setup::routing(&self.paths.config_dir),
             "update": self.updater.status(),
         });
@@ -377,13 +376,6 @@ async fn update(State(node): State<Arc<Node>>, req: Request) -> Response {
     .into_response()
 }
 
-async fn check_update(State(node): State<Arc<Node>>, req: Request) -> Response {
-    if !node.is_guest() {
-        return forward(State(node), req).await;
-    }
-    crate::api::check_release(&node.updater).await.into_response()
-}
-
 async fn forward(State(node): State<Arc<Node>>, req: Request) -> Response {
     let (parts, body) = req.into_parts();
     let path = parts.uri.path().to_string();
@@ -515,7 +507,10 @@ pub async fn serve(cfg: Config, paths: Paths) -> Result<()> {
         node.hostname.clone(),
         node.paths.clone(),
         &node.clients,
-        Arc::new(move || (!for_sync.is_guest()).then(|| for_sync.hub_base("http"))),
+        Arc::new(move || {
+            let owned = for_sync.hub_link.lock().unwrap().connected && !for_sync.is_guest();
+            owned.then(|| for_sync.hub_base("http"))
+        }),
     );
     let addr = SocketAddr::from(([127, 0, 0, 1], cfg.port));
     let listener = node.lifecycle.listen(addr).with_context(|| format!("bind {addr}"))?;
