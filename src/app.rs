@@ -17,7 +17,7 @@ use tokio::sync::mpsc;
 use crate::accounts::Store;
 use crate::api::{self, Logins};
 use crate::config::{Config, Endpoints, Paths};
-use crate::guests::{self, Access, Guests};
+use crate::guests::{self, Access, ApprovedGuest, Guests};
 use crate::hubmove::{self, MoveCode};
 use crate::hubstate::{HubState, HubStateStore};
 use crate::lifecycle::Lifecycle;
@@ -390,7 +390,7 @@ impl App {
 async fn require_approved(
     State(app): State<Arc<App>>,
     ConnectInfo(from): ConnectInfo<SocketAddr>,
-    req: Request,
+    mut req: Request,
     next: Next,
 ) -> Response {
     let ua = req
@@ -405,7 +405,10 @@ async fn require_approved(
     };
     match app.identify(from.ip()).await {
         Caller::Local => {}
-        Caller::Peer(p) if p.owner || app.guests.is_approved(&p.node) => {}
+        Caller::Peer(p) if p.owner => {}
+        Caller::Peer(p) if app.guests.is_approved(&p.node) => {
+            req.extensions_mut().insert(ApprovedGuest(p.node));
+        }
         Caller::Peer(_) => {
             return refuse(
                 StatusCode::FORBIDDEN,

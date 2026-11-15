@@ -107,8 +107,8 @@ struct NodeInfo: Decodable {
         access.map { $0.state != "approved" } ?? false
     }
 
-    var owner: String {
-        access?.owner ?? "The hub's owner"
+    var owner: String? {
+        access?.owner
     }
 }
 

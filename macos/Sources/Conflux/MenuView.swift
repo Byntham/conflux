@@ -400,7 +400,7 @@ struct GuestBanner: View {
     var body: some View {
         let waiting = model.guestsWaiting
         if waiting.count == 1 {
-            Banner(icon: "person.badge.plus", title: "\(waiting[0].hostname) wants to join", detail: waiting[0].user ?? "Tagged machine") {
+            Banner(icon: "person.badge.plus", title: waiting[0].hostname, detail: "\(waiting[0].user ?? "A tagged machine") wants to join") {
                 Button("Deny") { model.decide(waiting[0], approve: false) }.glassButton()
                 Button("Approve") { model.decide(waiting[0], approve: true) }.glassButton(prominent: true)
             }

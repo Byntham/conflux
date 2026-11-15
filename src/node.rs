@@ -204,11 +204,16 @@ impl Node {
         Ok(true)
     }
 
-    fn route_once_approved(&self) -> Result<()> {
+    fn route_while_approved(&self, approved: bool) -> Result<()> {
         let mut cfg = Config::load(&self.paths)?;
-        if cfg.route_once_approved {
-            setup::apply(&self.clients, &self.paths.config_dir, self.port)?;
-            cfg.route_once_approved = false;
+        let change = if approved {
+            cfg.route_once_approved
+        } else {
+            setup::routing(&self.paths.config_dir)
+        };
+        if change {
+            setup::set_routing(&self.clients, &self.paths.config_dir, self.port, approved)?;
+            cfg.route_once_approved = !approved;
             cfg.save(&self.paths)?;
         }
         Ok(())
@@ -241,10 +246,8 @@ impl Node {
                 false
             }
             (Some("access"), _, _) => {
-                if command["state"] == "approved"
-                    && let Err(e) = self.route_once_approved()
-                {
-                    tracing::warn!("could not turn routing on after the hub approved this machine: {e:#}");
+                if let Err(e) = self.route_while_approved(command["state"] == "approved") {
+                    tracing::warn!("could not change routing after the hub's decision: {e:#}");
                 }
                 *self.access.lock().unwrap() = command;
                 false

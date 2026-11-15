@@ -737,6 +737,7 @@ async fn guests_see_the_hub_and_their_own_machines_and_change_nothing() {
 
     let moving = HubState::Moving { id: "secret".into() };
     assert!(hub.app.hub_state.compare_and_set(&HubState::Active, moving).unwrap());
+    *tailnet.status.lock().unwrap() = json!({ "Self": { "UserID": 1 } });
     tailnet.calls_from(&hub, whois(2, &[]));
     let (_, dashboard) = ask(&hub, Method::GET, "/conflux/api/dashboard", Value::Null).await;
     assert_eq!(dashboard["hub"]["state"], json!({ "state": "moving" }));
@@ -779,7 +780,7 @@ async fn node_access(n: &NodeHarness, state: &str) {
     panic!("the node never reached access {state}");
 }
 
-async fn codex_ws(n: &NodeHarness) -> Result<(), tokio_tungstenite::tungstenite::Error> {
+async fn codex_ws(n: &NodeHarness) -> Result<ControlSocket, tokio_tungstenite::tungstenite::Error> {
     let mut req = format!("ws://127.0.0.1:{}/v1/responses", n.port)
         .into_client_request()
         .unwrap();
@@ -790,13 +791,8 @@ async fn codex_ws(n: &NodeHarness) -> Result<(), tokio_tungstenite::tungstenite:
         json!({"type": "response.create", "model": "m"}).to_string().into(),
     ))
     .await?;
-    let first = tokio::time::timeout(Duration::from_secs(5), ws.next())
-        .await
-        .unwrap()
-        .unwrap()?;
-    let v: Value = serde_json::from_str(first.to_text().unwrap()).unwrap();
-    assert_eq!(v["type"], "response.created");
-    Ok(())
+    while next_command(&mut ws).await["type"] != "response.completed" {}
+    Ok(ws)
 }
 
 #[tokio::test]
@@ -909,11 +905,19 @@ async fn a_guest_uses_the_hub_only_while_the_owner_approves_it() {
     );
     assert!(!Config::load(&Paths::under(n.dir.path())).unwrap().route_once_approved);
     assert_eq!(claude(&n).send().await.unwrap().status(), 200);
-    codex_ws(&n).await.unwrap();
+    let mut open_socket = codex_ws(&n).await.unwrap();
 
     as_owner(&hub, &tailnet, guest_api(reqwest::Method::DELETE, "node-one")).await;
     assert_eq!(claude(&n).send().await.unwrap().status(), StatusCode::FORBIDDEN);
+    let closed = tokio::time::timeout(Duration::from_secs(5), open_socket.next())
+        .await
+        .unwrap();
+    assert!(
+        matches!(closed, None | Some(Ok(Message::Close(_))) | Some(Err(_))),
+        "{closed:?}"
+    );
     node_access(&n, "denied").await;
+    assert_eq!(claude_base_url(&n.clients), None);
     let r = n
         .http
         .post(format!("{}/conflux/node/ask", n.base))
@@ -924,4 +928,22 @@ async fn a_guest_uses_the_hub_only_while_the_owner_approves_it() {
     assert_eq!(r.status(), StatusCode::NO_CONTENT);
     node_access(&n, "pending").await;
     assert_eq!(guest_rows(&hub), [("node-one".to_string(), Some(Access::Pending))]);
+    as_owner(
+        &hub,
+        &tailnet,
+        guest_api(reqwest::Method::POST, "n2").json(&json!({ "approve": true })),
+    )
+    .await;
+    node_access(&n, "approved").await;
+    assert!(claude_base_url(&n.clients).is_some());
+
+    *tailnet.status.lock().unwrap() = Value::Null;
+    hub.app.forget_identities();
+    let r = hub
+        .http
+        .get(format!("{}/conflux/api/dashboard", hub.base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::SERVICE_UNAVAILABLE);
 }

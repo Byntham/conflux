@@ -434,41 +434,38 @@ pub async fn poll_usage(State(app): State<Arc<App>>, Path(id): Path<String>) -> 
 }
 
 fn find_guest(app: &App, name: &str) -> ApiResult<(String, Guest)> {
-    let named = |id: &str, hostname: &str| id == name || hostname == name;
-    let mut found: Vec<(String, Guest)> = app
+    let mut known: Vec<(String, Guest)> = app
         .machines
         .list()
         .into_iter()
         .filter(|m| m.guest)
         .filter_map(|m| {
-            let id = m.id.filter(|id| named(id, &m.hostname))?;
-            Some((
-                id,
-                Guest {
-                    login: m.user.unwrap_or_default(),
-                    hostname: m.hostname,
-                    approved: false,
-                    ask: m.ask,
-                },
-            ))
+            let guest = Guest {
+                login: m.user.unwrap_or_default(),
+                hostname: m.hostname,
+                approved: false,
+                ask: m.ask,
+            };
+            Some((m.id?, guest))
         })
         .collect();
-    if found.is_empty() {
-        found = app
-            .guests
-            .export()
-            .into_iter()
-            .filter(|(id, g)| named(id, &g.hostname))
-            .collect();
+    for (id, guest) in app.guests.export() {
+        if !known.iter().any(|(k, _)| *k == id) {
+            known.push((id, guest));
+        }
     }
-    match found.len() {
+    if let Some(found) = known.iter().find(|(id, _)| id == name) {
+        return Ok(found.clone());
+    }
+    let mut named: Vec<_> = known.into_iter().filter(|(_, g)| g.hostname == name).collect();
+    match named.len() {
         0 => Err(not_found("guest machine")),
-        1 => Ok(found.remove(0)),
+        1 => Ok(named.remove(0)),
         _ => Err(ApiError(
             StatusCode::CONFLICT,
             format!(
                 "more than one guest machine is named {name}. Use its ID instead: {}",
-                found.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>().join(", ")
+                named.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>().join(", ")
             ),
         )),
     }

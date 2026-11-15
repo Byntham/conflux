@@ -186,11 +186,11 @@ conflux guest approve studio
 
 - `approve` lets the machine send requests through the hub, starting with its next request.
 - `deny` turns down the machine's request.
-- `remove` takes away an approval. Requests already running finish.
+- `remove` takes away an approval. Requests already running finish, and a Codex WebSocket closes after its current turn.
 
 `<machine>` is the name the dashboard shows. If two guests share a name, use the Tailscale ID that the error lists.
 
-A guest asks when it joins, and the dashboard shows it under Machines as "Wants to join". A guest that was turned down or removed asks again only when someone runs `conflux join` on it, or clicks "Ask again" in its Mac menu bar app. Reconnecting does not ask again.
+While a guest is not approved, conflux points its Claude Code and Codex back at its own logins, and points them at the hub again once it is approved. A guest asks when it joins, and the dashboard shows it under Machines as "Wants to join". A guest that was turned down or removed asks again only when someone runs `conflux join` on it, or clicks "Ask again" in its Mac menu bar app. Reconnecting does not ask again.
 
 The hub keeps its approvals in `guests.json` in its config folder. They move with the hub.
 

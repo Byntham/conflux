@@ -27,6 +27,9 @@ pub enum Access {
     Denied,
 }
 
+#[derive(Clone)]
+pub struct ApprovedGuest(pub String);
+
 pub type GuestList = BTreeMap<String, Guest>;
 
 pub struct Guests {

@@ -58,12 +58,18 @@ pub async fn data(
     let name = hub_name(&app, host);
     let caller = app.identify(from.ip()).await;
     let owner = caller.is_owner();
-    if let Caller::Peer(guest) = &caller
-        && !owner
-        && !app.guests.is_approved(&guest.node)
-    {
-        let refused = json!({ "error": app.waiting_for_owner() });
-        return (StatusCode::FORBIDDEN, Json(refused)).into_response();
+    let refused = match &caller {
+        Caller::Unknown => Some((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "the hub could not ask Tailscale who you are. Try again in a minute.".to_string(),
+        )),
+        Caller::Peer(guest) if !owner && !app.guests.is_approved(&guest.node) => {
+            Some((StatusCode::FORBIDDEN, app.waiting_for_owner()))
+        }
+        _ => None,
+    };
+    if let Some((status, message)) = refused {
+        return (status, Json(json!({ "error": message }))).into_response();
     }
     let mut accounts: Vec<_> = app
         .store
