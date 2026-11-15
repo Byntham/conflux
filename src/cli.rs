@@ -760,7 +760,7 @@ async fn join_found_hub(cfg: Config, paths: Paths, daemon: &Daemon) -> Result<()
             println!("Found these hubs on your tailnet:");
             for hub in &hubs {
                 let address = hub["address"].as_str().unwrap_or("?");
-                println!("  {:<24} {:<40} {}", name(hub), address, found_hub(hub));
+                println!("  {:<24} {:<16} {}", name(hub), address, found_hub(hub));
             }
             let guests = if hubs.iter().any(|hub| hub["guest"] == true) {
                 " A guest's Claude Code and Codex prompts go through the owner's hub."
