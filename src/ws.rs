@@ -218,6 +218,7 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, path: S
     let route = first_frame_route(&headers, &first);
     let url = ws_url(&proxy::upstream_url(&app, Provider::Codex, &path, query.as_deref()));
     let started = Instant::now();
+    let mut cooldowns = app.router.watch_cooldowns();
 
     let mut tried = HashSet::new();
     let mut refreshed = HashSet::new();
@@ -348,6 +349,13 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, path: S
                 let _ = client.send(ClientMsg::Close(None)).await;
                 let _ = up_tx.send(UpstreamMsg::Close(None)).await;
                 break;
+            }
+            Ok(()) = cooldowns.changed(), if turns.idle() => {
+                if !app.router.serves_account_wide(&account) {
+                    let _ = client.send(ClientMsg::Close(None)).await;
+                    let _ = up_tx.send(UpstreamMsg::Close(None)).await;
+                    break;
+                }
             }
         }
     }

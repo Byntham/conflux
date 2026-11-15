@@ -168,6 +168,46 @@ async fn quota_error_mid_socket_is_forwarded_then_closed() {
 }
 
 #[tokio::test]
+async fn an_idle_socket_closes_when_its_account_runs_out_but_not_on_a_short_throttle() {
+    async fn finish_turn(ws: &mut Client) {
+        ws.send(create("m")).await.unwrap();
+        while next_json(ws).await.unwrap()["type"] != "response.completed" {}
+    }
+    let h = Harness::new().await;
+    h.add(Provider::Codex, "c").await;
+    h.ws_script("at-c", WsScript::Normal);
+    h.ws_script("at-c", WsScript::QuotaMidStream);
+    let mut idle = open(&h, &[]).await.unwrap();
+    finish_turn(&mut idle).await;
+
+    let throttle = json!({"error": {"type": "rate_limit_exceeded"}}).to_string();
+    h.reply("at-c", Reply::Json(429, vec![("retry-after", "30".into())], throttle));
+    let r = h
+        .http
+        .post(format!("{}/v1/responses", h.base))
+        .header("user-agent", "codex_cli_rs/0.200.0")
+        .json(&json!({"model": "m"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 429);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    finish_turn(&mut idle).await;
+
+    let mut other = open(&h, &[]).await.unwrap();
+    other.send(create("n")).await.unwrap();
+    assert_eq!(
+        next_json(&mut other).await.unwrap()["error"]["type"],
+        "usage_limit_reached"
+    );
+    let closed = tokio::time::timeout(Duration::from_secs(5), idle.next()).await;
+    assert!(
+        matches!(closed, Ok(Some(Ok(Message::Close(_))) | None)),
+        "the idle socket closes once its account is out"
+    );
+}
+
+#[tokio::test]
 async fn a_draining_hub_closes_the_socket_only_after_the_turn_ends() {
     let h = Harness::new().await;
     h.add(Provider::Codex, "c").await;
