@@ -588,7 +588,9 @@ pub async fn handle(State(app): State<Arc<App>>, req: Request) -> Response {
             };
             match &rejection {
                 Rejection::Quota { scope, until, reason } => app.router.cool(&account.id, scope, *until, reason),
-                Rejection::Short { scope, until } => app.router.cool(&account.id, scope, *until, "short rate limit"),
+                Rejection::Short { scope, until } => {
+                    app.router.cool(&account.id, scope, *until, router::SHORT_THROTTLE)
+                }
             }
             log(&account, 429);
             last_rejection = Some(buffered_response(StatusCode::TOO_MANY_REQUESTS, &headers, bytes));
