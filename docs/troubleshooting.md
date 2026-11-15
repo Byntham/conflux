@@ -54,7 +54,7 @@ conflux runs as a systemd user service. It keeps running after you log out only 
 
 ### `conflux join` refuses because the machine holds accounts
 
-Joining another hub would strand this machine's accounts. To move them, make this machine the hub with [`conflux hub move`](commands.md#conflux-hub-move-machine) on the current hub instead. To join anyway, pass `--force`.
+Joining another hub would strand this machine's accounts. To move them, run [`conflux hub move <machine>`](commands.md#conflux-hub-move-machine) on this machine. The other machine must be one of its nodes, and it becomes the hub. To join anyway, pass `--force`.
 
 ### A hub move got stuck
 

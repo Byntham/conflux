@@ -25,7 +25,7 @@ use crate::api::UpdateRequest;
 use crate::config::{Config, Endpoints, Paths};
 use crate::lifecycle::{InFlight, Lifecycle};
 use crate::setup::{self, ClientPaths};
-use crate::tailnet::{Caller, Tailscale};
+use crate::tailnet::{Caller, TailnetSelf, Tailscale};
 use crate::transcript_sync::TranscriptSync;
 use crate::update::{self, Updater};
 use crate::ws::TurnTracker;
@@ -191,11 +191,14 @@ impl Node {
         if new_hub == self.hub() {
             return Ok(false);
         }
-        if hubmove::find_pending(&self.paths)?.is_some() {
-            tracing::warn!(
-                new_hub,
-                "ignoring a hub redirect while this machine is taking over as hub"
-            );
+        let tailscale = self.tailscale.clone();
+        let me = tokio::task::spawn_blocking(move || tailnet::status(&tailscale).map(|s| TailnetSelf::from_status(&s)))
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        if me.names().contains(&new_hub.to_lowercase()) {
+            tracing::warn!(new_hub, "ignoring a hub redirect to this machine");
             return Ok(false);
         }
         if !tailnet::resolves_to_tailnet(new_hub, self.hub_port).await {

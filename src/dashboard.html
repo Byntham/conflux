@@ -1341,14 +1341,19 @@ function render(d) {
   if (firstLoad && currentView() === "threads") loadThreads();
 }
 
+let movingTo = null;
+
 async function refresh() {
   try {
-    render(await api("GET", "/conflux/api/dashboard"));
+    const d = await api("GET", "/conflux/api/dashboard");
+    movingTo = d.hub.state && d.hub.state.state === "moving" ? d.hub.state.hub : null;
+    render(d);
     setConnection(true);
   } catch (e) {
     setConnection(false, e.message);
-    const moving = latest && latest.hub.state && latest.hub.state.state === "moving";
-    if (moving && !e.message.includes("the hub moved to")) location.href = `http://${latest.hub.state.hub}:${location.port}/`;
+    const moved = e.message.match(/the hub moved to (\S+?)\.\s/);
+    if (moved) movingTo = moved[1];
+    if (movingTo && e instanceof TypeError) location.href = `http://${movingTo}:${location.port}/`;
   }
 }
 
@@ -1593,7 +1598,7 @@ function confirmMakeHub(name) {
   $("confirm-make-hub").onclick = async (ev) => {
     ev.currentTarget.disabled = true;
     try {
-      await api("POST", "/conflux/api/hub/move", { machine: name, force: m.has_battery });
+      movingTo = (await api("POST", "/conflux/api/hub/move", { machine: name, force: m.has_battery })).hub;
       closeModal();
       toast(`Moving the hub to ${name}`);
       await refresh();
