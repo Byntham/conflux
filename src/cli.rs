@@ -759,11 +759,15 @@ async fn join_found_hub(cfg: Config, paths: Paths, daemon: &Daemon) -> Result<()
         _ => {
             println!("Found these hubs on your tailnet:");
             for hub in &hubs {
-                println!("  {:<24} {}", name(hub), found_hub(hub));
+                let address = hub["address"].as_str().unwrap_or("?");
+                println!("  {:<24} {:<40} {}", name(hub), address, found_hub(hub));
             }
-            bail!(
-                "pick one with `conflux join <hub>`. A guest's Claude Code and Codex prompts go through the owner's hub."
-            )
+            let guests = if hubs.iter().any(|hub| hub["guest"] == true) {
+                " A guest's Claude Code and Codex prompts go through the owner's hub."
+            } else {
+                ""
+            };
+            bail!("pick one with `conflux join <hub>`, using its name or address.{guests}")
         }
     };
     daemon

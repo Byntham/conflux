@@ -120,8 +120,8 @@ The hub can also install conflux first. `POST /conflux/api/install` takes a peer
 
 A waiting machine can also start the link itself. `conflux join` with no name and the Mac menu bar app both use these two routes, which answer only on loopback.
 
-1. `GET /conflux/api/hubs` lists peers owned by the same Tailscale user and probes `GET /conflux/api/status` on each one. A peer that answers with the hub role is a hub. Nodes listen only on loopback, so they never answer.
-2. `POST /conflux/api/join` takes a hub's address. The waiting machine checks again that the address belongs to the same user and answers as a hub. It then becomes a node the same way as in step 3 above, with that address as the hub.
+1. `GET /conflux/api/hubs` probes `GET /conflux/api/status` on every online peer. A peer that answers with the hub role is a hub. Nodes listen only on loopback, so they never answer. A hub owned by another Tailscale user, or a tagged hub, comes back with `guest: true` and, if it has one, the owner's login name in `owner`.
+2. `POST /conflux/api/join` takes a hub's address. The waiting machine checks that the address is an online peer that answers as a hub. It then becomes a node the same way as in step 3 above, with that address as the hub. If the hub is a guest hub, the machine leaves its clients alone and sets `route_once_approved`. It points them at conflux once the hub approves it.
 
 ## Control channel
 

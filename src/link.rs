@@ -604,12 +604,7 @@ async fn join_hub(
             format!("{} is not running a conflux hub", hub.name),
         );
     }
-    w.link_to(
-        &by_address,
-        hub.guest,
-        json!({ "hub": hub.name, "guest": hub.guest, "owner": hub.owner }),
-    )
-    .await
+    w.link_to(&by_address, hub.guest, json!({ "hub": hub.name })).await
 }
 
 fn no_tailscale() -> Response {

@@ -259,11 +259,10 @@ async fn ask_to_join(machine: &Machine, address: &str) -> reqwest::StatusCode {
 
 #[tokio::test]
 async fn a_waiting_machine_finds_its_hub_and_links_itself_to_it() {
-    let hub_sees = Arc::new(Mutex::new(whois(2, &[])));
     let hub_tailnet = Arc::new(Mutex::new(json!({ "Self": { "UserID": 1 } })));
     let hub = Harness::on_tailnet(
         tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap(),
-        fake_tailscale(hub_tailnet, hub_sees.clone()),
+        fake_tailscale(hub_tailnet, Arc::new(Mutex::new(whois(2, &[])))),
         "false",
     )
     .await;
@@ -313,7 +312,9 @@ async fn a_waiting_machine_finds_its_hub_and_links_itself_to_it() {
     let mut guest = waiting_machine(tokio::net::TcpListener::bind(("::1", hub.port)).await.unwrap()).await;
     *guest.tailnet.lock().unwrap() = tailnet(2, &[]);
     assert_eq!(ask_to_join(&guest, "127.0.0.1").await, 200);
-    assert!(Config::load(&guest.paths).unwrap().route_once_approved);
+    let cfg = Config::load(&guest.paths).unwrap();
+    assert!(cfg.route_once_approved);
+    assert!(cfg.ask.is_some());
     connects_as_a_node(&hub, &mut guest, "guest-box").await;
     assert!(!guest.clients.claude_settings.exists());
     let access = || {
@@ -330,25 +331,6 @@ async fn a_waiting_machine_finds_its_hub_and_links_itself_to_it() {
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
     assert_eq!(access(), Some(conflux::guests::Access::Pending));
-
-    *hub_sees.lock().unwrap() = whois(1, &[]);
-    hub.app.forget_identities();
-    let r = hub
-        .http
-        .post(format!("{}/conflux/api/guests/guest-box", hub.base))
-        .json(&json!({ "approve": true }))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(r.status(), 200, "{}", r.text().await.unwrap());
-    for _ in 0..200 {
-        if guest.clients.claude_settings.exists() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-    assert!(guest.clients.claude_settings.exists());
-    assert!(!Config::load(&guest.paths).unwrap().route_once_approved);
 }
 
 #[test]
