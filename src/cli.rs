@@ -902,6 +902,13 @@ fn print_status(v: &Value) -> Result<()> {
         println!("{HOW_TO_LINK}");
         return Ok(());
     }
+    if v["accounts"].is_null() {
+        println!(
+            "This machine is a guest of the hub {}. Only the hub's owner can see its accounts.",
+            v["hub"].as_str().unwrap_or("?")
+        );
+        return Ok(());
+    }
     let accounts = v["accounts"].as_array().cloned().unwrap_or_default();
     if accounts.is_empty() {
         println!("No accounts yet. Add one with `conflux login claude` or `conflux login codex`.");

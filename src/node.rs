@@ -176,7 +176,7 @@ impl Node {
         let report = json!({
             "hostname": self.hostname,
             "version": update::CURRENT,
-            "transcript_sync": Config::load(&self.paths).map(|c| c.transcript_sync).unwrap_or(false),
+            "transcript_sync": !self.is_guest() && Config::load(&self.paths).map(|c| c.transcript_sync).unwrap_or(false),
             "routing": setup::routing(&self.paths.config_dir),
             "update": self.updater.status(),
         });
@@ -507,7 +507,10 @@ pub async fn serve(cfg: Config, paths: Paths) -> Result<()> {
         node.hostname.clone(),
         node.paths.clone(),
         &node.clients,
-        Arc::new(move || for_sync.hub_base("http")),
+        Arc::new(move || {
+            let owned = for_sync.hub_link.lock().unwrap().connected && !for_sync.is_guest();
+            owned.then(|| for_sync.hub_base("http"))
+        }),
     );
     let addr = SocketAddr::from(([127, 0, 0, 1], cfg.port));
     let listener = node.lifecycle.listen(addr).with_context(|| format!("bind {addr}"))?;

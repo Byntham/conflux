@@ -193,12 +193,14 @@ async fn resume_works_from_moving_only() {
         StatusCode::FORBIDDEN
     );
     *status.lock().unwrap() = Value::Null;
+    h.app.forget_identities();
     assert_eq!(
         post(&h, "/conflux/api/hub/resume", json!({})).await.status(),
         StatusCode::SERVICE_UNAVAILABLE
     );
     *status.lock().unwrap() = json!({ "Self": { "UserID": 1 } });
     *caller.lock().unwrap() = whois(1, &[]);
+    h.app.forget_identities();
     assert_eq!(post(&h, "/conflux/api/hub/resume", json!({})).await.status(), 200);
     assert_eq!(
         post(&h, "/conflux/api/hub/resume", json!({})).await.status(),
@@ -206,6 +208,7 @@ async fn resume_works_from_moving_only() {
     );
     prepare(&h).await;
     *caller.lock().unwrap() = Value::Null;
+    h.app.forget_identities();
     assert_eq!(post(&h, "/conflux/api/hub/resume", json!({})).await.status(), 200);
     assert_eq!(h.app.hub_state.get(), HubState::Active);
 }

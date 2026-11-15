@@ -452,10 +452,12 @@ struct Actions: View {
             }
             let showsDashboard = [.ready, .hubUnreachable].contains(model.phase)
             let showsRestart = model.local.serviceInstalled && model.phase != .notRunning
-            let showsUpdateCheck = [.ready, .waiting].contains(model.phase)
+            let showsUpdateCheck = [.ready, .waiting].contains(model.phase) && model.node?.guest != true
             if showsDashboard {
                 MenuRow(title: "Open dashboard", action: model.openDashboard)
-                MenuRow(title: "Add account…", action: model.openDashboard)
+                if model.node?.guest != true {
+                    MenuRow(title: "Add account…", action: model.openDashboard)
+                }
             }
             if showsUpdateCheck {
                 MenuRow(title: "Check for updates", action: model.checkForUpdates) {

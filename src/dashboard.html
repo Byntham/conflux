@@ -35,6 +35,7 @@
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
   body:not(.loaded) main section { display: none; }
+  body.guest :is([data-add], [data-act], [data-menu], [data-update], [data-update-all], [data-check-updates], [data-view="requests"], [data-view="threads"], .panels) { display: none !important; }
   html { -webkit-text-size-adjust: 100%; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; scrollbar-gutter: stable; }
   body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Inter Variable", Inter, "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
   svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
@@ -1018,7 +1019,7 @@ function commandHtml(text) {
 }
 
 function renderInstall() {
-  if (latest) {
+  if (latest?.add_machine) {
     const text = latest.add_machine[installKey];
     $("install-text").innerHTML = installKey === "agent_prompt" ? esc(text) : commandHtml(text);
   }
@@ -1327,7 +1328,8 @@ function setConnection(ok, message) {
 
 function currentView() {
   const hash = location.hash.slice(1);
-  return VIEWS.includes(hash) ? hash : "overview";
+  const views = latest?.guest ? ["overview", "machines"] : VIEWS;
+  return views.includes(hash) ? hash : "overview";
 }
 
 function render(d) {
@@ -1337,6 +1339,7 @@ function render(d) {
   clearTimeout(updateTimer);
   if (d.machines.some(updating) || performance.now() < SETTLE_AFTER_LOAD_MS) updateTimer = setTimeout(refresh, 1000);
   document.body.classList.add("loaded");
+  document.body.classList.toggle("guest", d.guest);
   $("hub-line").textContent = `v${d.hub.version}`;
   $("top-line").textContent = d.hub.name;
   $("view-overview").classList.toggle("first-run", !d.accounts.length);
@@ -1348,7 +1351,7 @@ function render(d) {
   renderRequests(d);
   renderMachines(d);
   renderUpdateAll(d);
-  if (firstLoad && currentView() === "threads") loadThreads();
+  if (firstLoad) showView();
 }
 
 async function refresh() {
