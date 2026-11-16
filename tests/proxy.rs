@@ -538,6 +538,32 @@ async fn a_healthy_poll_clears_the_overage_flag() {
 }
 
 #[tokio::test]
+async fn usage_history_survives_a_hub_restart() {
+    let h = Harness::new().await;
+    let id = h.add(Provider::Claude, "a").await;
+    h.reply(
+        "at-a",
+        Reply::Json(200, vec![], json!({"seven_day": {"utilization": 9.0}}).to_string()),
+    );
+    h.app.usage.poll(&h.app.store.get(&id).unwrap()).await.unwrap();
+    let paths = Paths::under(h.dir.path());
+    for _ in 0..100 {
+        let restarted = conflux::app::App::new(
+            conflux::config::Config::default(),
+            &paths,
+            conflux::config::Endpoints::all_at("http://127.0.0.1:1"),
+        )
+        .unwrap();
+        if let Some(samples) = restarted.usage.history().get(&id) {
+            assert_eq!(samples[0].used["seven_day"], 9.0);
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("the restarted hub lost the usage history");
+}
+
+#[tokio::test]
 async fn a_removed_account_is_not_refreshed_back_into_existence() {
     let h = Harness::new().await;
     let id = h.add(Provider::Claude, "a").await;

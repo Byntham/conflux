@@ -111,7 +111,11 @@ impl App {
         let store = Arc::new(Store::load(&paths.accounts_dir())?);
         let control_http = oauth::control_client();
         let refresher = Arc::new(Refresher::new(store.clone(), ep.clone(), control_http.clone(), !moving));
-        let usage = Arc::new(Usage::new(ep.clone(), control_http.clone()));
+        let usage = Arc::new(Usage::new(
+            ep.clone(),
+            control_http.clone(),
+            Some(paths.usage_history_file()),
+        ));
         usage.set_paused(moving);
         let router = Router::new(store.clone(), usage.clone());
         let mut allowed_hosts = access::local_hosts(cfg.port);

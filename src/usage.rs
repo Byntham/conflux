@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use chrono::{DateTime, TimeZone, Utc};
@@ -10,9 +11,10 @@ use serde_json::{Value, json};
 
 use crate::accounts::{AccountEntry, Provider, Store};
 use crate::config::Endpoints;
+use crate::fsutil;
 
 pub const STALE_AFTER: chrono::Duration = chrono::Duration::minutes(30);
-const HISTORY_KEPT: chrono::Duration = chrono::Duration::days(3);
+const HISTORY_KEPT: chrono::Duration = chrono::Duration::days(7);
 const HISTORY_STEP: chrono::Duration = chrono::Duration::minutes(15);
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -219,25 +221,62 @@ pub fn parse_codex_usage(v: &Value, now: DateTime<Utc>) -> Snapshot {
     s
 }
 
+type History = HashMap<String, Vec<Sample>>;
+
+struct HistoryFile {
+    path: PathBuf,
+    writing: Mutex<()>,
+}
+
 pub struct Usage {
     snaps: RwLock<HashMap<String, Snapshot>>,
     last_used: RwLock<HashMap<String, DateTime<Utc>>>,
-    history: RwLock<HashMap<String, Vec<Sample>>>,
+    history: Arc<RwLock<History>>,
+    history_file: Option<Arc<HistoryFile>>,
     paused: AtomicBool,
     http: reqwest::Client,
     ep: Endpoints,
 }
 
 impl Usage {
-    pub fn new(ep: Endpoints, http: reqwest::Client) -> Self {
+    pub fn new(ep: Endpoints, http: reqwest::Client, history_file: Option<PathBuf>) -> Self {
+        let history = history_file
+            .as_deref()
+            .and_then(|path| {
+                fsutil::read_json(path)
+                    .inspect_err(|err| tracing::warn!("usage history not loaded: {err:#}"))
+                    .ok()
+                    .flatten()
+            })
+            .unwrap_or_default();
         Self {
             snaps: RwLock::default(),
             last_used: RwLock::default(),
-            history: RwLock::default(),
+            history: Arc::new(RwLock::new(history)),
+            history_file: history_file.map(|path| {
+                Arc::new(HistoryFile {
+                    path,
+                    writing: Mutex::default(),
+                })
+            }),
             paused: AtomicBool::new(false),
             http,
             ep,
         }
+    }
+
+    fn save_history(&self) {
+        let Some(file) = self.history_file.clone() else {
+            return;
+        };
+        let history = self.history.clone();
+        tokio::task::spawn_blocking(move || {
+            let _writing = file.writing.lock().unwrap();
+            let snapshot = history.read().unwrap().clone();
+            if let Err(err) = fsutil::write_json_durable(&file.path, &snapshot) {
+                tracing::warn!("usage history not saved: {err:#}");
+            }
+        });
     }
 
     pub fn export(&self) -> Value {
@@ -257,10 +296,11 @@ impl Usage {
         }
         if let Ok(history) = serde_json::from_value(state["history"].clone()) {
             *self.history.write().unwrap() = history;
+            self.save_history();
         }
     }
 
-    pub fn history(&self) -> HashMap<String, Vec<Sample>> {
+    pub fn history(&self) -> History {
         self.history.read().unwrap().clone()
     }
 
@@ -282,6 +322,8 @@ impl Usage {
             samples.retain(|x| now - x.at < HISTORY_KEPT);
             !samples.is_empty()
         });
+        drop(history);
+        self.save_history();
     }
 
     pub fn get(&self, id: &str) -> Snapshot {

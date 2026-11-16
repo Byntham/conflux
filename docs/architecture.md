@@ -93,7 +93,7 @@ A cooldown or billing block lifts early when a usage reading taken after it show
 
 ## Usage and token refresh
 
-`src/usage.rs` keeps a usage snapshot per account. It updates the snapshot from the rate-limit headers on each response. It also polls each provider's usage endpoint when an account has no data, or has been idle and its data is old. It keeps up to 3 days of readings per account, at most one every 15 minutes, for the dashboard's pool chart. Rate-limit headers carry no model-scoped window, so a model-scoped window such as Fable weekly enters this history only from a poll.
+`src/usage.rs` keeps a usage snapshot per account. It updates the snapshot from the rate-limit headers on each response. It also polls each provider's usage endpoint when an account has no data, or has been idle and its data is old. It keeps up to 7 days of readings per account, at most one every 15 minutes, for the dashboard's pool chart. It saves them to `usage-history.json` in the data folder, so they survive a restart. Rate-limit headers carry no model-scoped window, so a model-scoped window such as Fable weekly enters this history only from a poll.
 
 `src/refresh.rs` refreshes OAuth tokens before they expire. Claude tokens refresh an hour ahead, and Codex tokens a few days ahead. Refresh tokens are single use, so each refresh writes a claim and then a receipt to a per-account journal before and after the call. After a crash, the store replays a finished receipt. If the outcome is unknown, conflux does not retry with a token that may already be spent. The account needs a new login once its access token expires. Logins (`src/oauth.rs`, `src/api.rs`) use a pasted redirect URL for Claude and a device code for Codex.
 

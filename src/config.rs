@@ -61,6 +61,9 @@ impl Paths {
     pub fn accounts_dir(&self) -> PathBuf {
         self.data_dir.join("accounts")
     }
+    pub fn usage_history_file(&self) -> PathBuf {
+        self.data_dir.join("usage-history.json")
+    }
     pub fn lock_file(&self) -> PathBuf {
         self.data_dir.join("hub.lock")
     }
