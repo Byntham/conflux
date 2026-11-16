@@ -18,6 +18,7 @@ use crate::requests::{self, BodyScanner, RequestRecord, ResponseTap, TokenUsage}
 use crate::router::{self, NoAccount, RouteRequest};
 
 pub const MAX_REQUEST_BODY: usize = 32 * 1024 * 1024;
+const MAX_DISCARDED_BODY: usize = 2 * MAX_REQUEST_BODY;
 const MAX_REJECTION_BODY: usize = 1024 * 1024;
 const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 const CLAUDE_OAUTH_BETA: &str = "oauth-2025-04-20";
@@ -400,6 +401,25 @@ async fn read_limited(resp: reqwest::Response, limit: usize) -> Bytes {
     Bytes::from(out)
 }
 
+async fn read_request_body(body: Body) -> Option<Bytes> {
+    let mut out = Vec::new();
+    let mut stream = body.into_data_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.ok()?;
+        if out.len() + chunk.len() > MAX_REQUEST_BODY {
+            let mut discarded = out.len() + chunk.len();
+            while discarded <= MAX_DISCARDED_BODY
+                && let Some(Ok(chunk)) = stream.next().await
+            {
+                discarded += chunk.len();
+            }
+            return None;
+        }
+        out.extend_from_slice(&chunk);
+    }
+    Some(Bytes::from(out))
+}
+
 struct Attempt<'a> {
     app: &'a App,
     provider: Provider,
@@ -480,9 +500,9 @@ pub async fn handle(State(app): State<Arc<App>>, req: Request) -> Response {
             "conflux: Claude subscription accounts only serve Claude Code",
         );
     }
-    let body = match axum::body::to_bytes(body, MAX_REQUEST_BODY).await {
-        Ok(b) => b,
-        Err(_) => {
+    let body = match read_request_body(body).await {
+        Some(b) => b,
+        None => {
             return provider_error(
                 provider,
                 StatusCode::PAYLOAD_TOO_LARGE,
