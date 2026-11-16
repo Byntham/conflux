@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, TimeZone, Utc};
 use http::HeaderMap;
@@ -16,6 +16,7 @@ use crate::fsutil;
 pub const STALE_AFTER: chrono::Duration = chrono::Duration::minutes(30);
 const HISTORY_KEPT: chrono::Duration = chrono::Duration::days(7);
 const HISTORY_STEP: chrono::Duration = chrono::Duration::minutes(15);
+const POLL_EVERY: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Sample {
@@ -230,7 +231,6 @@ struct HistoryFile {
 
 pub struct Usage {
     snaps: RwLock<HashMap<String, Snapshot>>,
-    last_used: RwLock<HashMap<String, DateTime<Utc>>>,
     history: Arc<RwLock<History>>,
     history_file: Option<Arc<HistoryFile>>,
     paused: AtomicBool,
@@ -251,7 +251,6 @@ impl Usage {
             .unwrap_or_default();
         Self {
             snaps: RwLock::default(),
-            last_used: RwLock::default(),
             history: Arc::new(RwLock::new(history)),
             history_file: history_file.map(|path| {
                 Arc::new(HistoryFile {
@@ -286,7 +285,6 @@ impl Usage {
     pub fn export(&self) -> Value {
         json!({
             "snaps": *self.snaps.read().unwrap(),
-            "last_used": *self.last_used.read().unwrap(),
             "history": *self.history.read().unwrap(),
         })
     }
@@ -294,9 +292,6 @@ impl Usage {
     pub fn import(&self, state: &Value) {
         if let Ok(snaps) = serde_json::from_value(state["snaps"].clone()) {
             *self.snaps.write().unwrap() = snaps;
-        }
-        if let Ok(last_used) = serde_json::from_value(state["last_used"].clone()) {
-            *self.last_used.write().unwrap() = last_used;
         }
         if let Ok(history) = serde_json::from_value(state["history"].clone()) {
             *self.history.write().unwrap() = history;
@@ -336,10 +331,6 @@ impl Usage {
 
     pub fn set_paused(&self, paused: bool) {
         self.paused.store(paused, Ordering::SeqCst);
-    }
-
-    pub fn mark_used(&self, id: &str) {
-        self.last_used.write().unwrap().insert(id.to_string(), Utc::now());
     }
 
     pub fn invalidate(&self, id: &str) {
@@ -408,26 +399,22 @@ impl Usage {
     }
 
     pub async fn run_poller(self: Arc<Self>, store: Arc<Store>) {
+        let mut last_round: Option<Instant> = None;
         loop {
-            let now = Utc::now();
             let paused = self.paused.load(Ordering::SeqCst);
+            let round_due = !paused && last_round.is_none_or(|t| t.elapsed() >= POLL_EVERY);
             for e in store.all().into_iter().filter(|_| !paused) {
                 if e.credentials().generation == 0 || e.needs_login().is_some() {
                     continue;
                 }
-                let snap = self.get(&e.id);
-                let idle = self
-                    .last_used
-                    .read()
-                    .unwrap()
-                    .get(&e.id)
-                    .is_none_or(|t| now - *t > chrono::Duration::minutes(10));
-                let old = snap.updated_at.is_none_or(|t| now - t > chrono::Duration::minutes(15));
-                if (snap.updated_at.is_none() || (idle && old))
+                if (round_due || self.get(&e.id).updated_at.is_none())
                     && let Err(err) = self.poll(&e).await
                 {
                     tracing::warn!(account = %e.id, "usage poll failed: {err}");
                 }
+            }
+            if round_due {
+                last_round = Some(Instant::now());
             }
             tokio::time::sleep(Duration::from_secs(60)).await;
         }

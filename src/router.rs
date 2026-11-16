@@ -211,7 +211,6 @@ impl Router {
             st.pins.insert(k, (chosen.id.clone(), now));
         }
         drop(st);
-        self.usage.mark_used(&chosen.id);
         Ok(chosen)
     }
 
