@@ -1042,7 +1042,7 @@ function renderAccounts(d) {
   setHtml("accounts", ordered.map((a) => renderAccount(a, d.requests)).join(""));
 }
 
-const POOL_BACK_H = 72;
+const POOL_BACK_H = 168;
 const POOL_AHEAD_H = 168;
 const POOL_STEP_H = 0.001;
 let poolGeom = null;
@@ -1264,7 +1264,7 @@ function renderPools(d) {
   }
   parts.push(`<line class="cross" x1="0" x2="0" y1="${lanes[0].top}" y2="${bottom}" visibility="hidden"/>`);
 
-  const summary = `Pooled quota left over the past 3 days, and the scheduled resets in the next 7 days. ${lanes.map((l) => `${providerName(l.pool.provider)} has ${l.pool.size ? pct(l.pool.now) : "no quota data"} left.`).join(" ")}`;
+  const summary = `Pooled quota left over the past 7 days, and the scheduled resets in the next 7 days. ${lanes.map((l) => `${providerName(l.pool.provider)} has ${l.pool.size ? pct(l.pool.now) : "no quota data"} left.`).join(" ")}`;
   poolGeom = { lanes, padL, plotW, width, pad, height, x, at };
   setHtml("pool", `<div class="card pool-board"><div class="pool-chart${narrow ? " narrow" : ""}"><svg viewBox="0 0 ${width} ${height}" height="${height}" role="img" aria-label="${esc(summary)}">${parts.join("")}</svg>${lanes.map((l) => poolGutter(l, narrow)).join("")}<div class="pool-tip" hidden></div></div></div>`);
 }

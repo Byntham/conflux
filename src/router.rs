@@ -323,7 +323,7 @@ mod tests {
                 .unwrap();
             e.apply_ok(c).unwrap();
         }
-        let usage = Arc::new(Usage::new(Endpoints::default(), reqwest::Client::new()));
+        let usage = Arc::new(Usage::new(Endpoints::default(), reqwest::Client::new(), None));
         let router = Router::new(store.clone(), usage.clone());
         (dir, store, usage, router)
     }
