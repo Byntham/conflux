@@ -54,7 +54,14 @@ async fn connects_as_a_node(hub: &Harness, machine: &mut Machine, name: &str) {
         .unwrap();
     let cfg = Config::load(&machine.paths).unwrap();
     assert_eq!(cfg.role, Role::Node);
-    let hub_on_tailnet = tokio::net::TcpListener::bind(("::1", hub.port)).await.unwrap();
+    let hub_host = cfg.hub.unwrap();
+    let hub_on_tailnet = tokio::net::TcpListener::bind(format!("{hub_host}:0")).await.unwrap();
+    let hub_port = hub_on_tailnet.local_addr().unwrap().port();
+    hub.app
+        .allowed_hosts
+        .write()
+        .unwrap()
+        .push(format!("{hub_host}:{hub_port}"));
     let routes = hub.app.routes().into_make_service_with_connect_info::<SocketAddr>();
     tokio::spawn(async move { axum::serve(hub_on_tailnet, routes).await.unwrap() });
     let node_port = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -65,8 +72,8 @@ async fn connects_as_a_node(hub: &Harness, machine: &mut Machine, name: &str) {
         .port();
     let node = Node::named(
         name.into(),
-        cfg.hub.unwrap(),
-        hub.port,
+        hub_host,
+        hub_port,
         node_port,
         machine.paths.clone(),
         machine.clients.clone(),
