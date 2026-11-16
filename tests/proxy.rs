@@ -548,19 +548,22 @@ async fn usage_history_survives_a_hub_restart() {
     h.app.usage.poll(&h.app.store.get(&id).unwrap()).await.unwrap();
     let paths = Paths::under(h.dir.path());
     for _ in 0..100 {
-        let restarted = conflux::app::App::new(
-            conflux::config::Config::default(),
-            &paths,
-            conflux::config::Endpoints::all_at("http://127.0.0.1:1"),
-        )
-        .unwrap();
-        if let Some(samples) = restarted.usage.history().get(&id) {
-            assert_eq!(samples[0].used["seven_day"], 9.0);
-            return;
+        if paths.usage_history_file().exists() {
+            break;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    panic!("the restarted hub lost the usage history");
+    let restarted = conflux::app::App::new(
+        conflux::config::Config::default(),
+        &paths,
+        conflux::config::Endpoints::all_at("http://127.0.0.1:1"),
+    )
+    .unwrap();
+    let history = restarted.usage.history();
+    assert_eq!(
+        history[&id][0].used["seven_day"], 9.0,
+        "the restarted hub keeps the usage history: {history:?}"
+    );
 }
 
 #[tokio::test]

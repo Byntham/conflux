@@ -266,7 +266,11 @@ impl Usage {
     }
 
     fn save_history(&self) {
-        let Some(file) = self.history_file.clone() else {
+        let Some(file) = self
+            .history_file
+            .clone()
+            .filter(|_| !self.paused.load(Ordering::SeqCst))
+        else {
             return;
         };
         let history = self.history.clone();

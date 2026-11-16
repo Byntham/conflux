@@ -153,7 +153,7 @@ Each upload carries a byte offset. The hub (`src/transcripts.rs`) appends only w
 | Location | Contents |
 | --- | --- |
 | Config dir | `config.toml`, `management-key`, `joined.json`, `hub-state.json` |
-| Data dir | `accounts/`, `hub.lock`, `transcript-offsets.json`, and `incoming/` or `retired-<id>/` during a hub move |
+| Data dir | `accounts/`, `hub.lock`, `usage-history.json`, `transcript-offsets.json`, and `incoming/` or `retired-<id>/` during a hub move |
 | `accounts/` | `<id>.json` credentials, `<id>.settings.json`, and a `<id>.journal/` directory for refresh claims and receipts |
 | Transcripts dir | `<machine>/<tool>/<path>` copies of each JSONL file, and a `.state/` directory with offsets and the index |
 
