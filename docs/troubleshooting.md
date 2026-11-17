@@ -28,7 +28,7 @@ A command like `conflux status` could not reach conflux on this machine. Start t
 
 The node is running but can't reach the hub. Check that the hub machine is on, that conflux runs there, and that both machines show up in `tailscale status`.
 
-To keep working until the hub is back, run `conflux off` and restart your session. Run `conflux on` when the hub is back. If `off` fails because it can't read `~/.grok/config.toml`, fix or move that file and run `conflux off` again. conflux changes no tool's settings until it can read all of them.
+To keep working until the hub is back, run `conflux off` and restart your session. Run `conflux on` when the hub is back. If `off` fails because it can't read `~/.grok/config.toml` or `~/.config/muse/settings.json`, fix or move that file and run `conflux off` again. conflux changes no tool's settings until it can read all of them.
 
 ### Requests don't show up on the Requests tab
 
