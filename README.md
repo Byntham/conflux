@@ -20,14 +20,14 @@ conflux is a proxy. One always-on machine, the **hub**, holds your Claude and Ch
   <img src="assets/dashboard-light.png" alt="The conflux dashboard with two Claude and two Codex accounts pooled across three machines. Each pool shows how much quota is left, the burn rate, how long it lasts, and a week of history with the coming resets.">
 </picture>
 
-<p align="center"><sub>Two Claude and two Codex accounts, pooled across three machines. The dotted line is the forecast up to each reset.</sub></p>
+<p align="center"><sub>Two Claude and two Codex accounts, pooled across three machines. Each jump is quota coming back at a reset.</sub></p>
 
 ## What you get
 
 - **Less wasted quota.** New sessions start on the available account whose weekly limit resets soonest.
 - **Automatic failover.** When an account runs out, the next request goes to one that still has room.
 - **Stable sessions.** An active session stays on one account, so its prompt cache keeps working.
-- **One dashboard.** See each pool's quota, your machines, and recent requests from any device on your tailnet.
+- **One dashboard.** See each pool's quota, your machines, and recent requests from any of your devices.
 - **Optional thread sync.** `conflux sync on` copies a machine's threads to the hub, where you can search them. It's off by default.
 
 > [!WARNING]
@@ -37,11 +37,15 @@ conflux is a proxy. One always-on machine, the **hub**, holds your Claude and Ch
 
 ### Before you start
 
-- Claude or ChatGPT subscriptions to pool.
-- [Tailscale](https://tailscale.com) on every machine, all signed in to the same tailnet.
-- Claude Code or Codex on each machine you work from. The hub doesn't need them.
-- A hub that stays on at home. Linux is best, because a macOS or Windows hub runs only while you're signed in. Keep it off other VPNs and exit nodes, so the providers see one home IP address.
+- Claude or ChatGPT subscriptions to pool. Codex uses a ChatGPT subscription.
+- [Tailscale](https://tailscale.com) on every machine, signed in to the same tailnet, with MagicDNS on. It's on by default.
+- [Claude Code](https://claude.com/product/claude-code) or [Codex](https://developers.openai.com/codex/cli) on each machine you work from.
+- A hub that stays on at home, ideally Linux. Keep it off VPNs and exit nodes.
 - Linux x64 or ARM64 with systemd, macOS on Apple silicon, or Windows x64. On anything else, [build from source](docs/install.md#build-from-source).
+
+Every machine signed in to your tailnet as you can use your accounts. See [Security](#security).
+
+Working on one machine only? Do steps 1, 2, and 4.
 
 ### 1. Install on the hub
 
@@ -58,7 +62,7 @@ irm https://raw.githubusercontent.com/Byntham/conflux/main/install.ps1 | iex
 conflux join self
 ```
 
-conflux now runs as a background service, and this machine is the hub. The last line printed is the dashboard's address. If the installer changed your PATH, open a new terminal.
+conflux now runs as a background service, and this machine is the hub. On a Mac, you also get a menu bar app. The last line printed is the dashboard's address. Run `conflux` to print it again. If `conflux` isn't found, open a new terminal.
 
 ### 2. Add your accounts
 
@@ -72,28 +76,33 @@ conflux login codex     # a ChatGPT subscription
 Each one prints a link. Open it in a browser signed in to that account, on any machine.
 
 - For Claude, the browser then shows a connection error. That is expected. Paste the whole URL from the address bar into the terminal.
-- For ChatGPT, enter the code that the command printed.
+- For ChatGPT, type the code from the terminal into the page. The command finishes on its own.
+
+Your accounts now show on the dashboard.
 
 ### 3. Add your other machines
 
-Skip this if you only work on the hub.
+Run this on each machine you work from.
 
-**From the dashboard.** Open Machines, click "Find machines", then click "Install". This works for Mac and Linux machines that the hub can ssh to without a password or passphrase.
-
-**On macOS or Linux.** Run this on the machine, then run `conflux join`. If the installer changed your PATH, open a new terminal first.
+macOS and Linux:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Byntham/conflux/main/install.sh | sh
+conflux join
 ```
 
-**On Windows.** Run this in PowerShell on the machine:
+Windows, in PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/Byntham/conflux/main/install.ps1 | iex
 conflux join
 ```
 
-`conflux join` finds the hub and links to it. conflux then points that machine's Claude Code and Codex at the hub. `conflux leave` puts their settings back.
+If `conflux` isn't found, open a new terminal and run `conflux join` again.
+
+`conflux join` finds your hub and links to it. The machine then shows on the dashboard's Machines page, and its Claude Code and Codex send their requests through the hub. `conflux leave` puts their settings back.
+
+**Shortcut.** If the hub can ssh to a Mac or Linux machine without a password or passphrase, skip the commands. On the dashboard, open Machines, click "Find machines", then click "Install".
 
 ### 4. Restart and check
 
@@ -105,7 +114,7 @@ The [install guide](docs/install.md) covers guests, the Mac menu bar app, update
 
 | Command | What it does |
 | --- | --- |
-| `conflux` | Print the dashboard's address |
+| `conflux` | Print the help and the dashboard's address |
 | `conflux status` | Show accounts, usage, and cooldowns |
 | `conflux disable <account>` | Stop using an account. `enable` brings it back |
 | `conflux off` | Use this machine's own logins, for example when the hub is down. `on` undoes it |

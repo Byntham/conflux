@@ -37,7 +37,10 @@ conflux login claude    # a Claude subscription
 conflux login codex     # a ChatGPT subscription
 ```
 
-Each command prints a link. Open it in a browser signed in to that account. The browser can be on any machine. For Claude, the browser then shows a connection error. That is expected. Paste the whole URL from the address bar into the terminal. For Codex, enter the code that the command prints.
+Each command prints a link. Open it in a browser signed in to that account. The browser can be on any machine.
+
+- For Claude, the browser then shows a connection error. That is expected. Paste the whole URL from the address bar into the terminal.
+- For ChatGPT, type the code from the terminal into the page. The command finishes on its own.
 
 Your accounts now show on the dashboard. Its address is the "Dashboard:" line that step 1 printed, and it works from any of your devices. Run `conflux` on the hub to print it again.
 
