@@ -11,6 +11,7 @@ pub const CLAUDE_TOKEN: &str = "conflux";
 pub const CLAUDE_CACHE_TTL_KEY: &str = "CLAUDE_CODE_PROMPT_CACHE_TTL";
 pub const CLAUDE_CACHE_TTL: &str = "1h";
 pub const CODEX_PROVIDER: &str = "conflux";
+const GROK_PLACEHOLDER: &str = "conflux";
 const GROK_AUTH_COMMAND: &str = "echo conflux";
 const GROK_AUTH_TTL: i64 = 365 * 24 * 3600;
 
@@ -141,7 +142,9 @@ fn grok_has_login(paths: &ClientPaths) -> bool {
     }
     match fsutil::read_json::<Value>(&auth) {
         Ok(None) => false,
-        Ok(Some(Value::Object(entries))) => entries.values().any(|e| e["auth_mode"].as_str() != Some("external")),
+        Ok(Some(Value::Object(entries))) => entries
+            .values()
+            .any(|e| e["auth_mode"].as_str() != Some("external") || e["key"].as_str() != Some(GROK_PLACEHOLDER)),
         _ => true,
     }
 }
@@ -515,7 +518,18 @@ mod tests {
             Some(GROK_AUTH_COMMAND)
         );
 
+        std::fs::write(
+            grok_dir.join("auth.json"),
+            r#"{"https://auth.x.ai::client":{"auth_mode":"external","key":"conflux"}}"#,
+        )
+        .unwrap();
+        apply(&p, &conf, 8317).unwrap();
+        assert_eq!(
+            read()["auth"]["auth_provider_command"].as_str(),
+            Some(GROK_AUTH_COMMAND)
+        );
         for login in [
+            r#"{"https://auth.x.ai::client":{"auth_mode":"external","key":"sso-token"}}"#,
             r#"{"https://auth.x.ai::client":{"auth_mode":"oidc","key":"k"}}"#,
             r#"{"https://auth.x.ai::cli"#,
         ] {

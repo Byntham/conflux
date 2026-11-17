@@ -65,6 +65,10 @@ pub fn upstream_url(app: &App, provider: Provider, path: &str, query: Option<&st
         ),
         Provider::Grok => (&app.ep.grok_api, path.strip_prefix("/grok/v1").unwrap_or(path)),
     };
+    let lower = rest.to_ascii_lowercase();
+    if lower.contains("%2f") || lower.contains("%5c") {
+        return None;
+    }
     let q = query.map(|q| format!("?{q}")).unwrap_or_default();
     let url = format!("{base}{rest}{q}");
     let base_path = url::Url::parse(base).ok()?.path().trim_end_matches('/').to_string();

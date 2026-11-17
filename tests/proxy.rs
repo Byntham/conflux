@@ -408,6 +408,8 @@ async fn dot_segments_cannot_leave_the_provider_path() {
         "/grok/v1/%2e%2e\\billing",
         "/backend-api/codex/..\\..\\me",
         "/v1/messages\\..\\..\\x",
+        "/backend-api/codex/..%2fme",
+        "/grok/v1/..%5C..%5Cx",
     ] {
         let mut s = tokio::net::TcpStream::connect(("127.0.0.1", h.port)).await.unwrap();
         let req = format!(
