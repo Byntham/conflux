@@ -66,9 +66,10 @@
   .hub-state { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 500; }
   .dot.on + #hub-status { color: var(--fg-2); font-weight: 400; }
   .hub-meta { margin-top: 2px; font-size: 12px; color: var(--muted); }
-  .fleet { display: flex; flex-direction: column; gap: 3px; max-height: 40vh; overflow-y: auto; margin: 8px 0 6px; padding: 0; list-style: none; font-size: 12.5px; }
+  .fleet { display: flex; flex-direction: column; gap: 3px; max-height: 40vh; overflow-y: auto; margin: 0 -8px -2px; padding: 8px; list-style: none; font-size: 12.5px; }
   .fleet:empty { display: none; }
   .fleet li { display: flex; align-items: center; gap: 7px; color: var(--fg-2); }
+  .fleet .truncate { margin: -8px; padding: 8px; }
   .fleet li.offline { color: var(--muted); }
   .fleet .dot.on { box-shadow: none; }
   .fleet .dot.routing-off { background: var(--warn-fill); }
@@ -146,7 +147,7 @@
   .account.off .meter > span, .account.blocked .meter > span { color: var(--muted); font-weight: 400; }
   .account-head { display: flex; align-items: flex-start; gap: 10px; }
   .account-title { flex: 1; min-width: 0; }
-  .email { font-weight: 500; overflow: hidden; overflow-wrap: break-word; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .email { margin: -8px; padding: 8px; font-weight: 500; overflow: hidden; overflow-wrap: break-word; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   .account-sub { display: flex; align-items: center; flex-wrap: wrap; gap: 0 7px; font-size: 13px; color: var(--muted); margin-top: 1px; }
   .meta::before { content: "·"; margin-right: 7px; }
   .account-actions { display: flex; align-items: center; gap: 2px; margin: -3px -5px 0 0; }
@@ -295,8 +296,8 @@
   .thread:hover { background: var(--raised); }
   .thread.selected { background: var(--row-on); box-shadow: inset 2px 0 var(--accent); }
   .thread.selected .thread-title { font-weight: 500; }
-  .thread-title { font-weight: 400; font-size: 13.5px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .thread-meta { display: flex; gap: 6px; margin-top: 4px; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; }
+  .thread-title { margin: -8px; padding: 8px; font-weight: 400; font-size: 13.5px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .thread-meta { display: flex; gap: 6px; margin: -4px -8px -8px; padding: 8px; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; }
   .thread-meta .project { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .thread-meta .ago { margin-left: auto; flex: none; }
   .snippet { margin-top: 3px; font-size: 12.5px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -310,7 +311,7 @@
   .viewer-empty svg { width: 26px; height: 26px; }
   .viewer-empty strong { color: var(--fg); font-size: 14.5px; font-weight: 600; }
   .viewer-head { position: sticky; top: 0; z-index: 1; padding: 13px 18px 12px; background: var(--surface); border-bottom: 1px solid var(--line); display: flex; align-items: flex-start; gap: 8px; }
-  .viewer-title { font-size: 15px; font-weight: 600; line-height: 1.35; letter-spacing: -.008em; }
+  .viewer-title { margin: -8px; padding: 8px; font-size: 15px; font-weight: 600; line-height: 1.35; letter-spacing: -.008em; }
   .viewer-meta { display: flex; flex-wrap: wrap; gap: 0 6px; margin-top: 2px; font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
   .viewer-meta > span { min-width: 0; }
   .viewer-back { display: none; margin: -3px 0 0 -7px; }
