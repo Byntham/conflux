@@ -39,8 +39,8 @@ pub enum Command {
                       claude prints a link. Approve access in a browser signed in to the account, \
                       then paste the URL from the address bar. The browser shows a connection \
                       error at that point, which is expected.\n\n\
-                      codex and grok print a link and a code. Enter the code in a browser signed in \
-                      to the ChatGPT or xAI account, and conflux finishes on its own."
+                      codex, grok, and muse print a link and a code. Enter the code in a browser \
+                      signed in to the ChatGPT, xAI, or Meta account, and conflux finishes on its own."
     )]
     Login {
         #[arg(help = "Which kind of account to add")]
@@ -230,6 +230,8 @@ pub enum LoginProvider {
     Codex,
     #[value(help = "A Grok subscription from xAI, used by Grok Build")]
     Grok,
+    #[value(help = "A Muse Code subscription from Meta, used by Muse Code")]
+    Muse,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -468,6 +470,9 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Login {
             provider: LoginProvider::Grok,
         } => login_device(&daemon, "grok", "xAI").await,
+        Command::Login {
+            provider: LoginProvider::Muse,
+        } => login_device(&daemon, "muse", "Meta").await,
         Command::Status => {
             if cfg.role == Role::Node
                 && let Ok(node) = daemon.get("/conflux/node").await
@@ -626,7 +631,7 @@ fn print_joined(cfg: &Config) {
     match &cfg.hub {
         None => {
             println!(
-                "This machine is now the hub. Add accounts with `conflux login claude`, `conflux login codex`, or `conflux login grok`."
+                "This machine is now the hub. Add accounts with `conflux login claude`, `conflux login codex`, `conflux login grok`, or `conflux login muse`."
             )
         }
         Some(hub) => println!("The coding tools on this machine now go through {hub}."),
@@ -930,7 +935,7 @@ fn print_status(v: &Value) -> Result<()> {
     let accounts = v["accounts"].as_array().cloned().unwrap_or_default();
     if accounts.is_empty() {
         println!(
-            "No accounts yet. Add one with `conflux login claude`, `conflux login codex`, or `conflux login grok`."
+            "No accounts yet. Add one with `conflux login claude`, `conflux login codex`, `conflux login grok`, or `conflux login muse`."
         );
         return Ok(());
     }

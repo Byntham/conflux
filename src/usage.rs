@@ -242,6 +242,43 @@ pub fn parse_grok_usage(v: &Value, now: DateTime<Utc>) -> Snapshot {
     s
 }
 
+fn apply_muse_subscription(s: &mut Snapshot, sub: &Value, now: DateTime<Utc>) -> bool {
+    let mut touched = false;
+    for (key, default_secs) in [("window", 5 * 3600), ("weekly", 7 * 86400)] {
+        let w = &sub[key];
+        let Some(u) = w["used_percent"].as_f64() else {
+            continue;
+        };
+        s.upsert(Window {
+            key: key.into(),
+            used_pct: u.clamp(0.0, 100.0),
+            resets_at: w["resets_at"]
+                .as_f64()
+                .and_then(|n| Utc.timestamp_opt(n as i64, 0).single()),
+            duration_secs: Some(
+                w["window_duration_mins"]
+                    .as_i64()
+                    .map(|m| m * 60)
+                    .unwrap_or(default_secs),
+            ),
+            model_scope: None,
+        });
+        touched = true;
+    }
+    if touched {
+        s.updated_at = Some(now);
+    }
+    touched
+}
+
+pub fn parse_muse_usage(v: &Value, now: DateTime<Utc>) -> Snapshot {
+    let mut s = Snapshot::default();
+    apply_muse_subscription(&mut s, &v["subs_usage"], now);
+    s.updated_at = Some(now);
+    s.polled_at = Some(now);
+    s
+}
+
 type History = HashMap<String, Vec<Sample>>;
 
 struct HistoryFile {
@@ -366,8 +403,23 @@ impl Usage {
         let touched = match provider {
             Provider::Claude => apply_claude_headers(s, h, now),
             Provider::Codex => apply_codex_headers(s, h, now),
-            Provider::Grok => false,
+            Provider::Grok | Provider::Muse => false,
         };
+        let s = s.clone();
+        drop(snaps);
+        if touched {
+            self.record(id, s.shared_windows(), now);
+        }
+    }
+
+    pub fn observe_muse_event(&self, id: &str, v: &Value) {
+        if v["type"].as_str() != Some("response.subscription_usage") {
+            return;
+        }
+        let now = Utc::now();
+        let mut snaps = self.snaps.write().unwrap();
+        let s = snaps.entry(id.to_string()).or_default();
+        let touched = apply_muse_subscription(s, &v["subscription"], now);
         let s = s.clone();
         drop(snaps);
         if touched {
@@ -382,18 +434,21 @@ impl Usage {
 
     pub async fn poll(&self, e: &AccountEntry) -> anyhow::Result<()> {
         let creds = e.credentials();
+        let token = &creds.grant.access_token;
         let req = match e.provider {
             Provider::Claude => self
                 .http
                 .get(format!("{}/api/oauth/usage", self.ep.anthropic_api))
                 .header("anthropic-beta", "oauth-2025-04-20")
-                .header("User-Agent", "claude-code/2.1.273"),
+                .header("User-Agent", "claude-code/2.1.273")
+                .bearer_auth(token),
             Provider::Codex => {
                 let mut r = self
                     .http
                     .get(format!("{}/wham/usage", self.ep.chatgpt_backend))
                     .header("OpenAI-Beta", "codex-1")
-                    .header("Originator", "codex_cli_rs");
+                    .header("Originator", "codex_cli_rs")
+                    .bearer_auth(token);
                 if let Some(acct) = &creds.chatgpt_account_id {
                     r = r.header("Chatgpt-Account-Id", acct);
                 }
@@ -402,9 +457,11 @@ impl Usage {
             Provider::Grok => self
                 .http
                 .get(format!("{}/billing?format=credits", self.ep.grok_api))
-                .header("x-xai-token-auth", "xai-grok-cli"),
+                .header("x-xai-token-auth", "xai-grok-cli")
+                .bearer_auth(token),
+            Provider::Muse => crate::oauth::muse_mint(&self.http, &self.ep, &creds.grant.refresh_token),
         };
-        let resp = req.bearer_auth(&creds.grant.access_token).send().await?;
+        let resp = req.send().await?;
         let status = resp.status();
         let body: Value = resp.json().await?;
         if !status.is_success() {
@@ -415,6 +472,7 @@ impl Usage {
             Provider::Claude => parse_claude_usage(&body, now),
             Provider::Codex => parse_codex_usage(&body, now),
             Provider::Grok => parse_grok_usage(&body, now),
+            Provider::Muse => parse_muse_usage(&body, now),
         };
         if snap.windows.is_empty() && e.provider == Provider::Grok {
             let mut snaps = self.snaps.write().unwrap();

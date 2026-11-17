@@ -522,6 +522,7 @@ async fn a_node_takes_over_the_accounts_and_becomes_the_hub() {
         claude_settings: dir.path().join("claude/settings.json"),
         codex_config: dir.path().join("codex/config.toml"),
         grok_config: dir.path().join("grok/config.toml"),
+        muse_settings: dir.path().join("muse/settings.json"),
     };
     let node = Node::named(
         "node-one".into(),
@@ -580,6 +581,7 @@ async fn a_node_refuses_to_become_the_hub_it_cannot_safely_be() {
                 claude_settings: dir.path().join("claude/settings.json"),
                 codex_config: dir.path().join("codex/config.toml"),
                 grok_config: dir.path().join("grok/config.toml"),
+                muse_settings: dir.path().join("muse/settings.json"),
             },
             hub_run_by(hub_user),
         );
@@ -689,6 +691,7 @@ async fn node_with_an_unfinished_move(h: &Harness, bundle: &Bundle) -> (tempfile
             claude_settings: dir.path().join("claude/settings.json"),
             codex_config: dir.path().join("codex/config.toml"),
             grok_config: dir.path().join("grok/config.toml"),
+            muse_settings: dir.path().join("muse/settings.json"),
         },
         hub_run_by(1),
     );

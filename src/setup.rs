@@ -20,6 +20,7 @@ pub struct ClientPaths {
     pub claude_settings: PathBuf,
     pub codex_config: PathBuf,
     pub grok_config: PathBuf,
+    pub muse_settings: PathBuf,
 }
 
 impl ClientPaths {
@@ -34,10 +35,15 @@ impl ClientPaths {
         let grok_dir = std::env::var("GROK_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|_| home.join(".grok"));
+        let muse_dir = std::env::var("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| home.join(".config"))
+            .join("muse");
         Ok(Self {
             claude_settings: claude_dir.join("settings.json"),
             codex_config: codex_dir.join("config.toml"),
             grok_config: grok_dir.join("config.toml"),
+            muse_settings: muse_dir.join("settings.json"),
         })
     }
 }
@@ -58,6 +64,10 @@ pub struct Joined {
     pub grok_auth_ttl: Option<i64>,
     #[serde(default)]
     pub grok_recorded: bool,
+    #[serde(default)]
+    pub muse_transport: Option<Value>,
+    #[serde(default)]
+    pub muse_recorded: bool,
     #[serde(default)]
     pub recorded: bool,
 }
@@ -271,6 +281,29 @@ fn restore_grok(paths: &ClientPaths, joined: &Joined, mut doc: DocumentMut, port
     write_codex(&paths.grok_config, &doc)
 }
 
+fn muse_transport(port: u16) -> Value {
+    serde_json::json!({
+        "base_url": format!("{}{}v1", base_url(port), crate::proxy::MUSE_PREFIX),
+        "auth": "none",
+    })
+}
+
+fn apply_muse(paths: &ClientPaths, mut settings: Map<String, Value>, port: u16) -> Result<()> {
+    settings.entry("schema_version").or_insert(Value::from(1));
+    settings.insert("endpoint_transport".into(), muse_transport(port));
+    write_claude(&paths.muse_settings, settings)
+}
+
+fn restore_muse(path: &Path, joined: &Joined, mut settings: Map<String, Value>, port: u16) -> Result<()> {
+    restore_value(
+        &mut settings,
+        "endpoint_transport",
+        &muse_transport(port),
+        &joined.muse_transport,
+    );
+    write_claude(path, settings)
+}
+
 fn conflux_table(port: u16) -> Table {
     let mut t = Table::new();
     t["name"] = value("conflux");
@@ -299,9 +332,21 @@ pub fn apply(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Joined
         .then(|| read_grok(&paths.grok_config))
         .transpose()?;
 
+    let muse = paths
+        .muse_settings
+        .parent()
+        .is_some_and(Path::is_dir)
+        .then(|| read_claude(&paths.muse_settings))
+        .transpose()?;
+
     let mut newly_recorded = false;
     if let Some(g) = grok.as_ref().filter(|_| !joined.grok_recorded) {
         record_grok(&mut joined, g);
+        newly_recorded = true;
+    }
+    if let Some(m) = muse.as_ref().filter(|_| !joined.muse_recorded) {
+        joined.muse_transport = m.get("endpoint_transport").cloned();
+        joined.muse_recorded = true;
         newly_recorded = true;
     }
     if !joined.recorded {
@@ -338,6 +383,9 @@ pub fn apply(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Joined
     if let Some(g) = grok {
         apply_grok(paths, &joined, g, port)?;
     }
+    if let Some(m) = muse {
+        apply_muse(paths, m, port)?;
+    }
 
     joined.active = true;
     fsutil::ensure_private_dir(config_dir)?;
@@ -369,6 +417,9 @@ pub fn restore(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Opti
     let (url, token) = ours_claude(port);
     let grok = (joined.grok_recorded && paths.grok_config.exists())
         .then(|| read_grok(&paths.grok_config))
+        .transpose()?;
+    let muse = (joined.muse_recorded && paths.muse_settings.exists())
+        .then(|| read_claude(&paths.muse_settings))
         .transpose()?;
 
     let mut claude = read_claude(&paths.claude_settings)?;
@@ -424,10 +475,14 @@ pub fn restore(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Opti
     if let Some(g) = grok {
         restore_grok(paths, &joined, g, port)?;
     }
+    if let Some(m) = muse {
+        restore_muse(&paths.muse_settings, &joined, m, port)?;
+    }
 
     joined.active = false;
     joined.recorded = false;
     joined.grok_recorded = false;
+    joined.muse_recorded = false;
     fsutil::write_json_durable(&joined_path(config_dir), &joined)?;
     Ok(Some(joined))
 }
@@ -459,6 +514,7 @@ mod tests {
                 claude_settings: dir.join("claude/settings.json"),
                 codex_config: dir.join("codex/config.toml"),
                 grok_config: dir.join("grok/config.toml"),
+                muse_settings: dir.join("muse/settings.json"),
             },
             dir.join("conflux"),
         )
@@ -478,6 +534,9 @@ mod tests {
         std::fs::create_dir_all(p.grok_config.parent().unwrap()).unwrap();
         let grok_before = "endpoints = { web_base_url = \"https://example.com\" }\n\n[ui]\nyolo = false\n";
         std::fs::write(&p.grok_config, grok_before).unwrap();
+        std::fs::create_dir_all(p.muse_settings.parent().unwrap()).unwrap();
+        let muse_before = "{\n  \"schema_version\": 1,\n  \"model\": \"muse-wonder-full-1.0\"\n}\n";
+        std::fs::write(&p.muse_settings, muse_before).unwrap();
 
         apply(&p, &conf, 8317).unwrap();
         let claude: Value = serde_json::from_str(&std::fs::read_to_string(&p.claude_settings).unwrap()).unwrap();
@@ -496,12 +555,16 @@ mod tests {
         );
         assert_eq!(grok["endpoints"]["web_base_url"].as_str(), Some("https://example.com"));
         assert_eq!(grok["auth"]["auth_provider_command"].as_str(), Some(GROK_AUTH_COMMAND));
+        let muse: Value = serde_json::from_str(&std::fs::read_to_string(&p.muse_settings).unwrap()).unwrap();
+        assert_eq!(muse["endpoint_transport"]["base_url"], "http://127.0.0.1:8317/muse/v1");
+        assert_eq!(muse["endpoint_transport"]["auth"], "none");
 
         apply(&p, &conf, 8317).unwrap();
         restore(&p, &conf, 8317).unwrap();
         assert_eq!(std::fs::read_to_string(&p.claude_settings).unwrap(), claude_before);
         assert_eq!(std::fs::read_to_string(&p.codex_config).unwrap(), CODEX);
         assert_eq!(std::fs::read_to_string(&p.grok_config).unwrap(), grok_before);
+        assert_eq!(std::fs::read_to_string(&p.muse_settings).unwrap(), muse_before);
     }
 
     #[test]
@@ -543,22 +606,33 @@ mod tests {
     }
 
     #[test]
-    fn an_upgraded_join_records_grok_before_changing_it() {
+    fn an_upgraded_join_records_new_tools_before_changing_them() {
         let d = tempfile::tempdir().unwrap();
         let (p, conf) = paths(d.path());
         apply(&p, &conf, 8317).unwrap();
         let mut old: Value = serde_json::from_str(&std::fs::read_to_string(joined_path(&conf)).unwrap()).unwrap();
-        for key in ["grok_base_url", "grok_auth_command", "grok_auth_ttl", "grok_recorded"] {
+        for key in [
+            "grok_base_url",
+            "grok_auth_command",
+            "grok_auth_ttl",
+            "grok_recorded",
+            "muse_transport",
+            "muse_recorded",
+        ] {
             old.as_object_mut().unwrap().remove(key);
         }
         std::fs::write(joined_path(&conf), old.to_string()).unwrap();
         std::fs::create_dir_all(p.grok_config.parent().unwrap()).unwrap();
         let mine = "[auth]\nauth_provider_command = \"my-sso\"\n";
         std::fs::write(&p.grok_config, mine).unwrap();
+        std::fs::create_dir_all(p.muse_settings.parent().unwrap()).unwrap();
+        let my_muse = "{\n  \"schema_version\": 1,\n  \"endpoint_transport\": {\n    \"base_url\": \"https://gateway.example.com/v1\"\n  }\n}\n";
+        std::fs::write(&p.muse_settings, my_muse).unwrap();
 
         apply(&p, &conf, 8317).unwrap();
         restore(&p, &conf, 8317).unwrap();
         assert_eq!(std::fs::read_to_string(&p.grok_config).unwrap(), mine);
+        assert_eq!(std::fs::read_to_string(&p.muse_settings).unwrap(), my_muse);
     }
 
     #[test]

@@ -46,7 +46,7 @@ The hub refuses Claude requests from anything other than Claude Code. See `claud
 
 ### An account shows "needs login"
 
-Its token stopped working. Run `conflux login claude`, `conflux login codex`, or `conflux login grok` again with the same account. It keeps its ID and settings.
+Its token stopped working. Run `conflux login claude`, `conflux login codex`, `conflux login grok`, or `conflux login muse` again with the same account. It keeps its ID and settings.
 
 ### conflux stops when you log out of Linux
 

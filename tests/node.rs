@@ -39,6 +39,7 @@ async fn start_node_on(hub_port: u16, tailscale: Tailscale) -> NodeHarness {
         claude_settings: dir.path().join("claude/settings.json"),
         codex_config: dir.path().join("codex/config.toml"),
         grok_config: dir.path().join("grok/config.toml"),
+        muse_settings: dir.path().join("muse/settings.json"),
     };
     let node = Node::named(
         "node-one".into(),

@@ -517,6 +517,125 @@ async fn grok_usage_polls_and_refreshes_against_xai() {
     );
 }
 
+fn muse(h: &Harness, path: &str) -> reqwest::RequestBuilder {
+    h.http
+        .post(format!("{}{path}", h.base))
+        .header("user-agent", "muse-build/1.4.23 (non-interactive; linux-x86_64)")
+        .header("x-tbh-session-id", "s1")
+        .json(&json!({"model": "muse-wonder-1.0", "stream": true}))
+}
+
+#[tokio::test]
+async fn muse_requests_route_report_quota_and_fail_over() {
+    let h = Harness::new().await;
+    h.add(Provider::Codex, "c").await;
+    let m1 = h.add(Provider::Muse, "m1").await;
+    let m2 = h.add(Provider::Muse, "m2").await;
+    let (first, first_id, second, second_id) = if m1 < m2 {
+        ("at-m1", m1, "at-m2", m2)
+    } else {
+        ("at-m2", m2, "at-m1", m1)
+    };
+    let resets = (Utc::now() + chrono::Duration::hours(3)).timestamp();
+    let limit =
+        json!({"error": {"code": "tier_limit", "type": "rate_limit_error", "message": "limit", "resets_at": resets}});
+    h.reply(first, Reply::Json(429, vec![], limit.to_string()));
+    let usage = json!({"type": "response.subscription_usage", "subscription": {
+        "window": {"used_percent": 30, "resets_at": resets, "window_duration_mins": 300},
+        "weekly": {"used_percent": 60, "resets_at": resets + 86400}
+    }});
+    h.reply(
+        second,
+        Reply::Raw(
+            vec![("content-type", "text/event-stream".into())],
+            format!("event: response.subscription_usage\ndata: {usage}\n\n").into_bytes(),
+        ),
+    );
+
+    let r = muse(&h, "/muse/v1/responses").send().await.unwrap();
+    assert_eq!(r.status(), 200);
+    r.bytes().await.unwrap();
+    let cooled = h.app.router.cooldowns(&first_id);
+    assert_eq!(cooled.len(), 1);
+    assert_eq!(cooled[0].until.timestamp(), resets);
+    let snap = h.app.usage.get(&second_id);
+    let weekly = snap.longest().unwrap();
+    assert_eq!((weekly.key.as_str(), weekly.used_pct), ("weekly", 60.0));
+
+    let r = muse(&h, "/muse-code/models").send().await.unwrap();
+    assert_eq!(r.status(), 200);
+    let hits = h.fake.hits.lock().unwrap().clone();
+    let paths: Vec<_> = hits.iter().map(|(p, t)| (p.as_str(), t.as_str())).collect();
+    assert_eq!(
+        paths,
+        [
+            ("/meta/v1/responses", first),
+            ("/meta/v1/responses", second),
+            ("/meta/muse-code/models", second)
+        ]
+    );
+}
+
+#[tokio::test]
+async fn muse_polls_and_refreshes_by_minting_its_key() {
+    let h = Harness::new().await;
+    let id = h.add(Provider::Muse, "m").await;
+    let key = |api_key: &str| {
+        json!({"api_key": api_key, "subs_usage": {
+            "window": {"used_percent": 12, "resets_at": 1900000000, "window_duration_mins": 300},
+            "weekly": {"used_percent": 34, "resets_at": 1900500000}
+        }})
+        .to_string()
+    };
+    h.reply("rt-m", Reply::Json(200, vec![], key("at-m")));
+    let e = h.app.store.get(&id).unwrap();
+    h.app.usage.poll(&e).await.unwrap();
+    assert_eq!(h.app.usage.get(&id).longest().unwrap().used_pct, 34.0);
+
+    h.reply("rt-m", Reply::Json(200, vec![], key("at-m-new")));
+    assert_eq!(h.app.refresher.refresh(&e).await, RefreshResult::Refreshed);
+    let c = e.credentials();
+    assert_eq!(
+        (c.grant.access_token.as_str(), c.grant.refresh_token.as_str()),
+        ("at-m-new", "rt-m")
+    );
+
+    h.reply("rt-m", Reply::Json(503, vec![], "busy".into()));
+    assert!(matches!(h.app.refresher.refresh(&e).await, RefreshResult::Waiting(_)));
+    assert!(e.needs_login().is_none());
+
+    let interrupted = e.credentials().generation + 1;
+    e.journal.write_claim(interrupted).unwrap();
+    e.journal
+        .write_receipt(interrupted, &conflux::accounts::Receipt::Unknown)
+        .unwrap();
+    let reloaded = conflux::accounts::Store::load(&Paths::under(h.dir.path()).accounts_dir()).unwrap();
+    let after_crash = reloaded.get(&id).unwrap();
+    assert_eq!(after_crash.refresh_state(), RefreshState::Unknown);
+    assert!(conflux::refresh::Refresher::due(
+        &after_crash,
+        Utc::now() + chrono::Duration::days(2)
+    ));
+    h.reply("rt-m", Reply::Json(200, vec![], key("at-m")));
+    assert_eq!(h.app.refresher.refresh(&e).await, RefreshResult::Refreshed);
+
+    let gone = h.add(Provider::Muse, "gone").await;
+    h.reply(
+        "rt-gone",
+        Reply::Json(401, vec![], json!({"title": "Authentication Error"}).to_string()),
+    );
+    let e = h.app.store.get(&gone).unwrap();
+    assert!(matches!(h.app.refresher.refresh(&e).await, RefreshResult::Rejected(_)));
+    assert!(
+        h.fake
+            .hits
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|(path, _)| path == "/meta/muse-code/key")
+    );
+}
+
 #[tokio::test]
 async fn client_disconnect_cancels_upstream() {
     let h = Harness::new().await;

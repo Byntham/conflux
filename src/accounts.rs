@@ -15,6 +15,7 @@ pub enum Provider {
     Claude,
     Codex,
     Grok,
+    Muse,
 }
 
 impl Provider {
@@ -23,6 +24,7 @@ impl Provider {
             Provider::Claude => "claude",
             Provider::Codex => "codex",
             Provider::Grok => "grok",
+            Provider::Muse => "muse",
         }
     }
 
@@ -31,6 +33,7 @@ impl Provider {
             Provider::Claude => "Claude",
             Provider::Codex => "Codex",
             Provider::Grok => "Grok",
+            Provider::Muse => "Muse",
         }
     }
 }

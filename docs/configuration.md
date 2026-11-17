@@ -9,7 +9,7 @@ conflux uses the same paths on Linux, macOS, and Windows. On Windows, `~` is you
 | Path | What it holds |
 | --- | --- |
 | `~/.config/conflux/config.toml` | This machine's settings. See below. |
-| `~/.config/conflux/joined.json` | The Claude Code, Codex, and Grok Build settings that `join` replaced, so `off` and `leave` can restore them. |
+| `~/.config/conflux/joined.json` | The Claude Code, Codex, Grok Build, and Muse Code settings that `join` replaced, so `off` and `leave` can restore them. |
 | `~/.config/conflux/management-key` | The key that `conflux t3-key` prints. Hub only. |
 | `~/.local/share/conflux/accounts/` | One set of files per account, with its OAuth tokens in plain text. Hub only. |
 | `~/.local/share/conflux/retired-*/` | The accounts an old hub kept after a hub move. Delete it once the move has worked. |
@@ -24,6 +24,7 @@ conflux also edits files that belong to the coding tools. See [`conflux join`](c
 | `~/.claude/settings.json`, or `$CLAUDE_CONFIG_DIR/settings.json` | `join`, `on`, `off`, `leave`, and linking a waiting machine |
 | `~/.codex/config.toml`, or `$CODEX_HOME/config.toml` | the same commands |
 | `~/.grok/config.toml`, or `$GROK_HOME/config.toml` | the same commands, if that folder exists |
+| `~/.config/muse/settings.json`, or `$XDG_CONFIG_HOME/muse/settings.json` | the same commands, if that folder exists |
 
 ## config.toml
 
@@ -71,6 +72,8 @@ transcript_sync = false
 | `CONFLUX_OPENAI_AUTH` | The OpenAI login server. |
 | `CONFLUX_GROK_API` | The Grok Build API. Default `https://cli-chat-proxy.grok.com/v1`. |
 | `CONFLUX_XAI_AUTH` | The xAI login server. Default `https://auth.x.ai`. |
+| `CONFLUX_META_API` | The Muse Code API. Default `https://api.meta.ai`. |
+| `CONFLUX_META_AUTH` | The Meta login server. Default `https://auth.meta.com`. |
 | `CONFLUX_RELEASES` | Where `conflux update` looks for releases. |
 | `CONFLUX_HUB_PORT` | The port a node finds its hub on, and a waiting machine looks for one on. Default is the machine's own `port`. It lets a hub and a node run on one machine. |
 | `CONFLUX_HOSTNAME` | The name this machine reports, in place of its hostname. |
@@ -78,7 +81,7 @@ transcript_sync = false
 
 Only the hub reads the endpoint variables, because a node sends everything to the hub. The exception is `CONFLUX_RELEASES`, which every machine reads when it updates.
 
-`CONFLUX_HOME` does not isolate everything. `join`, `on`, `off`, `leave`, and `wait` still edit the real Claude Code, Codex, and Grok Build settings and the real background service.
+`CONFLUX_HOME` does not isolate everything. `join`, `on`, `off`, `leave`, and `wait` still edit the real Claude Code, Codex, Grok Build, and Muse Code settings and the real background service.
 
 The Mac menu bar app reads `CONFLUX_HOME` too. With it set, the app leaves the real background service alone. It hides Restart and refuses Set up.
 
