@@ -114,6 +114,7 @@ pub enum Command {
         long_about = "Install conflux as a background service and wait to be linked to a hub.\n\n\
                       Run `conflux join` here to find the hub and link to it. Or on the hub's \
                       dashboard, open Machines and click Find machines, then Link. \
+                      To make this machine the hub, run `conflux join self`. \
                       If this machine has already joined a hub or holds accounts, wait changes \
                       nothing. It only restarts the service if one is installed."
     )]
@@ -256,7 +257,8 @@ pub enum OnOff {
 
 const UPDATE_WAIT: Duration = Duration::from_secs(300);
 const HOW_TO_LINK: &str = "To link it, run `conflux join` here. conflux finds the hub on your tailnet. \
-                           Or run `conflux add` on the hub, or open Machines on its dashboard and click Find machines.";
+                           Or run `conflux add` on the hub, or open Machines on its dashboard and click Find machines. \
+                           To make this machine the hub, run `conflux join self`.";
 
 const REPORT_LIMIT: Duration = Duration::from_secs(2);
 
@@ -645,7 +647,7 @@ async fn join_found_hub(cfg: Config, paths: Paths, daemon: &Daemon) -> Result<()
         [hub] if hub["guest"] != true => hub,
         [] => bail!(
             "found no hub on your tailnet. The hub must be on and signed in to Tailscale. \
-             To name it yourself, run `conflux join <hub>`."
+             To name it yourself, run `conflux join <hub>`. To make this machine the hub, run `conflux join self`."
         ),
         _ => {
             println!("Found these hubs on your tailnet:");

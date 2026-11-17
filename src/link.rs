@@ -541,7 +541,7 @@ pub fn update_this_machine<H: update::Handoff>(
 async fn not_linked() -> Response {
     refuse(
         StatusCode::CONFLICT,
-        "this machine is waiting to be linked to a hub. Run `conflux join` here to find the hub, or on the hub's dashboard, open Machines and click Find machines.",
+        "this machine is waiting to be linked to a hub. Run `conflux join` here to find the hub, or on the hub's dashboard, open Machines and click Find machines. To make this machine the hub, run `conflux join self`.",
     )
 }
 
