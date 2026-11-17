@@ -1158,8 +1158,9 @@ function buildPool(provider, d, now) {
     return rate;
   };
   const burnAll = burn("all");
-  const burnScope = burn("scoped") ?? 0;
+  const burnScope = burn("scoped");
   pool.burn = burnAll === null ? null : burnAll / members.length;
+  pool.burnKnown = burnAll !== null && (!scope || burnScope !== null);
   const total = (t) => {
     let all = 0, scoped = 0;
     for (const { state } of series) { all += state.allLeft; scoped += Math.min(state.allLeft, state.scopeLeft); }
@@ -1167,7 +1168,7 @@ function buildPool(provider, d, now) {
   };
   const byRouter = [...series].sort((p, q) => p.state.allReset - q.state.allReset || (p.id < q.id ? -1 : 1));
   const drain = (hours) => {
-    let all = (burnAll || 0) * hours, scoped = burnScope * hours;
+    let all = (burnAll || 0) * hours, scoped = (burnScope || 0) * hours;
     for (const { state } of byRouter) {
       if (state.allLeft <= 0) continue;
       if (state.hasScope) {
@@ -1236,7 +1237,7 @@ function poolGutter(l, narrow) {
   const ready = p.accounts.filter(isReady).length;
   return `<div class="pool-gut pool-${esc(p.provider)}" style="top:${narrow ? l.top - 62 : l.top + 4}px">
     <div class="pool-name"><i></i>${esc(providerName(p.provider))}</div>
-    <div class="pool-big">${p.size ? pct(p.now) : "–"}<span>left</span></div>
+    <div class="pool-big">${!p.size ? "–" : p.now > POOL_EMPTY && p.now < 0.5 ? "&lt;1%" : pct(p.now)}<span>left</span></div>
     <div class="pool-stats"><span>${ready} of ${p.accounts.length} ready</span>${p.size ? poolForecast(p) : ""}</div>
     ${tag}${chips}
   </div>`;
@@ -1280,7 +1281,8 @@ function renderPools(d) {
   parts.push(`<text class="zone" x="${x(0) - 10}" y="13" text-anchor="end">Measured</text>`);
   const drawn = lanes.filter((l) => l.pool.size);
   const known = drawn.filter((l) => l.pool.burn !== null).length;
-  const projected = !known ? "none" : known === drawn.length ? "all" : "some";
+  const full = drawn.filter((l) => l.pool.burnKnown).length;
+  const projected = !known ? "none" : full === drawn.length ? "all" : "some";
   parts.push(`<text class="zone" x="${x(0) + 10}" y="13">${projected === "none" ? "Scheduled resets" : narrow || projected === "some" ? "Projected" : `Projected at the last ${POOL_BURN_H}h burn`}</text>`);
 
   for (const l of lanes) {
