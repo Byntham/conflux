@@ -45,7 +45,7 @@
   .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .secret { border-radius: 3px; filter: blur(5px); user-select: none; }
-  .secret[role="button"] { cursor: pointer; }
+  .secret[data-reveal] { cursor: pointer; }
 
   .app { display: grid; grid-template-columns: 224px minmax(0, 1fr); min-height: 100vh; }
   .sidebar { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: 22px; padding: 18px 12px 14px; border-right: 1px solid var(--line); background: var(--sidebar); }
@@ -646,7 +646,7 @@ const revealed = new Set();
 
 function secret(value, html = esc(value), mode = "button") {
   if (!value) return html;
-  const control = { button: ' tabindex="0" role="button"', click: ' role="button"', inert: "" }[mode];
+  const control = { button: ' data-reveal tabindex="0" role="button"', click: " data-reveal", inert: "" }[mode];
   return `<span class="secret" data-secret="${esc(value)}"${control}${control ? ' title="Click to show or hide"' : ""}>${html}</span>`;
 }
 
@@ -658,7 +658,8 @@ function toggleSecret(el) {
 }
 
 function withKnownNames(text) {
-  const names = [...new Set([latest?.hub.name, ...(latest?.machines || []).map((m) => m.hostname)].filter(Boolean))];
+  const emails = text.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g) || [];
+  const names = [...new Set([...emails, latest?.hub.name, ...(latest?.machines || []).map((m) => m.hostname)].filter(Boolean))];
   const wrap = (part, [name, ...rest]) => (name ? withSecret(part, name, (piece) => wrap(piece, rest)) : esc(part));
   return wrap(text, names);
 }
@@ -1958,7 +1959,7 @@ $("menu").addEventListener("keydown", (ev) => {
 });
 
 document.addEventListener("keydown", (ev) => {
-  const hidden = ev.target.closest?.('[data-secret][role="button"]');
+  const hidden = ev.target.closest?.("[data-reveal]");
   if (hidden && (ev.key === "Enter" || ev.key === " ")) {
     ev.preventDefault();
     if (ev.repeat) return;
@@ -1984,7 +1985,7 @@ document.addEventListener("mouseover", (ev) => {
 });
 
 document.addEventListener("click", (ev) => {
-  const hidden = ev.target.closest('[data-secret][role="button"]');
+  const hidden = ev.target.closest("[data-reveal]");
   if (hidden) {
     if (menuAnchor && !hidden.closest("#menu")) closeMenu();
     return toggleSecret(hidden);
