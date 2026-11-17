@@ -433,6 +433,10 @@ impl Usage {
     }
 
     pub async fn poll(&self, e: &AccountEntry) -> anyhow::Result<()> {
+        let _mint = match e.provider {
+            Provider::Muse => Some(e.op_lock.lock().await),
+            _ => None,
+        };
         if let (Provider::Muse, RefreshState::RetryAt { at, .. }) = (e.provider, e.refresh_state())
             && at > Utc::now()
         {
@@ -479,7 +483,7 @@ impl Usage {
                 RefreshState::RetryAt { at: current, .. } => at > current,
                 _ => true,
             };
-            if later && let Ok(_op) = e.op_lock.try_lock() {
+            if later {
                 let n = e.credentials().generation + 1;
                 if let Err(err) = e.journal.write_receipt(
                     n,
