@@ -45,6 +45,7 @@
   .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .secret { border-radius: 3px; filter: blur(5px); user-select: none; }
+  .show-secrets .secret { filter: none; user-select: auto; }
   .secret[data-reveal] { cursor: pointer; }
 
   .app { display: grid; grid-template-columns: 224px minmax(0, 1fr); min-height: 100vh; }
@@ -58,11 +59,12 @@
   .nav .count { margin-left: auto; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 400; }
   .nav .alert { margin-left: auto; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--bad-soft); color: var(--bad); font-size: 11.5px; font-weight: 600; text-align: center; }
   .hub-card { margin-top: auto; padding: 8px 10px; }
-  #update-all { margin-left: auto; }
-  .update-all { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 28px; height: 28px; padding: 0; border-radius: 50%; border: 1.5px solid var(--fg); background: transparent; color: var(--fg); cursor: pointer; }
-  .update-all:hover { background: var(--hover); }
+  .hub-card .secrets-toggle { margin-left: auto; }
+  .update-all, .secrets-toggle { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 28px; height: 28px; padding: 0; border-radius: 50%; border: 1.5px solid var(--fg); background: transparent; color: var(--fg); cursor: pointer; }
+  .update-all:hover, .secrets-toggle:hover { background: var(--hover); }
   .update-all:disabled { opacity: .45; cursor: default; }
-  .update-all.check { border-color: var(--line-strong); color: var(--fg-2); }
+  .update-all.check, .secrets-toggle { border-color: var(--line-strong); color: var(--fg-2); }
+  .secrets-toggle[aria-pressed="true"] { border-color: var(--fg); color: var(--fg); }
   .hub-state { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 500; }
   .dot.on + #hub-status { color: var(--fg-2); font-weight: 400; }
   .hub-meta { margin-top: 2px; font-size: 12px; color: var(--muted); }
@@ -444,7 +446,7 @@
     .status-cell { display: inline-grid; }
     .status-cell .state, .status-cell .pill { grid-area: 1 / 1; justify-self: start; align-self: baseline; }
     .status-cell.routing-off .state { visibility: hidden; }
-    .update-all { width: 34px; height: 34px; margin-left: 4px; }
+    .update-all, .secrets-toggle { width: 34px; height: 34px; margin-left: 4px; }
     .nav { flex: 1; flex-direction: row; justify-content: space-around; }
     .nav a { position: relative; flex: 1; flex-direction: column; gap: 1px; padding: 5px 2px; font-size: 11.5px; }
     .nav a svg { width: 19px; height: 19px; }
@@ -537,6 +539,8 @@
   <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
   <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.500"/><path d="M12 11v5M12 8h.01"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></symbol>
+  <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M10.6 5.6A9.8 9.8 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a16.5 16.5 0 0 1-2.3 3.1M6.6 6.9C4 8.6 2.5 12 2.5 12S6 18.5 12 18.5c1.8 0 3.4-.6 4.7-1.4"/><path d="M10 10a2.8 2.8 0 0 0 4 4"/><path d="m3.5 3.5 17 17"/></symbol>
   <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
 </svg>
 <div class="app">
@@ -549,7 +553,7 @@
       <a href="#threads" data-view="threads"><svg class="i" aria-hidden="true"><use href="#i-threads"/></svg>Threads</a>
     </nav>
     <div class="hub-card">
-      <div class="hub-state"><span class="dot" id="hub-dot"></span><span id="hub-status">Connecting</span><span id="update-all"></span></div>
+      <div class="hub-state"><span class="dot" id="hub-dot"></span><span id="hub-status">Connecting</span><button class="secrets-toggle" data-secrets-toggle aria-label="Show personal details" aria-pressed="false"></button><span id="update-all"></span></div>
       <ul class="fleet" id="fleet" aria-label="Machines"></ul>
       <div class="hub-meta truncate" id="hub-line">&nbsp;</div>
     </div>
@@ -557,7 +561,7 @@
   <div>
     <div class="topbar">
       <div class="brand" style="padding:0"><svg aria-hidden="true"><use href="#logo"/></svg>conflux</div>
-      <div class="hub-state"><span class="dot" id="top-dot"></span><span class="muted" id="top-line"></span><span id="top-update-all"></span></div>
+      <div class="hub-state"><span class="dot" id="top-dot"></span><span class="muted" id="top-line"></span><button class="secrets-toggle" data-secrets-toggle aria-label="Show personal details" aria-pressed="false"></button><span id="top-update-all"></span></div>
     </div>
     <main>
       <div id="connection" class="alerts" hidden></div>
@@ -644,10 +648,13 @@ const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const icon = (name) => `<svg class="i" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 const revealed = new Set();
+const SHOW_ALL_KEY = "conflux.showPersonalDetails";
+let showAll = false;
+try { showAll = localStorage.getItem(SHOW_ALL_KEY) === "1"; } catch {}
 
 function secret(value, html = esc(value), mode = "button") {
   if (!value) return html;
-  const control = { button: ' data-reveal tabindex="0" role="button"', click: " data-reveal", inert: "" }[mode];
+  const control = showAll ? "" : { button: ' data-reveal tabindex="0" role="button"', click: " data-reveal", inert: "" }[mode];
   return `<span class="secret" data-secret="${esc(value)}"${control}${control ? ' title="Click to show or hide"' : ""}>${html}</span>`;
 }
 
@@ -656,6 +663,24 @@ function toggleSecret(el) {
   if (revealed.has(value)) revealed.delete(value); else revealed.add(value);
   const shown = [...revealed].map((v) => `.secret[data-secret="${CSS.escape(v)}"]`);
   $("revealed").textContent = shown.length ? `${shown.join(",")} { filter: none; user-select: auto; }` : "";
+}
+
+function applyShowAll() {
+  document.body.classList.toggle("show-secrets", showAll);
+  for (const button of document.querySelectorAll("[data-secrets-toggle]")) {
+    button.setAttribute("aria-pressed", String(showAll));
+    button.dataset.tip = showAll ? "Hide personal details" : "Show personal details";
+    button.innerHTML = icon(showAll ? "eye-off" : "eye");
+  }
+}
+
+function toggleShowAll() {
+  showAll = !showAll;
+  try { localStorage.setItem(SHOW_ALL_KEY, showAll ? "1" : "0"); } catch {}
+  revealed.clear();
+  $("revealed").textContent = "";
+  applyShowAll();
+  if (latest) render(latest);
 }
 
 function withKnownNames(text) {
@@ -1986,6 +2011,7 @@ document.addEventListener("mouseover", (ev) => {
 });
 
 document.addEventListener("click", (ev) => {
+  if (ev.target.closest("[data-secrets-toggle]")) return toggleShowAll();
   const hidden = ev.target.closest("[data-reveal]");
   if (hidden) {
     if (menuAnchor && !hidden.closest("#menu")) closeMenu();
@@ -2036,6 +2062,7 @@ document.addEventListener("click", (ev) => {
   if (update) return startUpdate(update);
 });
 
+applyShowAll();
 showView();
 refresh();
 setInterval(refresh, 5000);
