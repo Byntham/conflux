@@ -658,7 +658,7 @@ function toggleSecret(el) {
 }
 
 function withKnownNames(text) {
-  const emails = text.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g) || [];
+  const emails = text.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)*/g) || [];
   const names = [...new Set([...emails, latest?.hub.name, ...(latest?.machines || []).map((m) => m.hostname)].filter(Boolean))];
   const wrap = (part, [name, ...rest]) => (name ? withSecret(part, name, (piece) => wrap(piece, rest)) : esc(part));
   return wrap(text, names);
