@@ -455,14 +455,21 @@ async fn grok_usage_polls_and_refreshes_against_xai() {
             .any(|(path, token)| path == "/grok-api/billing" && token == "at-g")
     );
 
+    use base64::Engine;
+    let exp = (Utc::now() + chrono::Duration::hours(6)).timestamp();
+    let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(json!({"sub": "g", "exp": exp}).to_string());
     h.fake.refresh_replies.lock().unwrap().push_back(Reply::Json(
         200,
         vec![],
-        json!({"access_token": "at-g2", "refresh_token": "rt-g2", "expires_in": 21600}).to_string(),
+        json!({"access_token": format!("x.{payload}.y"), "refresh_token": "rt-g2"}).to_string(),
     ));
     let e = h.app.store.get(&id).unwrap();
     assert_eq!(h.app.refresher.refresh(&e).await, RefreshResult::Refreshed);
     assert_eq!(e.credentials().grant.refresh_token, "rt-g2");
+    assert!(
+        (e.credentials().grant.expires_at.timestamp() - exp).abs() < 5,
+        "a refresh with no expires_in takes the token's own expiry"
+    );
     assert!(
         h.fake
             .hits

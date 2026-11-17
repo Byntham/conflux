@@ -65,6 +65,10 @@ pub fn new_state() -> String {
     random_b64(32)
 }
 
+fn jwt_seconds_left(token: &str) -> Option<i64> {
+    Some(jwt_claims(token)?["exp"].as_i64()? - Utc::now().timestamp())
+}
+
 pub fn jwt_claims(token: &str) -> Option<Value> {
     let payload = token.split('.').nth(1)?;
     let bytes = URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')).ok()?;
@@ -525,7 +529,10 @@ pub fn classify_refresh(provider: Provider, status: u16, retry_after: Option<u64
             return RefreshOutcome::Unknown("undecodable 200 body".into());
         };
         let access = v["access_token"].as_str().filter(|s| !s.trim().is_empty());
-        let expires_in = v["expires_in"].as_i64().filter(|n| *n > 0);
+        let expires_in = v["expires_in"]
+            .as_i64()
+            .or_else(|| access.and_then(jwt_seconds_left))
+            .filter(|n| *n > 0);
         let refresh = v["refresh_token"]
             .as_str()
             .filter(|s| !s.trim().is_empty())

@@ -136,6 +136,9 @@ fn grok_has_login(paths: &ClientPaths) -> bool {
     let Some(auth) = paths.grok_config.parent().map(|d| d.join("auth.json")) else {
         return false;
     };
+    if std::fs::read_to_string(&auth).is_ok_and(|s| s.trim().is_empty()) {
+        return false;
+    }
     match fsutil::read_json::<Value>(&auth) {
         Ok(None) => false,
         Ok(Some(Value::Object(entries))) => entries.values().any(|e| e["auth_mode"].as_str() != Some("external")),
@@ -505,6 +508,7 @@ mod tests {
         let grok_dir = p.grok_config.parent().unwrap();
         std::fs::create_dir_all(grok_dir).unwrap();
         let read = || -> toml::Value { toml::from_str(&std::fs::read_to_string(&p.grok_config).unwrap()).unwrap() };
+        std::fs::write(grok_dir.join("auth.json"), "").unwrap();
         apply(&p, &conf, 8317).unwrap();
         assert_eq!(
             read()["auth"]["auth_provider_command"].as_str(),
