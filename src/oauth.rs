@@ -466,6 +466,8 @@ pub enum RefreshOutcome {
     Unknown(String),
 }
 
+const MAX_RETRY_AFTER_SECS: u64 = 24 * 3600;
+
 const TERMINAL_MARKERS: &[&str] = &[
     "invalid_grant",
     "refresh_token_reused",
@@ -562,7 +564,7 @@ pub fn classify_refresh(provider: Provider, status: u16, retry_after: Option<u64
         return RefreshOutcome::Rejected(truncate(body, 200));
     }
     if matches!(provider, Provider::Claude | Provider::Grok) && status == 429 {
-        return RefreshOutcome::RetryAfter(Duration::from_secs(retry_after.unwrap_or(30)));
+        return RefreshOutcome::RetryAfter(Duration::from_secs(retry_after.unwrap_or(30).min(MAX_RETRY_AFTER_SECS)));
     }
     RefreshOutcome::Unknown(format!("HTTP {status}: {}", truncate(body, 200)))
 }
