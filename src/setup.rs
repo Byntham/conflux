@@ -283,7 +283,7 @@ fn restore_grok(paths: &ClientPaths, joined: &Joined, mut doc: DocumentMut, port
 
 fn muse_transport(port: u16) -> Value {
     serde_json::json!({
-        "base_url": format!("{}{}v1", base_url(port), crate::proxy::MUSE_PREFIX),
+        "base_url": format!("{}{}", base_url(port), crate::proxy::MUSE_PREFIX.trim_end_matches('/')),
         "auth": "none",
     })
 }

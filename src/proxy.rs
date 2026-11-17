@@ -25,7 +25,7 @@ const CLAUDE_OAUTH_BETA: &str = "oauth-2025-04-20";
 pub const HUB_NOT_ACTIVE: &str = "conflux: the hub is moving to another machine. Try again in a minute.";
 
 pub const GROK_PREFIX: &str = "/grok/v1/";
-pub const MUSE_PREFIX: &str = "/muse/";
+pub const MUSE_PREFIX: &str = "/muse/v1/";
 pub const MUSE_CODE_PREFIX: &str = "/muse-code/";
 
 pub fn provider_for(path: &str, user_agent: &str) -> Option<Provider> {
