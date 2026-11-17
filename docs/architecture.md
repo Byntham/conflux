@@ -49,7 +49,7 @@ The hub and a waiting machine ask the release page for the latest version when t
 Claude Code, Codex, Grok Build, and Muse Code on every machine point at `http://127.0.0.1:<port>`. On the hub, that is the hub itself. On a node, it is the node's own conflux.
 
 ```
-Claude Code / Codex / Grok Build
+Claude Code / Codex / Grok Build / Muse Code
         |
         v
   node (127.0.0.1)  --- adds x-conflux-node header --->  hub (tailnet IP)
@@ -59,7 +59,7 @@ Claude Code / Codex / Grok Build
                                           router picks an account
                                                            |
                                                            v
-                                        Anthropic API / ChatGPT Codex API / xAI
+                                        Anthropic API / ChatGPT Codex API / xAI / Meta
 ```
 
 A node does not route or hold credentials. `src/node.rs` copies each HTTP request and WebSocket session to the hub, minus hop-by-hop headers, and streams the reply back. On proxy paths it also drops the client's own `authorization`, `x-api-key`, and `cookie`, because a Grok Build with its own login sends its real xAI token. It adds an `x-conflux-node` header so the hub can log which machine sent the request. If the hub is unreachable, the node returns an error in the provider's format. `GET /` on a node redirects to the hub's dashboard.
