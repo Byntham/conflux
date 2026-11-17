@@ -379,7 +379,7 @@
   .narrow .pool-tag { display: block; }
   .narrow .pool-chip { margin: 0 0 0 auto; }
   .narrow .pool-gut { flex-wrap: wrap; row-gap: 4px; }
-  .narrow .pool-stats { order: 1; flex-basis: 100%; flex-direction: row; column-gap: 12px; }
+  .narrow .pool-stats { order: 1; flex-basis: 100%; flex-direction: row; flex-wrap: wrap; column-gap: 12px; }
   .narrow .pool-stats .since { display: none; }
   .pool-chart text { font-size: 11.5px; fill: var(--muted); font-variant-numeric: tabular-nums; }
   .pool-chart text.strong { fill: var(--fg); font-weight: 500; }
@@ -1098,14 +1098,17 @@ function buildPool(provider, d, now) {
       .filter((s) => win.key in s.used)
       .map((s) => ({ t: (new Date(s.at) - now) / HOUR_MS, v: s.used[win.key] }))
       .filter((p) => p.t < 0), { t: 0, v: usedNow(win) }];
-    const reset = (win) => (win && hoursAway(win.resets_at) > 0 ? hoursAway(win.resets_at) : Infinity);
     const every = (win) => (win && win.duration_secs ? win.duration_secs / 3600 : Infinity);
+    const reset = (win) => {
+      const h = win ? hoursAway(win.resets_at) : Infinity;
+      return h > 0 ? h : h + Math.floor(1 - h / every(win)) * every(win) || Infinity;
+    };
     return {
       id: a.id,
       name: a.email || a.id,
       all: points(w),
       scoped: sw ? points(sw) : null,
-      state: { allLeft: 100 - usedNow(w), allReset: reset(w), allEvery: every(w), scopeLeft: sw ? 100 - usedNow(sw) : 100, scopeReset: reset(sw), scopeEvery: every(sw) },
+      state: { allLeft: 100 - usedNow(w), allReset: reset(w), allEvery: every(w), hasScope: Boolean(sw), scopeLeft: sw ? 100 - usedNow(sw) : 100, scopeReset: reset(sw), scopeEvery: every(sw) },
     };
   });
   const cap = members.length * 100;
@@ -1143,16 +1146,15 @@ function buildPool(provider, d, now) {
     if (who.length) pool.refills.push({ t: after.t, gain: after.v - before.v, to: after.v, who, past: true });
   }
   const burn = (k) => {
-    let used = 0, from = 0;
+    let rate = null;
     for (const s of series) {
-      const pts = s[k] || [];
-      for (let i = 1; i < pts.length; i++) {
-        if (pts[i - 1].t < -POOL_BURN_H) continue;
-        from = Math.min(from, pts[i - 1].t);
-        used += Math.max(0, pts[i].v - pts[i - 1].v);
-      }
+      const pts = (s[k] || []).filter((p) => p.t >= -POOL_BURN_H);
+      if (pts.length < 2 || pts[0].t > -POOL_BURN_MIN_H) continue;
+      let used = 0;
+      for (let i = 1; i < pts.length; i++) used += Math.max(0, pts[i].v - pts[i - 1].v);
+      rate = (rate || 0) + used / -pts[0].t;
     }
-    return from <= -POOL_BURN_MIN_H ? used / -from : null;
+    return rate;
   };
   const burnAll = burn("all");
   const burnScope = burn("scoped") ?? 0;
@@ -1167,9 +1169,13 @@ function buildPool(provider, d, now) {
     let all = (burnAll || 0) * hours, scoped = burnScope * hours;
     for (const { state } of byRouter) {
       if (state.allLeft <= 0) continue;
-      const fromScope = Math.min(scoped, state.scopeLeft);
-      state.scopeLeft -= fromScope;
-      scoped -= fromScope;
+      if (state.hasScope) {
+        const fromScope = Math.min(scoped, state.scopeLeft);
+        state.scopeLeft -= fromScope;
+        scoped -= fromScope;
+      } else {
+        scoped = 0;
+      }
       const fromAll = Math.min(all, state.allLeft);
       state.allLeft -= fromAll;
       all -= fromAll;
@@ -1185,7 +1191,7 @@ function buildPool(provider, d, now) {
     drain(next - t);
     t = next;
     const before = total(t);
-    if (pool.emptyAt === undefined && before.v < 0.5) pool.emptyAt = t;
+    if (pool.emptyAt === undefined && before.v <= 1e-6) pool.emptyAt = t;
     const who = [];
     for (const s of series) {
       if (s.state.allReset <= t) { s.state.allLeft = 100; s.state.allReset += s.state.allEvery; who.push(s.name); }
@@ -1200,16 +1206,26 @@ function buildPool(provider, d, now) {
   return pool;
 }
 
+const POOL_DAYS = Math.round(POOL_AHEAD_H / 24);
+
+function poolOutlook(p) {
+  if (p.now < 0.5) {
+    const back = p.refills.find((r) => !r.past);
+    return { text: back ? `Back ${shortDate(back.t)}` : `Empty for ${POOL_DAYS}+ days`, warn: true };
+  }
+  if (p.burn === null) return null;
+  return p.emptyAt === undefined ? { text: `Lasts ${POOL_DAYS}+ days`, warn: false } : { text: `Runs out ${shortDate(p.emptyAt)}`, warn: true };
+}
+
 function poolForecast(p) {
-  if (p.burn === null) return "<span>No burn rate yet</span>";
-  const rate = `<span>Burn ${p.burn < 10 ? p.burn.toFixed(1) : Math.round(p.burn)}%/h<span class="since">, last ${POOL_BURN_H}h</span></span>`;
-  if (p.now < 0.5) return rate;
-  const end = p.emptyAt === undefined ? `Lasts ${Math.round(POOL_AHEAD_H / 24)}+ days` : `Runs out ${shortDate(p.emptyAt)}`;
-  return `${rate}<span class="${p.emptyAt === undefined ? "" : "warn"}">${end}</span>`;
+  const rate = p.burn === null ? "<span>No burn rate yet</span>" : `<span>Burn ${p.burn < 10 ? p.burn.toFixed(1) : Math.round(p.burn)}%/h<span class="since">, last ${POOL_BURN_H}h</span></span>`;
+  const outlook = poolOutlook(p);
+  return outlook ? `${rate}<span class="${outlook.warn ? "warn" : ""}">${esc(outlook.text)}</span>` : rate;
 }
 
 function shortDate(hours) {
-  return new Date(Date.now() + hours * HOUR_MS).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
+  const date = new Date(Date.now() + hours * HOUR_MS);
+  return `${date.toLocaleDateString([], { weekday: "short" })} ${date.getDate()}, ${date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
 }
 
 function poolGutter(l, narrow) {
@@ -1261,8 +1277,10 @@ function renderPools(d) {
   const nowSpans = narrow ? [[2, 18], ...lanes.map((l) => [l.top, l.top + l.h + (l === lanes[lanes.length - 1] ? 6 : 0)])] : [[2, bottom + 6]];
   for (const [y1, y2] of nowSpans) parts.push(`<line class="nowline" x1="${x(0)}" x2="${x(0)}" y1="${y1}" y2="${y2}"/>`);
   parts.push(`<text class="zone" x="${x(0) - 10}" y="13" text-anchor="end">Measured</text>`);
-  const projected = lanes.some((l) => l.pool.size && l.pool.burn !== null);
-  parts.push(`<text class="zone" x="${x(0) + 10}" y="13">${projected ? (narrow ? "Projected" : `Projected at the last ${POOL_BURN_H}h burn`) : "Scheduled resets"}</text>`);
+  const drawn = lanes.filter((l) => l.pool.size);
+  const known = drawn.filter((l) => l.pool.burn !== null).length;
+  const projected = !known ? "none" : known === drawn.length ? "all" : "some";
+  parts.push(`<text class="zone" x="${x(0) + 10}" y="13">${projected === "none" ? "Scheduled resets" : narrow || projected === "some" ? "Projected" : `Projected at the last ${POOL_BURN_H}h burn`}</text>`);
 
   for (const l of lanes) {
     const p = l.pool;
@@ -1283,8 +1301,11 @@ function renderPools(d) {
       g.push(`<line class="base" x1="${padL}" x2="${padL + plotW}" y1="${base}" y2="${base}"/>`);
       if (p.scope) g.push(`${p.scopedPast.length > 1 ? `<path class="trace scope" d="${path(p.scopedPast, "s")}"/>` : ""}<path class="level scope" d="${level(p.future, "s")}"/>${risers(p.future, "s", " scope")}`);
       g.push(`${p.past.length ? `<path class="trace" d="${path(p.past, "v")}"/>` : ""}<path class="level" d="${level(p.future, "v")}"/>${risers(p.future, "v", "")}`);
+      let lastRefill = -Infinity;
       for (const r of p.refills.filter((r) => !r.past)) {
         const lx = Math.min(Math.max(x(r.t), padL + 16), padL + plotW - 16);
+        if (lx - lastRefill < (narrow ? 40 : 90)) continue;
+        lastRefill = lx;
         g.push(`<text class="strong" x="${lx}" y="${yv(r.to) - 8}" text-anchor="middle">+${pct(r.gain)}${narrow ? "" : ` in ${hourSpan(r.t)}`}</text>`);
       }
       if (p.scope) g.push(`<circle class="now scope" cx="${x(0)}" cy="${yv(p.nowScoped)}" r="4"/>`);
@@ -1313,8 +1334,11 @@ function renderPools(d) {
   }
   parts.push(`<line class="cross" x1="0" x2="0" y1="${lanes[0].top}" y2="${bottom}" visibility="hidden"/>`);
 
-  const summary = `Pooled quota left over the past 7 days, and the scheduled resets in the next 7 days. ${lanes.map((l) => `${providerName(l.pool.provider)} has ${l.pool.size ? pct(l.pool.now) : "no quota data"} left.`).join(" ")}`;
-  poolGeom = { lanes, padL, plotW, width, pad, height, x, at };
+  const summary = `Pooled quota left over the past 7 days, and a projection of the next 7 days. ${lanes.map((l) => {
+    const outlook = l.pool.size && poolOutlook(l.pool);
+    return `${providerName(l.pool.provider)} has ${l.pool.size ? pct(l.pool.now) : "no quota data"} left${outlook ? `. ${outlook.text}` : ""}.`;
+  }).join(" ")}`;
+  poolGeom = { lanes, padL, plotW, width, pad, height, x, at, projected };
   setHtml("pool", `<div class="card pool-board"><div class="pool-chart${narrow ? " narrow" : ""}"><svg viewBox="0 0 ${width} ${height}" height="${height}" role="img" aria-label="${esc(summary)}">${parts.join("")}</svg>${lanes.map((l) => poolGutter(l, narrow)).join("")}<div class="pool-tip" hidden></div></div></div>`);
 }
 
@@ -1339,7 +1363,7 @@ function hidePoolTip() {
 function showPoolTip(ev) {
   const chart = ev.target.closest(".pool-chart");
   if (!chart || !poolGeom) return hidePoolTip();
-  const { lanes, padL, plotW, width, pad, height, x, at } = poolGeom;
+  const { lanes, padL, plotW, width, pad, height, x, at, projected } = poolGeom;
   const box = chart.getBoundingClientRect();
   const px = ev.clientX - box.left - pad;
   if (px < padL - 30) return hidePoolTip();
@@ -1361,7 +1385,7 @@ function showPoolTip(ev) {
   }).join("");
   const note = near
     ? `${esc(near.who.join(", ") || "An account")} ${near.past ? "reset" : "resets"}, +${pct(near.gain)} for ${esc(providerName(near.provider))}`
-    : tt < 0 ? "Measured at a usage check" : lanes.some((l) => l.pool.burn) ? `If you keep using it at the last ${POOL_BURN_H}h rate` : "If you use nothing more";
+    : tt < 0 ? "Measured at a usage check" : { all: `At the last ${POOL_BURN_H}h burn rate`, some: `At the last ${POOL_BURN_H}h burn rate, where known`, none: "If you use nothing more" }[projected];
   const when = at(tt);
   const label = Math.abs(tt) < 0.6 ? "Now" : `${when.toLocaleDateString([], { weekday: "short" })} ${when.getDate()}, ${when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
   const tip = chart.querySelector(".pool-tip");
