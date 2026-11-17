@@ -725,11 +725,15 @@ function titleCase(v) {
 
 const providerName = (p) => ({ claude: "Claude", codex: "Codex" }[p] || titleCase(p));
 
+function cachePercent(read, total) {
+  return total ? Math.floor((read * 100) / total) : null;
+}
+
 function cacheTotals(requests) {
   let read = 0, write = 0, input = 0;
   for (const r of requests) { read += r.usage.cache_read; write += r.usage.cache_write; input += r.usage.input; }
   const total = read + write + input;
-  return { read, write, hit: total ? Math.round((read / total) * 100) : null };
+  return { read, write, hit: cachePercent(read, total) };
 }
 
 function accountCooldown(a) {
@@ -928,13 +932,16 @@ function renderChart(d) {
 }
 
 function requestTable(requests) {
-  const head = '<thead><tr><th class="when">When</th><th class="hide-sm col-machine">Machine</th><th>Account</th><th class="hide-sm col-model">Model</th><th class="hide-sm col-via">Via</th><th class="num status">Status</th><th class="num lat">Latency</th><th class="num hide-sm col-tokens">Tokens in</th><th class="num hide-sm col-tokens">Cache read</th><th class="num hide-sm col-tokens">Cache write</th><th class="num hide-sm col-tokens">Tokens out</th></tr></thead>';
-  const span = 11;
+  const head = '<thead><tr><th class="when">When</th><th class="hide-sm col-machine">Machine</th><th>Account</th><th class="hide-sm col-model">Model</th><th class="hide-sm col-via">Via</th><th class="num status">Status</th><th class="num lat">Latency</th><th class="num hide-sm col-tokens">Input</th><th class="num hide-sm col-tokens">Cache hit</th><th class="num hide-sm col-tokens">Output</th></tr></thead>';
+  const span = 10;
   const rows = requests.length ? requests.map((r) => {
     const via = `<td class="hide-sm dim">${esc(r.transport)}</td>`;
-    const write = `<td class="num hide-sm dim">${tokens(r.usage.cache_write)}</td>`;
+    const u = r.usage;
+    const prompt = u.input + u.cache_read + u.cache_write;
+    const hit = cachePercent(u.cache_read, prompt);
+    const split = [[u.input, "uncached"], [u.cache_read, "cache read"], [u.cache_write, "cache write"]].filter(([n]) => n).map(([n, label]) => `${n.toLocaleString()} ${label}`).join(", ");
     const account = r.email || r.account;
-    return `<tr class="${r.status < 400 ? "" : "failed"}"><td class="when">${esc(ago(r.at))}</td><td class="hide-sm dim">${esc(r.machine)}</td><td class="acct" title="${esc(account)}">${esc(account)}<div class="cell-sub show-sm">${esc([r.machine, r.model].filter(Boolean).join(" · "))}</div></td><td class="mono hide-sm dim">${esc(r.model || "")}</td>${via}<td class="num status"><span class="code ${r.status < 400 ? "ok" : "bad"}">${r.status}</span></td><td class="num lat">${seconds(r.latency_ms)}<div class="cell-sub show-sm">${esc(ago(r.at))}</div></td><td class="num hide-sm dim">${tokens(r.usage.input)}</td><td class="num hide-sm dim">${tokens(r.usage.cache_read)}</td>${write}<td class="num hide-sm dim">${tokens(r.usage.output)}</td></tr>`;
+    return `<tr class="${r.status < 400 ? "" : "failed"}"><td class="when">${esc(ago(r.at))}</td><td class="hide-sm dim">${esc(r.machine)}</td><td class="acct" title="${esc(account)}">${esc(account)}<div class="cell-sub show-sm">${esc([r.machine, r.model].filter(Boolean).join(" · "))}</div></td><td class="mono hide-sm dim">${esc(r.model || "")}</td>${via}<td class="num status"><span class="code ${r.status < 400 ? "ok" : "bad"}">${r.status}</span></td><td class="num lat">${seconds(r.latency_ms)}<div class="cell-sub show-sm">${esc(ago(r.at))}</div></td><td class="num hide-sm dim"${split ? ` data-tip="${esc(split)}"` : ""}>${tokens(prompt)}</td><td class="num hide-sm dim">${hit === null ? "–" : `${hit}%`}</td><td class="num hide-sm dim">${tokens(u.output)}</td></tr>`;
   }).join("") : `<tr><td colspan="${span}"><div class="empty"><strong>No requests yet</strong>Requests appear here once a machine sends one through the hub.</div></td></tr>`;
   return `${head}<tbody>${rows}</tbody>`;
 }
