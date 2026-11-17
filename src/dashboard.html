@@ -1131,6 +1131,7 @@ const POOL_SIM_STEP_H = 0.25;
 const POOL_BURN_H = 3;
 const POOL_BURN_MIN_H = 1;
 const POOL_EMPTY = 1e-6;
+const POOL_NOISE = 1;
 let poolGeom = null;
 
 const pct = (v) => `${Math.round(v)}%`;
@@ -1157,6 +1158,18 @@ function usedAt(points, t) {
   return points[points.length - 1].v;
 }
 
+function steady(points) {
+  let peak = -Infinity;
+  return points.map((p) => {
+    peak = p.v < peak - POOL_NOISE ? p.v : Math.max(peak, p.v);
+    return { t: p.t, v: peak };
+  });
+}
+
+function corners(points) {
+  return points.filter((p, i) => !i || i === points.length - 1 || p.v !== points[i - 1].v);
+}
+
 function buildPool(provider, d, now) {
   const accounts = d.accounts.filter((a) => a.provider === provider);
   const members = accounts.filter((a) => a.enabled && !a.needs_login && poolWindow(a));
@@ -1170,21 +1183,24 @@ function buildPool(provider, d, now) {
   const series = members.map((a) => {
     const w = poolWindow(a);
     const sw = scope && a.usage.windows.find((x) => x.model_scope === scope);
-    const points = (win) => [...(history[a.id] || [])
+    const points = (win) => steady([...(history[a.id] || [])
       .filter((s) => win.key in s.used)
       .map((s) => ({ t: (new Date(s.at) - now) / HOUR_MS, v: s.used[win.key] }))
-      .filter((p) => p.t < 0), { t: 0, v: usedNow(win) }];
+      .filter((p) => p.t < 0), { t: 0, v: usedNow(win) }]);
     const every = (win) => (win && win.duration_secs ? win.duration_secs / 3600 : Infinity);
     const reset = (win) => {
       const h = win ? hoursAway(win.resets_at) : Infinity;
       return h > 0 ? h : h + Math.floor(1 - h / every(win)) * every(win) || Infinity;
     };
+    const all = points(w);
+    const scoped = sw ? points(sw) : null;
     return {
       id: a.id,
       name: a.email || a.id,
-      all: points(w),
-      scoped: sw ? points(sw) : null,
-      state: { allLeft: 100 - usedNow(w), allReset: reset(w), allEvery: every(w), hasScope: Boolean(sw), scopeLeft: sw ? 100 - usedNow(sw) : 100, scopeReset: reset(sw), scopeEvery: every(sw) },
+      all: corners(all),
+      scoped: scoped && corners(scoped),
+      samples: { all, scoped },
+      state: { allLeft: 100 - all.at(-1).v, allReset: reset(w), allEvery: every(w), hasScope: Boolean(sw), scopeLeft: sw ? 100 - scoped.at(-1).v : 100, scopeReset: reset(sw), scopeEvery: every(sw) },
     };
   });
   const cap = members.length * 100;
@@ -1224,7 +1240,7 @@ function buildPool(provider, d, now) {
   const burn = (k) => {
     let rate = 0;
     for (const s of series.filter((x) => x[k])) {
-      const pts = s[k].filter((p) => p.t >= -POOL_BURN_H);
+      const pts = s.samples[k].filter((p) => p.t >= -POOL_BURN_H);
       if (pts.length < 2 || pts[0].t > -POOL_BURN_MIN_H) return null;
       let used = 0;
       for (let i = 1; i < pts.length; i++) used += Math.max(0, pts[i].v - pts[i - 1].v);
