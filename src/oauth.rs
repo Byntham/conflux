@@ -561,7 +561,7 @@ pub fn classify_refresh(provider: Provider, status: u16, retry_after: Option<u64
     if provider == Provider::Codex && status == 401 {
         return RefreshOutcome::Rejected(truncate(body, 200));
     }
-    if provider == Provider::Claude && status == 429 {
+    if matches!(provider, Provider::Claude | Provider::Grok) && status == 429 {
         return RefreshOutcome::RetryAfter(Duration::from_secs(retry_after.unwrap_or(30)));
     }
     RefreshOutcome::Unknown(format!("HTTP {status}: {}", truncate(body, 200)))

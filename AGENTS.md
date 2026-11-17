@@ -31,7 +31,7 @@ Rust proxy that pools Claude Code and Codex subscription accounts on one hub mac
 A fix that works on one path is often missing from the others. Before calling a change done, check each of these that applies:
 
 - HTTP (`src/proxy.rs`) and WebSocket (`src/ws.rs`)
-- Claude and Codex
+- Claude, Codex, and Grok
 - Hub and node (`src/node.rs`)
 - The dashboard, `/conflux/api`, and `conflux status`
 

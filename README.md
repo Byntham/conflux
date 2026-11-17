@@ -121,7 +121,7 @@ The [install guide](docs/install.md) covers guests, linking from the hub, the Ma
 | `conflux disable <account>` | Stop using an account. `enable` brings it back |
 | `conflux off` | Use this machine's own logins, for example when the hub is down. `on` undoes it |
 | `conflux update` | Update every online machine that is behind |
-| `conflux leave` | Stop conflux on this machine and restore Claude Code's and Codex's settings |
+| `conflux leave` | Stop conflux on this machine and restore the coding tools' settings |
 
 `<account>` is an ID from `conflux status`. Account commands work from any linked machine signed in to Tailscale as you. [Commands](docs/commands.md) explains every command, including how to move the hub to another machine.
 

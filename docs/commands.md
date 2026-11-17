@@ -111,7 +111,7 @@ Link a waiting machine from either side:
 - On the waiting machine, run [`conflux join`](#conflux-join-hub) with no name, or click "Link to" in the Mac menu bar app.
 - On the hub's dashboard, open Machines, click "Find machines", and click "Link" next to it. Or run [`conflux add <machine>`](#conflux-add-machine) on the hub.
 
-The machine links only to a hub owned by the same Tailscale user. When linked, it edits Claude Code's and Codex's settings the same way `join` does.
+The machine links only to a hub owned by the same Tailscale user. When linked, it edits the coding tools' settings the same way `join` does.
 
 If this machine has already joined a hub or holds accounts, `wait` changes nothing. It only restarts the service if one is installed.
 

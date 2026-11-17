@@ -191,7 +191,7 @@ impl Refresher {
                 e.set_refresh_state(RefreshState::Rejected(reason.clone()));
                 RefreshResult::Rejected(reason)
             }
-            RefreshOutcome::RetryAfter(hint) if e.provider == Provider::Claude => {
+            RefreshOutcome::RetryAfter(hint) if matches!(e.provider, Provider::Claude | Provider::Grok) => {
                 let attempt = retries as usize;
                 if attempt >= CLAUDE_BACKOFF.len() {
                     e.set_refresh_state(RefreshState::Unknown);

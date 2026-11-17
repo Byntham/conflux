@@ -471,6 +471,19 @@ async fn grok_usage_polls_and_refreshes_against_xai() {
             .any(|(path, token)| path == "/grok-api/billing" && token == "at-g")
     );
 
+    let throttled = h.add(Provider::Grok, "throttled").await;
+    h.fake
+        .refresh_replies
+        .lock()
+        .unwrap()
+        .push_back(Reply::Json(429, vec![("retry-after", "1".into())], "{}".into()));
+    let t = h.app.store.get(&throttled).unwrap();
+    assert!(matches!(h.app.refresher.refresh(&t).await, RefreshResult::Waiting(_)));
+    assert!(
+        matches!(t.refresh_state(), RefreshState::RetryAt { .. }),
+        "a throttled refresh tries again"
+    );
+
     use base64::Engine;
     let exp = (Utc::now() + chrono::Duration::hours(6)).timestamp();
     let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(json!({"sub": "g", "exp": exp}).to_string());
@@ -479,6 +492,7 @@ async fn grok_usage_polls_and_refreshes_against_xai() {
         vec![],
         json!({"access_token": format!("x.{payload}.y"), "refresh_token": "rt-g2"}).to_string(),
     ));
+
     let e = h.app.store.get(&id).unwrap();
     assert_eq!(h.app.refresher.refresh(&e).await, RefreshResult::Refreshed);
     assert_eq!(e.credentials().grant.refresh_token, "rt-g2");
