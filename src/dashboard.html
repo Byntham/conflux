@@ -1227,7 +1227,7 @@ function poolStat(label, value, cls = "") {
 
 function poolStats(p) {
   const ready = p.accounts.filter(isReady).length;
-  const stats = [poolStat("Ready", `${ready} of ${p.accounts.length}`, ready < p.accounts.length ? "warn" : "")];
+  const stats = [poolStat("Ready", `${ready} of ${p.accounts.length}`, p.accounts.some((a) => a.enabled && !isReady(a)) ? "warn" : "")];
   if (!p.size) return stats.join("");
   stats.push(poolStat(`Burn<span class="since">, last ${POOL_BURN_H}h</span>`, p.burn === null ? "No data yet" : `${p.burn < 10 ? p.burn.toFixed(1) : Math.round(p.burn)}%/h`));
   const outlook = poolOutlook(p);
@@ -1244,7 +1244,7 @@ function poolGutter(l, narrow) {
   const p = l.pool;
   const tag = p.scope && p.size ? `<span class="pool-tag">${esc(p.scope)} ${esc(pctLeft(p.nowScoped))}</span>` : "";
   return `<div class="pool-gut pool-${esc(p.provider)}" style="top:${l.top - (narrow ? 78 : 80)}px">
-    <div class="pool-title"><div class="pool-name"><i></i>${esc(providerName(p.provider))}</div><div class="pool-big">${p.size ? esc(pctLeft(p.now)) : "–"}<span>left</span></div></div>
+    <div class="pool-title"><div class="pool-name"><i></i>${esc(providerName(p.provider))}</div><div class="pool-big">${p.size ? `${esc(pctLeft(p.now))}<span>left</span>` : "–"}</div></div>
     <div class="pool-stats">${poolStats(p)}</div>
     ${tag}
   </div>`;
@@ -1469,13 +1469,13 @@ async function refresh() {
   setConnection(true);
 }
 
-function toast(message, bad = false) {
+function toast(message, bad = false, busy = false) {
   const box = $("toast");
-  box.className = bad ? "bad" : "";
-  box.innerHTML = `${icon(bad ? "alert" : "check")}<span>${esc(message)}</span>`;
+  box.className = bad ? "bad" : busy ? "spin" : "";
+  box.innerHTML = `${icon(bad ? "alert" : busy ? "refresh" : "check")}<span>${esc(message)}</span>`;
   box.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { box.hidden = true; }, bad ? 5000 : 1800);
+  if (!busy) toastTimer = setTimeout(() => { box.hidden = true; }, bad ? 5000 : 1800);
 }
 
 const showError = (e) => toast(e.message, true);
@@ -1883,7 +1883,7 @@ async function accountAction(button) {
     if (act === "toggle") await api("PATCH", path, { enabled: on === "true" });
     if (act === "overage") await api("PATCH", path, { allow_overage: on === "true" });
     if (act === "usage") {
-      toast("Checking usage");
+      toast("Checking usage", false, true);
       await api("POST", `${path}/usage`, {});
     }
     await refresh();
