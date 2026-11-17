@@ -42,12 +42,13 @@ Working on one machine only? Skip step 4.
 - One or more Claude or ChatGPT subscriptions. Codex uses a ChatGPT subscription.
 - [Tailscale](https://tailscale.com) on every machine, signed in to the same tailnet. MagicDNS must be on, which is the default.
 - [Claude Code](https://claude.com/product/claude-code) or [Codex](https://developers.openai.com/codex/cli) on each machine you work from.
-- A hub that stays on at home. Linux is best, because a macOS or Windows hub runs only while you're signed in. Keep it off VPNs and exit nodes.
+- A hub that stays on at home. Linux is best, because a macOS or Windows hub runs only while you're signed in.
+- Keep the hub off VPNs and exit nodes, so the providers see one home IP address.
 - Linux x64 or ARM64 with systemd, macOS on Apple silicon, or Windows x64. On anything else, [build from source](docs/install.md#build-from-source).
 
 ### 1. Install conflux
 
-Run this on the hub. For your other machines, run it now too, or let the hub install it for you in step 4.
+Run this on the hub, and on each other machine you work from. Step 4 has a shortcut for Mac and Linux machines.
 
 macOS and Linux:
 
@@ -61,7 +62,7 @@ Windows, in PowerShell:
 irm https://raw.githubusercontent.com/Byntham/conflux/main/install.ps1 | iex
 ```
 
-conflux now runs as a background service. If the installer says it changed your PATH, open a new terminal.
+conflux now runs as a background service. On a Mac, you also get a [menu bar app](docs/install.md#the-mac-menu-bar-app). If the installer says it changed your PATH, open a new terminal.
 
 ### 2. Make one machine the hub
 
@@ -71,7 +72,9 @@ On the hub:
 conflux join self
 ```
 
-The last line it prints is the dashboard's address. Run `conflux` on the hub to print it again.
+Ignore the installer's hint to run `conflux join`. That one is for your other machines.
+
+The last line it prints is the dashboard's address. The last line of `conflux` shows it again.
 
 ### 3. Add your accounts
 
@@ -87,13 +90,13 @@ Each one prints a link. Open it in a browser signed in to that account, on any m
 - For Claude, the browser then shows a connection error. That is expected. Paste the whole URL from the address bar into the terminal.
 - For ChatGPT, type the code from the terminal into the page. The command finishes on its own.
 
-Your accounts now show on the dashboard.
+Your accounts now show on the dashboard. Its "Add Claude" and "Add Codex" buttons do the same as these commands.
 
 ### 4. Link your other machines
 
-**Let the hub do it.** For Mac and Linux machines the hub can ssh to without a password or passphrase, open Machines on the dashboard, click "Find machines", then click "Install". The hub installs conflux there and links it.
+**From the dashboard.** Open Machines, click "Find machines", then click "Install". The hub installs conflux on the machine over ssh and links it. This works for Mac and Linux machines the hub can ssh to without a password or passphrase.
 
-**Or link it yourself.** On each other machine where you ran step 1:
+**From the machine.** On each other machine where you ran step 1:
 
 ```sh
 conflux join

@@ -10,10 +10,6 @@ Everything the [quick start](../README.md#quick-start) leaves out: [installing o
 - On Linux, conflux keeps running after you log out only if lingering is on for your user. `conflux join` tries to turn it on. See [Troubleshooting](troubleshooting.md#conflux-stops-when-you-log-out-of-linux).
 - The installer supports Linux x64 and ARM64 with systemd, macOS on Apple silicon, and Windows x64. On other systems, [build from source](#build-from-source).
 
-## Setup
-
-The [quick start](../README.md#quick-start) has the steps: install conflux, run `conflux join self` on the hub, add your accounts, link your other machines, and restart your sessions. This page covers the other ways to do each part.
-
 ## Install from the hub, over ssh
 
 The hub can install conflux on a Mac or Linux machine and link it for you. This works if the hub's user can ssh to the machine without a password or passphrase prompt. On the dashboard, open Machines, click "Find machines", and click "Install" next to the machine. Or run `conflux add` on the hub to list the machines it finds, then `conflux add <machine>`.
