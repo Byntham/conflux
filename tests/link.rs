@@ -316,7 +316,12 @@ async fn a_waiting_machine_finds_its_hub_and_links_itself_to_it() {
     let claude = std::fs::read_to_string(&machine.clients.claude_settings).unwrap();
     assert!(claude.contains(&format!("http://127.0.0.1:{}", hub.port)));
 
-    let mut guest = waiting_machine(tokio::net::TcpListener::bind(("::1", hub.port)).await.unwrap()).await;
+    let hub_again = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = hub_again.local_addr().unwrap().port();
+    hub.app.allowed_hosts.write().unwrap().push(format!("127.0.0.1:{port}"));
+    let routes = hub.app.routes().into_make_service_with_connect_info::<SocketAddr>();
+    tokio::spawn(async move { axum::serve(hub_again, routes).await.unwrap() });
+    let mut guest = waiting_machine(tokio::net::TcpListener::bind(("::1", port)).await.unwrap()).await;
     *guest.tailnet.lock().unwrap() = tailnet(2, &[]);
     assert_eq!(ask_to_join(&guest, "127.0.0.1").await, 200);
     let cfg = Config::load(&guest.paths).unwrap();
