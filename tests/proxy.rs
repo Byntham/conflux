@@ -750,6 +750,16 @@ async fn muse_polls_and_refreshes_by_minting_its_key() {
         1,
         "a throttled poll mint waits out its Retry-After"
     );
+    let generation = polled.credentials().generation;
+    assert!(matches!(
+        h.app.refresher.refresh_rejected(&polled, generation).await,
+        RefreshResult::Waiting(_)
+    ));
+    assert_eq!(
+        h.hits_for("rt-polled"),
+        1,
+        "a refresh after a 401 also waits out the mint's Retry-After"
+    );
     assert!(
         matches!(polled.refresh_state(), RefreshState::RetryAt { at, .. } if at > Utc::now() + chrono::Duration::minutes(59))
     );
@@ -766,6 +776,7 @@ async fn muse_polls_and_refreshes_by_minting_its_key() {
         &after_crash,
         Utc::now() + chrono::Duration::days(2)
     ));
+    e.set_refresh_state(after_crash.refresh_state());
     h.reply("rt-m", Reply::Json(200, vec![], key("at-m")));
     assert_eq!(h.app.refresher.refresh(&e).await, RefreshResult::Refreshed);
 

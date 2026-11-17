@@ -104,6 +104,11 @@ impl Refresher {
             return RefreshResult::LocalError("account has never logged in".into());
         }
         let n = creds.generation + 1;
+        if let (Provider::Muse, RefreshState::RetryAt { at, .. }) = (e.provider, e.refresh_state())
+            && Utc::now() < at
+        {
+            return RefreshResult::Waiting(at);
+        }
 
         let mut retries = 0u32;
         let repeatable = e.provider == Provider::Muse;
