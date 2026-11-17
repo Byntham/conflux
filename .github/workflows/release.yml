@@ -9,10 +9,10 @@ on:
         options: [patch, minor, major]
         default: patch
 
-concurrency: release
+concurrency: release-${{ github.ref }}
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   AWS_LC_SYS_PREBUILT_NASM: "1"
@@ -35,8 +35,8 @@ jobs:
             minor) next="$major.$((minor + 1)).0" ;;
             patch) next="$major.$minor.$((patch + 1))" ;;
           esac
-          if [ -n "$(git ls-remote --tags origin "refs/tags/v$next")" ]; then
-            echo "v$next is already released. Cargo.toml on this branch says $current." >&2
+          if [ "$GITHUB_REF" = refs/heads/main ] && [ -n "$(git ls-remote --tags origin "refs/tags/v$next")" ]; then
+            echo "The tag v$next already exists, but Cargo.toml on main says $current. Finish or delete that release first." >&2
             exit 1
           fi
           sed -i "0,/^version = \"$current\"$/s//version = \"$next\"/" Cargo.toml
@@ -133,6 +133,8 @@ jobs:
     needs: [version, build]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -148,7 +150,8 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "chore: release v$VERSION"
-          git push origin HEAD:main
-          gh release create "v$VERSION" dist/* --repo "$GITHUB_REPOSITORY" --target "$(git rev-parse HEAD)" --generate-notes
+          git tag "v$VERSION"
+          git push --atomic origin HEAD:main "v$VERSION"
+          gh release create "v$VERSION" dist/* --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes
