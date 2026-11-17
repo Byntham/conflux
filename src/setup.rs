@@ -221,11 +221,7 @@ fn restore_grok_auth(doc: &mut DocumentMut, joined: &Joined) {
     );
 }
 
-fn restore_grok(paths: &ClientPaths, joined: &Joined, port: u16) -> Result<()> {
-    if !paths.grok_config.exists() {
-        return Ok(());
-    }
-    let mut doc = read_codex(&paths.grok_config)?;
+fn restore_grok(paths: &ClientPaths, joined: &Joined, mut doc: DocumentMut, port: u16) -> Result<()> {
     restore_in(
         &mut doc,
         "endpoints",
@@ -333,6 +329,9 @@ pub fn restore(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Opti
         return Ok(Some(joined));
     }
     let (url, token) = ours_claude(port);
+    let grok = (joined.grok_recorded && paths.grok_config.exists())
+        .then(|| read_codex(&paths.grok_config))
+        .transpose()?;
 
     let mut claude = read_claude(&paths.claude_settings)?;
     if let Some(env) = claude.get_mut("env").and_then(Value::as_object_mut) {
@@ -384,7 +383,9 @@ pub fn restore(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Opti
         }
     }
     write_codex(&paths.codex_config, &doc)?;
-    restore_grok(paths, &joined, port)?;
+    if let Some(g) = grok {
+        restore_grok(paths, &joined, g, port)?;
+    }
 
     joined.active = false;
     joined.recorded = false;
@@ -561,6 +562,24 @@ mod tests {
         restore(&p, &conf, 8317).unwrap();
         let after: Value = serde_json::from_str(&std::fs::read_to_string(&p.claude_settings).unwrap()).unwrap();
         assert_eq!(after["env"]["ANTHROPIC_AUTH_TOKEN"], "mine");
+    }
+
+    #[test]
+    fn a_broken_grok_config_changes_nothing() {
+        let d = tempfile::tempdir().unwrap();
+        let (p, conf) = paths(d.path());
+        std::fs::create_dir_all(p.grok_config.parent().unwrap()).unwrap();
+        std::fs::write(&p.grok_config, "not = [toml").unwrap();
+        assert!(apply(&p, &conf, 8317).is_err());
+        assert!(!p.claude_settings.exists());
+
+        std::fs::write(&p.grok_config, "").unwrap();
+        apply(&p, &conf, 8317).unwrap();
+        let routed = std::fs::read_to_string(&p.claude_settings).unwrap();
+        std::fs::write(&p.grok_config, "not = [toml").unwrap();
+        assert!(restore(&p, &conf, 8317).is_err());
+        assert_eq!(std::fs::read_to_string(&p.claude_settings).unwrap(), routed);
+        assert!(routing(&conf));
     }
 
     #[test]
