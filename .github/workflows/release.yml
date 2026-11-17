@@ -27,6 +27,7 @@ jobs:
       - id: bump
         env:
           BUMP: ${{ inputs.bump }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           current=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
           IFS=. read -r major minor patch <<< "$current"
@@ -35,9 +36,15 @@ jobs:
             minor) next="$major.$((minor + 1)).0" ;;
             patch) next="$major.$minor.$((patch + 1))" ;;
           esac
-          if [ "$GITHUB_REF" = refs/heads/main ] && [ -n "$(git ls-remote --tags origin "refs/tags/v$next")" ]; then
-            echo "The tag v$next already exists, but Cargo.toml on main says $current. Finish or delete that release first." >&2
-            exit 1
+          if [ "$GITHUB_REF" = refs/heads/main ]; then
+            if ! gh release view "v$current" --repo "$GITHUB_REPOSITORY" > /dev/null; then
+              echo "v$current has no release yet. Re-run the failed jobs of the release run that tagged it." >&2
+              exit 1
+            fi
+            if [ -n "$(git ls-remote --tags origin "refs/tags/v$next")" ]; then
+              echo "The tag v$next already exists, but Cargo.toml on main says $current. Finish or delete that release first." >&2
+              exit 1
+            fi
           fi
           sed -i "0,/^version = \"$current\"$/s//version = \"$next\"/" Cargo.toml
           awk -v v="$next" '
@@ -151,7 +158,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "chore: release v$VERSION"
-          git tag "v$VERSION"
-          git push --atomic origin HEAD:main "v$VERSION"
+          if ! git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" > /dev/null; then
+            git commit -am "chore: release v$VERSION"
+            git tag "v$VERSION"
+            git push --atomic origin HEAD:main "v$VERSION"
+          fi
           gh release create "v$VERSION" dist/* --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes
