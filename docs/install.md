@@ -1,101 +1,50 @@
 # Install
 
-The [README](../README.md#quick-start) has the short version. This page adds the details: [installing over ssh](#from-the-hub-over-ssh), [linking a machine by name](#link-a-machine-by-name), [joining as a guest](#as-a-guest), [the Mac menu bar app](#the-mac-menu-bar-app), [updates](#update), and [uninstalling](#uninstall).
+Everything the [quick start](../README.md#quick-start) leaves out: [installing over ssh](#install-from-the-hub-over-ssh), [linking from the hub](#link-a-machine-from-the-hub), [linking by name](#link-a-machine-by-name), [guests](#join-as-a-guest), [other ways to install](#other-ways-to-install), [the Mac menu bar app](#the-mac-menu-bar-app), [updates](#update), and [uninstalling](#uninstall).
 
 ## Requirements
 
 - Every machine runs [Tailscale](https://tailscale.com) with MagicDNS on, which is the default. Every machine signed in to Tailscale as you can use and manage your accounts. Machines of other users, and tagged machines, need your approval first. See [Security](../README.md#security).
 - The hub stays on and stays at home. Linux is best, because a macOS or Windows hub runs only while you're signed in. Don't route its traffic through another VPN or an exit node, so the providers see one home IP address.
-- Each machine you work from has Claude Code or Codex. The hub doesn't need them.
+- Each machine you work from has Claude Code or Codex. The hub needs them only if you also work on it.
+- On Linux, conflux keeps running after you log out only if lingering is on for your user. `conflux join` tries to turn it on. See [Troubleshooting](troubleshooting.md#conflux-stops-when-you-log-out-of-linux).
 - The installer supports Linux x64 and ARM64 with systemd, macOS on Apple silicon, and Windows x64. On other systems, [build from source](#build-from-source).
 
-## 1. Install conflux
+## Setup
 
-Run this on the hub, then on each machine you work from.
+The [quick start](../README.md#quick-start) has the steps: install conflux, run `conflux join self` on the hub, add your accounts, link your other machines, and restart your sessions. This page covers the other ways to do each part.
 
-macOS and Linux:
+## Install from the hub, over ssh
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/Byntham/conflux/main/install.sh | sh
-```
-
-Windows, in PowerShell:
-
-```powershell
-irm https://raw.githubusercontent.com/Byntham/conflux/main/install.ps1 | iex
-```
-
-conflux now runs as a background service and waits to be linked. If the installer says it changed your PATH, open a new terminal. On a Mac, it also installs the [menu bar app](#the-mac-menu-bar-app).
-
-## 2. Make one machine the hub
-
-On the hub:
-
-```sh
-conflux join self
-```
-
-The last line it prints is the dashboard's address. The dashboard works from any device on your tailnet. Run `conflux` on the hub to print the address again.
-
-## 3. Add your accounts
-
-On the hub, run the command for each subscription you have. Run it again for each extra account.
-
-```sh
-conflux login claude    # a Claude subscription
-conflux login codex     # a ChatGPT subscription
-```
-
-Each command prints a link. Open it in a browser signed in to that account. The browser can be on any machine.
-
-- For Claude, the browser then shows a connection error. That is expected. Paste the whole URL from the address bar into the terminal.
-- For ChatGPT, type the code from the terminal into the page. The command finishes on its own.
-
-Your accounts now show on the dashboard.
-
-## 4. Link your other machines
-
-On each machine you work from:
-
-```sh
-conflux join
-```
-
-conflux finds the hub on your tailnet and links to it. On a Mac, you can click the "Link to" button in the menu bar app instead. Once linked, conflux points Claude Code and Codex at the hub, and the machine shows on the dashboard's Machines page.
-
-You can also link a waiting machine from the hub. On the dashboard, open Machines, click "Find machines", and click "Link" next to the machine. Or run `conflux add <machine>` on the hub. The hub finds only machines that are online and owned by the same Tailscale user.
-
-### From the hub, over ssh
-
-The hub can do steps 1 and 4 for you. This works if the hub's user can ssh to a Mac or Linux machine without a password or passphrase prompt. On the dashboard, open Machines, click "Find machines", and click "Install" next to the machine. Or run `conflux add` on the hub to list the machines it finds, then `conflux add <machine>`.
+The hub can install conflux on a Mac or Linux machine and link it for you. This works if the hub's user can ssh to the machine without a password or passphrase prompt. On the dashboard, open Machines, click "Find machines", and click "Install" next to the machine. Or run `conflux add` on the hub to list the machines it finds, then `conflux add <machine>`.
 
 See [`conflux add`](commands.md#conflux-add-machine) for the ssh rules.
 
-### Link a machine by name
+## Link a machine from the hub
+
+A machine where you ran the installer waits to be linked. Instead of running `conflux join` on it, you can link it from the hub. On the dashboard, open Machines, click "Find machines", and click "Link" next to the machine. Or run `conflux add <machine>` on the hub. On a Mac, you can also click the "Link to" button in the menu bar app.
+
+The hub finds only machines that are online and owned by the same Tailscale user.
+
+## Link a machine by name
 
 If `conflux join` lists more than one hub, or finds none, name the hub yourself: `conflux join <hub>`. You can also end the install command with the hub's name, `sh -s -- <hub>` instead of `sh`, to install and link in one step. The "Add a machine" panel on the dashboard's Machines page shows these commands with your hub's name filled in.
 
-### As a guest
+## Join as a guest
 
 A machine signed in to Tailscale as another user can join as a guest. On that machine, run `conflux join` to list the hubs, then `conflux join <hub>`. On a Mac, click "Join <owner>'s hub as a guest". The hub's owner then approves it on the dashboard or with [`conflux guest approve`](commands.md#conflux-guest-approvedenyremove-machine). Until then, the guest keeps using its own logins.
-
-## 5. Restart and check
-
-Restart open Claude Code and Codex sessions on every machine, including the hub. Send a message from one. It shows up on the dashboard's Requests page.
-
-If it doesn't, see [Troubleshooting](troubleshooting.md).
 
 ## Other ways to install
 
 ### Mac without the menu bar app
 
-This command installs only `conflux`, without Conflux.app. Use it in place of the command in step 1.
+This command installs only `conflux`, without Conflux.app. Use it in place of the install command in the quick start.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Byntham/conflux/main/install.sh | sh -s -- --no-app
 ```
 
-To add the menu bar app to an existing Mac install later, run the install command from step 1. It keeps the machine's role.
+To add the menu bar app to an existing Mac install later, run the install command from the quick start. It keeps the machine's role.
 
 ### Build from source
 
@@ -105,7 +54,7 @@ On a system without a prebuilt binary, install with Rust:
 cargo install --git https://github.com/Byntham/conflux
 ```
 
-Then run `conflux join self` on the hub and add your accounts as in step 3. On other machines, run `conflux wait`, then link them as in step 4.
+Then run `conflux join self` on the hub, or `conflux wait` on other machines, and continue with the quick start. The background service needs systemd on Linux.
 
 ## The Mac menu bar app
 
