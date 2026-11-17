@@ -514,11 +514,17 @@ pub fn log_attempt(
     })
 }
 
+fn has_dot_segment(path: &str) -> bool {
+    path.split('/')
+        .map(|seg| seg.to_ascii_lowercase().replace("%2e", "."))
+        .any(|seg| seg == "." || seg == "..")
+}
+
 pub async fn handle(State(app): State<Arc<App>>, req: Request) -> Response {
     let (parts, body) = req.into_parts();
     let path = parts.uri.path().to_string();
     let ua = header_str(&parts.headers, "user-agent").unwrap_or("").to_string();
-    let Some(provider) = provider_for(&path, &ua) else {
+    let Some(provider) = provider_for(&path, &ua).filter(|_| !has_dot_segment(&path)) else {
         return json_response(StatusCode::NOT_FOUND, json!({"error": "not found"}), None);
     };
     if header_str(&parts.headers, "upgrade").is_some_and(|u| u.eq_ignore_ascii_case("websocket")) {

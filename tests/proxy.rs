@@ -338,6 +338,25 @@ async fn grok_requests_use_grok_accounts_and_fail_over_on_quota() {
 }
 
 #[tokio::test]
+async fn dot_segments_cannot_leave_the_provider_path() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let h = Harness::new().await;
+    h.add(Provider::Grok, "g").await;
+    for path in ["/grok/v1/../../oauth2/token", "/grok/v1/%2E%2e/x"] {
+        let mut s = tokio::net::TcpStream::connect(("127.0.0.1", h.port)).await.unwrap();
+        let req = format!(
+            "GET {path} HTTP/1.1\r\nhost: 127.0.0.1:{}\r\nconnection: close\r\n\r\n",
+            h.port
+        );
+        s.write_all(req.as_bytes()).await.unwrap();
+        let mut out = String::new();
+        s.read_to_string(&mut out).await.unwrap();
+        assert!(out.starts_with("HTTP/1.1 404"), "{path}: {out}");
+    }
+    assert_eq!(h.hits_for("at-g"), 0);
+}
+
+#[tokio::test]
 async fn grok_usage_polls_and_refreshes_against_xai() {
     let h = Harness::new().await;
     let id = h.add(Provider::Grok, "g").await;
