@@ -27,12 +27,18 @@ pub const HUB_NOT_ACTIVE: &str = "conflux: the hub is moving to another machine.
 pub const GROK_PREFIX: &str = "/grok/v1/";
 pub const MUSE_PREFIX: &str = "/muse/v1/";
 pub const MUSE_CODE_PREFIX: &str = "/muse-code/";
-const MUSE_KEY_PATH: &str = "/muse-code/key";
+const MUSE_CODE_PATHS: &[&str] = &["models", "search", "browser_open", "feedback"];
+
+fn is_muse_code_path(path: &str) -> bool {
+    path.strip_prefix(MUSE_CODE_PREFIX)
+        .and_then(|rest| rest.split('/').next())
+        .is_some_and(|first| MUSE_CODE_PATHS.contains(&first))
+}
 
 pub fn provider_for(path: &str, user_agent: &str) -> Option<Provider> {
     if path.starts_with(GROK_PREFIX) {
         Some(Provider::Grok)
-    } else if path.starts_with(MUSE_PREFIX) || (path.starts_with(MUSE_CODE_PREFIX) && path != MUSE_KEY_PATH) {
+    } else if path.starts_with(MUSE_PREFIX) || is_muse_code_path(path) {
         Some(Provider::Muse)
     } else if path.starts_with("/v1/messages") {
         Some(Provider::Claude)
@@ -71,7 +77,9 @@ pub fn upstream_url(app: &App, provider: Provider, path: &str, query: Option<&st
         Provider::Grok => (&app.ep.grok_api, path.strip_prefix("/grok/v1").unwrap_or(path)),
         Provider::Muse => (
             &app.ep.meta_api,
-            path.strip_prefix("/muse").filter(|r| r.starts_with('/')).unwrap_or(path),
+            path.strip_prefix("/muse")
+                .filter(|r| r.starts_with('/'))
+                .unwrap_or(path),
         ),
     };
     let lower = rest.to_ascii_lowercase();

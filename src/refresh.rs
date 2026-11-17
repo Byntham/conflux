@@ -204,6 +204,9 @@ impl Refresher {
                 self.schedule_retry(e, n, delay, retries + 1)
             }
             RefreshOutcome::NotSent(_) => self.schedule_retry(e, n, NOT_SENT_RETRY, retries),
+            RefreshOutcome::RetryAfter(hint) if e.provider == Provider::Muse => {
+                self.schedule_retry(e, n, hint.max(NOT_SENT_RETRY), retries)
+            }
             RefreshOutcome::Unknown(_) if e.provider == Provider::Muse => {
                 self.schedule_retry(e, n, NOT_SENT_RETRY, retries)
             }

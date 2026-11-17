@@ -584,7 +584,7 @@ pub async fn refresh(
 
 pub fn classify_refresh(provider: Provider, status: u16, retry_after: Option<u64>, body: &str) -> RefreshOutcome {
     if provider == Provider::Muse {
-        return classify_muse_mint(status, body);
+        return classify_muse_mint(status, retry_after, body);
     }
     if status == 200 {
         let Ok(v) = serde_json::from_str::<Value>(body) else {
@@ -625,7 +625,10 @@ pub fn classify_refresh(provider: Provider, status: u16, retry_after: Option<u64
     RefreshOutcome::Unknown(format!("HTTP {status}: {}", truncate(body, 200)))
 }
 
-fn classify_muse_mint(status: u16, body: &str) -> RefreshOutcome {
+fn classify_muse_mint(status: u16, retry_after: Option<u64>, body: &str) -> RefreshOutcome {
+    if status == 429 {
+        return RefreshOutcome::RetryAfter(Duration::from_secs(retry_after.unwrap_or(0)));
+    }
     if status == 401 {
         return RefreshOutcome::Rejected(truncate(body, 200));
     }

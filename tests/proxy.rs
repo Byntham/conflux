@@ -570,8 +570,19 @@ async fn muse_requests_route_report_quota_and_fail_over() {
         .await
         .unwrap();
     assert_eq!(r.status(), 200);
-    let r = h.http.post(format!("{}/muse-code/key", h.base)).send().await.unwrap();
-    assert_eq!(r.status(), 404, "the pooled key never reaches the mint endpoint");
+    for path in ["key", "key/", "%6Bey", "/key", "Key"] {
+        let r = h
+            .http
+            .post(format!("{}/muse-code/{path}", h.base))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            r.status(),
+            404,
+            "the pooled key never reaches the mint endpoint: {path}"
+        );
+    }
     let hits = h.fake.hits.lock().unwrap().clone();
     let paths: Vec<_> = hits.iter().map(|(p, t)| (p.as_str(), t.as_str())).collect();
     assert_eq!(
@@ -614,6 +625,16 @@ async fn muse_polls_and_refreshes_by_minting_its_key() {
     h.reply("rt-m", Reply::Json(503, vec![], "busy".into()));
     assert!(matches!(h.app.refresher.refresh(&e).await, RefreshResult::Waiting(_)));
     assert!(e.needs_login().is_none());
+    let slow = h.add(Provider::Muse, "slow").await;
+    h.reply(
+        "rt-slow",
+        Reply::Json(429, vec![("retry-after", "3600".into())], "{}".into()),
+    );
+    let throttled = h.app.store.get(&slow).unwrap();
+    match h.app.refresher.refresh(&throttled).await {
+        RefreshResult::Waiting(at) => assert!(at > Utc::now() + chrono::Duration::minutes(59)),
+        other => panic!("{other:?}"),
+    }
 
     let interrupted = e.credentials().generation + 1;
     e.journal.write_claim(interrupted).unwrap();
