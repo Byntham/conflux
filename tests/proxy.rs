@@ -447,6 +447,19 @@ async fn grok_usage_polls_and_refreshes_against_xai() {
     let snap = h.app.usage.get(&id);
     let w = snap.longest().unwrap();
     assert_eq!(w.used_pct, 42.0);
+
+    let empty = h.add(Provider::Grok, "empty").await;
+    let until = Utc::now() + chrono::Duration::hours(3);
+    h.app
+        .router
+        .cool(&empty, conflux::router::ACCOUNT, until, "Grok usage limit");
+    h.reply("at-empty", Reply::Json(200, vec![], json!({"config": {}}).to_string()));
+    h.app.usage.poll(&h.app.store.get(&empty).unwrap()).await.unwrap();
+    assert_eq!(
+        h.app.router.cooldowns(&empty).len(),
+        1,
+        "a billing reading with no credit window shows no room, so the cooldown stays"
+    );
     assert_eq!(w.duration_secs, Some(7 * 86400));
     assert_eq!(w.resets_at.unwrap().timestamp(), end.timestamp());
     assert!(
