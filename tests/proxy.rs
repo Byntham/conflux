@@ -562,7 +562,13 @@ async fn muse_requests_route_report_quota_and_fail_over() {
     let weekly = snap.longest().unwrap();
     assert_eq!((weekly.key.as_str(), weekly.used_pct), ("weekly", 60.0));
 
-    let r = muse(&h, "/muse-code/models").send().await.unwrap();
+    let r = h
+        .http
+        .get(format!("{}/muse-code/models", h.base))
+        .header("x-tbh-session-id", "s1")
+        .send()
+        .await
+        .unwrap();
     assert_eq!(r.status(), 200);
     let hits = h.fake.hits.lock().unwrap().clone();
     let paths: Vec<_> = hits.iter().map(|(p, t)| (p.as_str(), t.as_str())).collect();

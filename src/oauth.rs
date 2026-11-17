@@ -633,7 +633,7 @@ fn classify_muse_mint(status: u16, body: &str) -> RefreshOutcome {
         .ok()
         .and_then(|v| v["api_key"].as_str().filter(|k| !k.is_empty()).map(str::to_string));
     match key {
-        Some(api_key) if status == 200 => RefreshOutcome::Ok(RefreshedTokens {
+        Some(api_key) if (200..300).contains(&status) => RefreshOutcome::Ok(RefreshedTokens {
             access_token: api_key,
             refresh_token: None,
             expires_in: MUSE_KEY_TTL_SECS,

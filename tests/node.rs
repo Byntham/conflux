@@ -107,6 +107,8 @@ async fn client_credentials_stop_at_the_node() {
     let n = start_node(hub_port).await;
     for (method, path) in [
         (Method::POST, "/grok/v1/responses"),
+        (Method::POST, "/muse/v1/responses"),
+        (Method::GET, "/muse-code/models"),
         (Method::GET, "/conflux/api/status"),
     ] {
         n.http
@@ -123,6 +125,8 @@ async fn client_credentials_stop_at_the_node() {
             .map(|(_, h)| h.get("authorization").is_some())
     };
     assert_eq!(auth("/grok/v1/responses"), Some(false));
+    assert_eq!(auth("/muse/v1/responses"), Some(false));
+    assert_eq!(auth("/muse-code/models"), Some(false));
     assert_eq!(auth("/conflux/api/status"), Some(true));
 }
 
