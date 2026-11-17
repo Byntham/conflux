@@ -24,7 +24,7 @@ const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 const CLAUDE_OAUTH_BETA: &str = "oauth-2025-04-20";
 pub const HUB_NOT_ACTIVE: &str = "conflux: the hub is moving to another machine. Try again in a minute.";
 
-pub const GROK_PREFIX: &str = "/grok/";
+pub const GROK_PREFIX: &str = "/grok/v1/";
 
 pub fn provider_for(path: &str, user_agent: &str) -> Option<Provider> {
     if path.starts_with(GROK_PREFIX) {

@@ -49,7 +49,7 @@ The hub and a waiting machine ask the release page for the latest version when t
 Claude Code, Codex, and Grok Build on every machine point at `http://127.0.0.1:<port>`. On the hub, that is the hub itself. On a node, it is the node's own conflux.
 
 ```
-Claude Code / Codex
+Claude Code / Codex / Grok Build
         |
         v
   node (127.0.0.1)  --- adds x-conflux-node header --->  hub (tailnet IP)
@@ -59,12 +59,12 @@ Claude Code / Codex
                                           router picks an account
                                                            |
                                                            v
-                                        Anthropic API / ChatGPT Codex API
+                                        Anthropic API / ChatGPT Codex API / xAI
 ```
 
 A node does not route or hold credentials. `src/node.rs` copies each HTTP request and WebSocket session to the hub, minus hop-by-hop headers, and streams the reply back. On proxy paths it also drops the client's own `authorization`, `x-api-key`, and `cookie`, because a Grok Build with its own login sends its real xAI token. It adds an `x-conflux-node` header so the hub can log which machine sent the request. If the hub is unreachable, the node returns an error in the provider's format. `GET /` on a node redirects to the hub's dashboard.
 
-On the hub, `src/proxy.rs` handles `/v1/*`, `/backend-api/*`, and `/grok/*`.
+On the hub, `src/proxy.rs` handles `/v1/*`, `/backend-api/*`, and `/grok/v1/*`.
 
 - `/v1/messages` is Claude. `/backend-api/codex/*` is Codex. Other `/v1/*` paths are Claude when the user agent is Claude Code, and Codex otherwise.
 - `/grok/v1/*` is Grok Build. Grok Build and Codex both call `/responses`, so Grok gets its own prefix. The hub sends `/grok/v1/<rest>` to `https://cli-chat-proxy.grok.com/v1/<rest>`.
@@ -112,7 +112,7 @@ Grok sends no quota headers. The poll reads `creditUsagePercent` and the current
 6. The node moves the accounts into place, deletes `hub-state.json`, and saves its role as hub. It then hands its listener to a new conflux process, as an update does, and finishes the requests it was running. The new process starts as the hub.
 7. The old hub polls the new hub's `/conflux/api/status`. Once it answers with the hub role, the old hub saves its role as node, deletes `hub-state.json`, and hands off to a new process, which starts as a node. The old process closes its tailnet listeners and finishes its running requests.
 
-Commit and abort accept only the target's saved address and the move's id. Neither machine edits Claude Code or Codex settings, so routing stays as it was on both.
+Commit and abort accept only the target's saved address and the move's id. Neither machine edits the coding tools' settings, so routing stays as it was on both.
 
 A restart in the middle resumes where the move was. A hub that restarts while moving starts the 2 minute timer again. A retired hub starts polling the new hub again. A node that restarts with `incoming/` calls commit again, then finishes the move or drops the files. While moving or retired, the hub refuses proxy traffic with a clear error. A node follows a new hub address only if it resolves to a tailnet IP and does not name the node itself. `conflux hub resume`, or Cancel on the dashboard, cancels a move.
 

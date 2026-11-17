@@ -105,7 +105,7 @@ conflux join
 
 It finds your hub and links to it. If it lists more than one hub, or finds none, run `conflux join <hub>` with your hub's name from `tailscale status`.
 
-Either way, the machine then shows on the dashboard's Machines page, and its Claude Code and Codex send their requests through the hub. `conflux leave` puts their settings back.
+Either way, the machine then shows on the dashboard's Machines page, and its coding tools send their requests through the hub. `conflux leave` puts their settings back.
 
 ### 4. Restart and check
 

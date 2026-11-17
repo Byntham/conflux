@@ -91,7 +91,7 @@ Before it changes these files, conflux saves the values it replaces. `conflux of
 
 conflux warns you if your shell sets a variable that can bypass these settings, such as `ANTHROPIC_API_KEY` or `OPENAI_BASE_URL`.
 
-Open Claude Code and Codex sessions keep their old settings. Restart them to go through conflux.
+Open coding tool sessions keep their old settings. Restart them to go through conflux.
 
 Options:
 
@@ -100,7 +100,7 @@ Options:
 
 `join` refuses while this machine is in the middle of a hub move. Wait for the move to finish, or run `conflux hub resume`.
 
-If the hub belongs to another Tailscale user, this machine is a guest, and the hub's owner must approve it first. `join` installs the service but leaves Claude Code and Codex alone. Once the owner approves the machine, conflux points them at the hub. Until then they keep using this machine's own logins. If the owner turns the machine down, run `join` again to ask again.
+If the hub belongs to another Tailscale user, this machine is a guest, and the hub's owner must approve it first. `join` installs the service but leaves the coding tools alone. Once the owner approves the machine, conflux points them at the hub. Until then they keep using this machine's own logins. If the owner turns the machine down, run `join` again to ask again.
 
 ### `conflux wait`
 
@@ -117,7 +117,7 @@ If this machine has already joined a hub or holds accounts, `wait` changes nothi
 
 ### `conflux off`
 
-Points Claude Code and Codex back at this machine's own logins, using the values `join` saved. The conflux service keeps running. Restart open sessions to pick up the change.
+Points the coding tools back at this machine's own logins, using the values `join` saved. The conflux service keeps running. Restart open sessions to pick up the change.
 
 Use it when the hub is down. If you have never logged in to Claude Code or Codex on this machine, log in directly first.
 
@@ -125,11 +125,11 @@ To turn routing off or on for another machine, open Machines on the dashboard, c
 
 ### `conflux on`
 
-Points Claude Code and Codex at conflux again after `conflux off`. It saves the current values first, so a later `off` restores what was there just before `on`.
+Points the coding tools at conflux again after `conflux off`. It saves the current values first, so a later `off` restores what was there just before `on`.
 
 ### `conflux leave`
 
-Stops conflux on this machine and gives Claude Code and Codex their old settings back. It removes the background service.
+Stops conflux on this machine and gives the coding tools their old settings back. It removes the background service.
 
 `leave` keeps the conflux binary, its config, and any account tokens on this machine. If this machine is the hub and you are done with it, run `conflux remove` for each account first. To start again later, run `conflux join`.
 
@@ -193,7 +193,7 @@ conflux guest approve studio
 
 `<machine>` is the name the dashboard shows. If two guests share a name, use the Tailscale ID that the error lists.
 
-While a guest is not approved, conflux points its Claude Code and Codex back at its own logins, and points them at the hub again once it is approved. A guest asks when it joins, and the dashboard shows it under Machines as "Wants to join". A guest that was turned down or removed asks again only when someone runs `conflux join` on it, or clicks "Ask again" in its Mac menu bar app. Reconnecting does not ask again.
+While a guest is not approved, conflux points its coding tools back at its own logins, and points them at the hub again once it is approved. A guest asks when it joins, and the dashboard shows it under Machines as "Wants to join". A guest that was turned down or removed asks again only when someone runs `conflux join` on it, or clicks "Ask again" in its Mac menu bar app. Reconnecting does not ask again.
 
 The hub keeps its approvals in `guests.json` in its config folder. They move with the hub.
 

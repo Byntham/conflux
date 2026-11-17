@@ -125,7 +125,7 @@ fn write_codex(path: &Path, doc: &DocumentMut) -> Result<()> {
 }
 
 fn grok_url(port: u16) -> String {
-    format!("{}{}v1", base_url(port), crate::proxy::GROK_PREFIX)
+    format!("{}{}", base_url(port), crate::proxy::GROK_PREFIX.trim_end_matches('/'))
 }
 
 fn grok_installed(paths: &ClientPaths) -> bool {

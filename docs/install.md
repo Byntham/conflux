@@ -73,6 +73,6 @@ Requests already running finish on the old version. A machine that is off stays 
 
 ## Uninstall
 
-`conflux leave` stops conflux on a machine and gives Claude Code and Codex their old settings back. It keeps the binary and any account tokens. On the hub, run `conflux remove <account>` for each account first. See [`conflux leave`](commands.md#conflux-leave).
+`conflux leave` stops conflux on a machine and gives the coding tools their old settings back. It keeps the binary and any account tokens. On the hub, run `conflux remove <account>` for each account first. See [`conflux leave`](commands.md#conflux-leave).
 
 After a hub move, the old hub keeps a copy of the account tokens in a `retired-*` folder under `~/.local/share/conflux`. Delete it once the move has worked.
