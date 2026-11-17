@@ -9,7 +9,7 @@ use http::HeaderMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::accounts::{AccountEntry, Provider, Store};
+use crate::accounts::{AccountEntry, Provider, RefreshState, Store};
 use crate::config::Endpoints;
 use crate::fsutil;
 
@@ -433,6 +433,11 @@ impl Usage {
     }
 
     pub async fn poll(&self, e: &AccountEntry) -> anyhow::Result<()> {
+        if let (Provider::Muse, RefreshState::RetryAt { at, .. }) = (e.provider, e.refresh_state())
+            && at > Utc::now()
+        {
+            anyhow::bail!("the Muse mint is backing off until {at}");
+        }
         let creds = e.credentials();
         let token = &creds.grant.access_token;
         let req = match e.provider {

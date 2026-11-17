@@ -635,6 +635,27 @@ async fn muse_polls_and_refreshes_by_minting_its_key() {
         RefreshResult::Waiting(at) => assert!(at > Utc::now() + chrono::Duration::minutes(59)),
         other => panic!("{other:?}"),
     }
+    let mints = h.hits_for("rt-slow");
+    assert!(h.app.usage.poll(&throttled).await.is_err());
+    assert_eq!(
+        h.hits_for("rt-slow"),
+        mints,
+        "the poll waits out the mint's Retry-After"
+    );
+
+    let fresh = h.add(Provider::Muse, "fresh").await;
+    h.app
+        .usage
+        .observe_headers(&fresh, Provider::Muse, &http::HeaderMap::new());
+    h.reply(
+        "rt-fresh",
+        Reply::Json(200, vec![], json!({"api_key": "at-fresh"}).to_string()),
+    );
+    assert!(h.app.usage.poll(&h.app.store.get(&fresh).unwrap()).await.is_err());
+    assert!(
+        h.app.usage.get(&fresh).updated_at.is_some(),
+        "a mint with no usage still counts as a poll, so it is not repeated every minute"
+    );
 
     let interrupted = e.credentials().generation + 1;
     e.journal.write_claim(interrupted).unwrap();
