@@ -416,6 +416,14 @@ impl Usage {
             Provider::Codex => parse_codex_usage(&body, now),
             Provider::Grok => parse_grok_usage(&body, now),
         };
+        if snap.windows.is_empty() && e.provider == Provider::Grok {
+            let mut snaps = self.snaps.write().unwrap();
+            let slot = snaps.entry(e.id.clone()).or_default();
+            if slot.windows.is_empty() {
+                *slot = snap;
+            }
+            anyhow::bail!("the Grok billing response has no usage");
+        }
         if let Some(old) = self.snaps.read().unwrap().get(&e.id) {
             snap.overage_in_use = old.overage_in_use && snap.exhausted(now);
         }

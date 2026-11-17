@@ -434,7 +434,8 @@ pub async fn grok_tokens(http: &reqwest::Client, ep: &Endpoints, v: &Value) -> R
     }
     let expires_in = v["expires_in"]
         .as_i64()
-        .or_else(|| jwt_seconds_left(&access))
+        .filter(|n| *n > 0)
+        .or_else(|| jwt_seconds_left(&access).filter(|n| *n > 0))
         .unwrap_or(6 * 3600);
     Ok(LoginTokens {
         provider: Provider::Grok,

@@ -34,7 +34,7 @@ To keep working until the hub is back, run `conflux off` and restart your sessio
 
 - Restart the session. Sessions that were open before `conflux join` keep their old settings.
 - Check that `~/.claude/settings.json` has `ANTHROPIC_BASE_URL` set to `http://127.0.0.1:<port>`, that `~/.codex/config.toml` has `model_provider = "conflux"`, and that `~/.grok/config.toml` has `cli_chat_proxy_base_url` set to `http://127.0.0.1:<port>/grok/v1`. `<port>` is `port` in `config.toml`, which is 8317 by default.
-- Check your shell for `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, or `OPENAI_BASE_URL`. These can make the tools skip conflux.
+- Check your shell for `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `OPENAI_BASE_URL`, or `GROK_CLI_CHAT_PROXY_BASE_URL`. These can make the tools skip conflux.
 
 ### The dashboard says "host not allowed"
 

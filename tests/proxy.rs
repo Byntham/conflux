@@ -447,6 +447,13 @@ async fn grok_usage_polls_and_refreshes_against_xai() {
     let snap = h.app.usage.get(&id);
     let w = snap.longest().unwrap();
     assert_eq!(w.used_pct, 42.0);
+    h.reply("at-g", Reply::Json(200, vec![], json!({"config": {}}).to_string()));
+    assert!(h.app.usage.poll(&h.app.store.get(&id).unwrap()).await.is_err());
+    assert_eq!(
+        h.app.usage.get(&id).longest().unwrap().used_pct,
+        42.0,
+        "a billing reading with no usage keeps the last known window"
+    );
 
     let empty = h.add(Provider::Grok, "empty").await;
     let until = Utc::now() + chrono::Duration::hours(3);
@@ -454,7 +461,7 @@ async fn grok_usage_polls_and_refreshes_against_xai() {
         .router
         .cool(&empty, conflux::router::ACCOUNT, until, "Grok usage limit");
     h.reply("at-empty", Reply::Json(200, vec![], json!({"config": {}}).to_string()));
-    h.app.usage.poll(&h.app.store.get(&empty).unwrap()).await.unwrap();
+    assert!(h.app.usage.poll(&h.app.store.get(&empty).unwrap()).await.is_err());
     assert_eq!(
         h.app.router.cooldowns(&empty).len(),
         1,
