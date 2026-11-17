@@ -1131,7 +1131,7 @@ const POOL_SIM_STEP_H = 0.25;
 const POOL_BURN_H = 3;
 const POOL_BURN_MIN_H = 1;
 const POOL_EMPTY = 1e-6;
-const POOL_NOISE = 1;
+const POOL_NOISE = 1.5;
 let poolGeom = null;
 
 const pct = (v) => `${Math.round(v)}%`;
@@ -1167,7 +1167,7 @@ function steady(points) {
 }
 
 function corners(points) {
-  return points.filter((p, i) => !i || i === points.length - 1 || p.v !== points[i - 1].v);
+  return points.filter((p, i) => !i || i === points.length - 1 || p.v !== points[i - 1].v || points[i + 1].v - p.v > POOL_NOISE);
 }
 
 function buildPool(provider, d, now) {
@@ -1200,7 +1200,7 @@ function buildPool(provider, d, now) {
       all: corners(all),
       scoped: scoped && corners(scoped),
       samples: { all, scoped },
-      state: { allLeft: 100 - all.at(-1).v, allReset: reset(w), allEvery: every(w), hasScope: Boolean(sw), scopeLeft: sw ? 100 - scoped.at(-1).v : 100, scopeReset: reset(sw), scopeEvery: every(sw) },
+      state: { allLeft: 100 - usedNow(w), allReset: reset(w), allEvery: every(w), hasScope: Boolean(sw), scopeLeft: sw ? 100 - usedNow(sw) : 100, scopeReset: reset(sw), scopeEvery: every(sw) },
     };
   });
   const cap = members.length * 100;
@@ -1223,7 +1223,7 @@ function buildPool(provider, d, now) {
   const start = Math.max(-POOL_BACK_H, Math.min(...series.map((s) => s.all[0].t)));
   const times = new Set([start, 0]);
   for (const s of series) {
-    for (const p of [...s.all, ...(s.scoped || [])]) {
+    for (const p of [...s.samples.all, ...(s.samples.scoped || [])]) {
       if (p.t <= start) continue;
       times.add(Math.max(start, p.t - POOL_STEP_H));
       times.add(p.t);
