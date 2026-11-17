@@ -150,7 +150,6 @@
   .account-actions { display: flex; align-items: center; gap: 2px; margin: -3px -5px 0 0; }
   .pill { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0; border-radius: 11px; font-size: 12px; font-weight: 500; white-space: nowrap; color: var(--muted); }
   .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-  .pill.ok::before { background: var(--ok); }
   .pill.warn { padding: 0 9px; background: var(--warn-soft); color: var(--warn); }
   .pill.bad { padding: 0 9px; background: var(--bad-soft); color: var(--bad); }
   .meters { display: grid; gap: 9px; margin-top: 13px; }
@@ -352,6 +351,7 @@
   #menu button.danger { color: var(--bad); }
   #menu hr { margin: 4px 0; border: 0; border-top: 1px solid var(--line); }
   #menu button:disabled { color: var(--muted); }
+  .menu-sub { display: block; font-size: 12px; color: var(--muted); }
   .menu-note { max-width: 220px; padding: 2px 10px 6px; font-size: 12px; color: var(--muted); white-space: normal; }
   #toast { position: fixed; z-index: 50; left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; align-items: center; gap: 7px; max-width: calc(100vw - 32px); padding: 8px 13px; border-radius: 8px; background: var(--fg); color: var(--bg); font-size: 13px; font-weight: 500; box-shadow: var(--shadow-pop); }
   #toast.bad { background: var(--bad-fill); color: #ffffff; }
@@ -374,15 +374,11 @@
   .pool-value { font-size: 15px; font-weight: 500; }
   .pool-stat.warn .pool-value { color: var(--warn); }
   .pool-tag { display: none; font-size: 12px; color: var(--muted); white-space: nowrap; }
-  .pool-chip { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 3px auto; padding: 3px 4px 3px 8px; border-radius: 8px; background: var(--warn-soft); font-size: 12.5px; white-space: nowrap; }
-  .pool-chip svg { color: var(--warn); width: 14px; height: 14px; }
-  .pool-chip .btn { height: 22px; padding: 0 8px; }
   .narrow .pool-gut { left: 16px; right: 16px; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
   .narrow .pool-title { flex-direction: row; align-items: center; gap: 10px; }
   .narrow .pool-big { margin: 0; font-size: 24px; }
-  .narrow .pool-big span, .narrow .pool-chip-text { display: none; }
+  .narrow .pool-big span { display: none; }
   .narrow .pool-tag { display: block; }
-  .narrow .pool-chip { margin: 0 0 0 auto; }
   .narrow .pool-stats { order: 1; flex-basis: 100%; flex-wrap: wrap; gap: 0 12px; padding: 0; font-size: 12.5px; }
   .narrow .pool-stat { flex-direction: row; gap: 4px; }
   .narrow .pool-value { font-size: inherit; font-weight: 400; color: var(--fg-2); }
@@ -1230,7 +1226,8 @@ function poolStat(label, value, cls = "") {
 }
 
 function poolStats(p) {
-  const stats = [poolStat("Ready", `${p.accounts.filter(isReady).length} of ${p.accounts.length}`)];
+  const ready = p.accounts.filter(isReady).length;
+  const stats = [poolStat("Ready", `${ready} of ${p.accounts.length}`, ready < p.accounts.length ? "warn" : "")];
   if (!p.size) return stats.join("");
   stats.push(poolStat(`Burn<span class="since">, last ${POOL_BURN_H}h</span>`, p.burn === null ? "No data yet" : `${p.burn < 10 ? p.burn.toFixed(1) : Math.round(p.burn)}%/h`));
   const outlook = poolOutlook(p);
@@ -1245,12 +1242,11 @@ function shortDate(hours) {
 
 function poolGutter(l, narrow) {
   const p = l.pool;
-  const chips = p.accounts.filter((a) => a.needs_login).map((a) => `<span class="pool-chip" data-tip="${esc(a.email || a.id)} needs login, so it is not in the pool">${icon("alert")}<span class="pool-chip-text">Needs login</span><button class="btn small" data-add="${esc(a.provider)}" data-email="${esc(a.email || "")}">Log in</button></span>`).join("");
   const tag = p.scope && p.size ? `<span class="pool-tag">${esc(p.scope)} ${esc(pctLeft(p.nowScoped))}</span>` : "";
   return `<div class="pool-gut pool-${esc(p.provider)}" style="top:${l.top - (narrow ? 78 : 80)}px">
     <div class="pool-title"><div class="pool-name"><i></i>${esc(providerName(p.provider))}</div><div class="pool-big">${p.size ? esc(pctLeft(p.now)) : "–"}<span>left</span></div></div>
     <div class="pool-stats">${poolStats(p)}</div>
-    ${tag}${chips}
+    ${tag}
   </div>`;
 }
 
@@ -1264,7 +1260,7 @@ function renderPools(d) {
   const providers = [...new Set(d.accounts.map((a) => a.provider))].sort();
   const lanes = providers.map((p) => ({ pool: buildPool(p, d, now) }));
   const outer = $("pool").clientWidth;
-  const narrow = outer < 600;
+  const narrow = outer < 640;
   const pad = narrow ? 16 : 22;
   const width = outer - 2 - pad * 2;
   const padL = narrow ? 38 : 46, padR = narrow ? 6 : 14;
@@ -1346,7 +1342,7 @@ function renderPools(d) {
     parts.push(`<text x="${lx}" y="${height - 5}">${label}</text>`);
     lastLabel = lx + w + 8;
   }
-  parts.push(`<line class="cross" x1="0" x2="0" y1="${lanes[0].top}" y2="${bottom}" visibility="hidden"/>`);
+  for (const l of lanes) parts.push(`<line class="cross" x1="0" x2="0" y1="${l.top}" y2="${l.top + l.h}" visibility="hidden"/>`);
 
   const summary = `Pooled quota left over the past 7 days, and a projection of the next 7 days. ${lanes.map((l) => {
     const outlook = l.pool.size && poolOutlook(l.pool);
@@ -1371,7 +1367,7 @@ function hidePoolTip() {
   const chart = document.querySelector(".pool-chart");
   if (!chart) return;
   chart.querySelector(".pool-tip").hidden = true;
-  chart.querySelector(".cross").setAttribute("visibility", "hidden");
+  for (const cross of chart.querySelectorAll(".cross")) cross.setAttribute("visibility", "hidden");
 }
 
 function showPoolTip(ev) {
@@ -1387,10 +1383,11 @@ function showPoolTip(ev) {
   const near = refills.find((r) => Math.abs(x(r.t) - cx0) < 9);
   const tt = near ? near.t + POOL_STEP_H : t;
   const cx = near ? x(near.t) : cx0;
-  const cross = chart.querySelector(".cross");
-  cross.setAttribute("x1", cx);
-  cross.setAttribute("x2", cx);
-  cross.setAttribute("visibility", "visible");
+  for (const cross of chart.querySelectorAll(".cross")) {
+    cross.setAttribute("x1", cx);
+    cross.setAttribute("x2", cx);
+    cross.setAttribute("visibility", "visible");
+  }
   const show = (v) => (v === null ? "No data" : v <= POOL_EMPTY ? "None left" : `${esc(pctLeft(v))} left`);
   const rows = lanes.filter((l) => l.pool.size).map((l) => {
     const p = l.pool;
@@ -1693,7 +1690,7 @@ function accountMenu(a) {
   const overage = a.provider === "claude"
     ? `<button role="menuitem" data-act="overage" data-id="${id}" data-on="${!a.allow_overage}">${a.allow_overage ? "Block extra usage" : "Allow extra usage"}</button>`
     : "";
-  const usage = a.billing_blocked ? "" : `<button role="menuitem" data-act="usage" data-id="${id}">Check usage now</button>${a.usage.updated_at ? `<div class="menu-note">Checked ${esc(ago(a.usage.updated_at))}</div>` : ""}<hr>`;
+  const usage = a.billing_blocked ? "" : `<button role="menuitem" data-act="usage" data-id="${id}">Check usage now${a.usage.updated_at ? `<span class="menu-sub">Checked ${esc(ago(a.usage.updated_at))}</span>` : ""}</button><hr>`;
   return `${usage}${overage}<button role="menuitem" data-act="toggle" data-id="${id}" data-on="${!a.enabled}">${a.enabled ? "Disable account" : "Enable account"}</button><hr><button role="menuitem" class="danger" data-act="remove" data-id="${id}" data-name="${esc(a.email || a.id)}" data-kind="${esc(accountKind(a))}">Remove account</button>`;
 }
 
@@ -1885,7 +1882,10 @@ async function accountAction(button) {
   try {
     if (act === "toggle") await api("PATCH", path, { enabled: on === "true" });
     if (act === "overage") await api("PATCH", path, { allow_overage: on === "true" });
-    if (act === "usage") await api("POST", `${path}/usage`, {});
+    if (act === "usage") {
+      toast("Checking usage");
+      await api("POST", `${path}/usage`, {});
+    }
     await refresh();
     if (act === "usage") toast("Usage checked");
   } catch (e) { showError(e); } finally { button.classList.remove("spin"); }
