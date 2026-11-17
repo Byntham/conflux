@@ -400,7 +400,15 @@ async fn dot_segments_cannot_leave_the_provider_path() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let h = Harness::new().await;
     h.add(Provider::Grok, "g").await;
-    for path in ["/grok/v1/../../oauth2/token", "/grok/v1/%2E%2e/x"] {
+    h.add(Provider::Codex, "c").await;
+    for path in [
+        "/grok/v1/../../oauth2/token",
+        "/grok/v1/%2E%2e/x",
+        "/grok/v1/..\\..\\x",
+        "/grok/v1/%2e%2e\\billing",
+        "/backend-api/codex/..\\..\\me",
+        "/v1/messages\\..\\..\\x",
+    ] {
         let mut s = tokio::net::TcpStream::connect(("127.0.0.1", h.port)).await.unwrap();
         let req = format!(
             "GET {path} HTTP/1.1\r\nhost: 127.0.0.1:{}\r\nconnection: close\r\n\r\n",
@@ -411,7 +419,7 @@ async fn dot_segments_cannot_leave_the_provider_path() {
         s.read_to_string(&mut out).await.unwrap();
         assert!(out.starts_with("HTTP/1.1 404"), "{path}: {out}");
     }
-    assert_eq!(h.hits_for("at-g"), 0);
+    assert_eq!(h.fake.hits.lock().unwrap().len(), 0);
 }
 
 #[tokio::test]

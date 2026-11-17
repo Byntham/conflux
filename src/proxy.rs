@@ -54,22 +54,22 @@ pub fn is_claude_code(h: &HeaderMap) -> bool {
     is_claude_cli(ua) && app.eq_ignore_ascii_case("cli")
 }
 
-pub fn upstream_url(app: &App, provider: Provider, path: &str, query: Option<&str>) -> String {
-    let q = query.map(|q| format!("?{q}")).unwrap_or_default();
-    match provider {
-        Provider::Claude => format!("{}{path}{q}", app.ep.anthropic_api),
-        Provider::Codex => {
-            let rest = path
-                .strip_prefix("/backend-api/codex")
+pub fn upstream_url(app: &App, provider: Provider, path: &str, query: Option<&str>) -> Option<String> {
+    let (base, rest) = match provider {
+        Provider::Claude => (&app.ep.anthropic_api, path),
+        Provider::Codex => (
+            &app.ep.codex_api,
+            path.strip_prefix("/backend-api/codex")
                 .or_else(|| path.strip_prefix("/v1"))
-                .unwrap_or(path);
-            format!("{}{rest}{q}", app.ep.codex_api)
-        }
-        Provider::Grok => {
-            let rest = path.strip_prefix("/grok/v1").unwrap_or(path);
-            format!("{}{rest}{q}", app.ep.grok_api)
-        }
-    }
+                .unwrap_or(path),
+        ),
+        Provider::Grok => (&app.ep.grok_api, path.strip_prefix("/grok/v1").unwrap_or(path)),
+    };
+    let q = query.map(|q| format!("?{q}")).unwrap_or_default();
+    let url = format!("{base}{rest}{q}");
+    let base_path = url::Url::parse(base).ok()?.path().trim_end_matches('/').to_string();
+    let parsed = url::Url::parse(&url).ok()?;
+    (parsed.path() == format!("{base_path}{rest}")).then_some(url)
 }
 
 const DROPPED_REQUEST_HEADERS: &[&str] = &[
@@ -514,17 +514,13 @@ pub fn log_attempt(
     })
 }
 
-fn has_dot_segment(path: &str) -> bool {
-    path.split('/')
-        .map(|seg| seg.to_ascii_lowercase().replace("%2e", "."))
-        .any(|seg| seg == "." || seg == "..")
-}
-
 pub async fn handle(State(app): State<Arc<App>>, req: Request) -> Response {
     let (parts, body) = req.into_parts();
     let path = parts.uri.path().to_string();
     let ua = header_str(&parts.headers, "user-agent").unwrap_or("").to_string();
-    let Some(provider) = provider_for(&path, &ua).filter(|_| !has_dot_segment(&path)) else {
+    let target =
+        provider_for(&path, &ua).and_then(|p| upstream_url(&app, p, &path, parts.uri.query()).map(|url| (p, url)));
+    let Some((provider, url)) = target else {
         return json_response(StatusCode::NOT_FOUND, json!({"error": "not found"}), None);
     };
     if header_str(&parts.headers, "upgrade").is_some_and(|u| u.eq_ignore_ascii_case("websocket")) {
@@ -536,7 +532,7 @@ pub async fn handle(State(app): State<Arc<App>>, req: Request) -> Response {
                 "conflux: websockets are only supported for Codex",
             );
         }
-        return crate::ws::handle(app.clone(), parts, path).await;
+        return crate::ws::handle(app.clone(), parts, url).await;
     }
     if provider == Provider::Claude && app.cfg.claude_code_only && !is_claude_code(&parts.headers) {
         return provider_error(
@@ -568,7 +564,7 @@ pub async fn handle(State(app): State<Arc<App>>, req: Request) -> Response {
         app: &app,
         provider,
         method: &parts.method,
-        url: upstream_url(&app, provider, &path, parts.uri.query()),
+        url,
         headers: &parts.headers,
         body: &body,
     };

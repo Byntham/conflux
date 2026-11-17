@@ -30,19 +30,18 @@ const MAX_MESSAGE: usize = 64 * 1024 * 1024;
 
 type Upstream = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
-pub async fn handle(app: Arc<App>, mut parts: http::request::Parts, path: String) -> Response {
+pub async fn handle(app: Arc<App>, mut parts: http::request::Parts, upstream: String) -> Response {
     let upgrade = match WebSocketUpgrade::from_request_parts(&mut parts, &()).await {
         Ok(u) => u,
         Err(e) => return e.into_response(),
     };
     let headers = parts.headers.clone();
-    let query = parts.uri.query().map(str::to_string);
     let guest = parts.extensions.get::<ApprovedGuest>().map(|g| g.0.clone());
     let in_flight = app.lifecycle.in_flight();
     upgrade
         .max_message_size(MAX_MESSAGE)
         .on_upgrade(move |socket| async move {
-            relay(app, socket, headers, path, query, guest).await;
+            relay(app, socket, headers, upstream, guest).await;
             drop(in_flight);
         })
 }
@@ -208,14 +207,7 @@ pub async fn stop_requested(rx: &mut tokio::sync::watch::Receiver<bool>) {
     let _ = rx.wait_for(|stop| *stop).await;
 }
 
-async fn relay(
-    app: Arc<App>,
-    mut client: WebSocket,
-    headers: HeaderMap,
-    path: String,
-    query: Option<String>,
-    guest: Option<String>,
-) {
+async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, upstream: String, guest: Option<String>) {
     let mut access_changed = app.guests.watch();
     let first = loop {
         match client.recv().await {
@@ -230,7 +222,7 @@ async fn relay(
         return;
     }
     let route = first_frame_route(&headers, &first);
-    let url = ws_url(&proxy::upstream_url(&app, Provider::Codex, &path, query.as_deref()));
+    let url = ws_url(&upstream);
     let started = Instant::now();
     let mut cooldowns = app.router.watch_cooldowns();
 
