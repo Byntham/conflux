@@ -476,7 +476,7 @@ impl Usage {
             let wait = header(resp.headers(), "retry-after")
                 .and_then(|v| v.parse::<i64>().ok())
                 .unwrap_or(0)
-                .max(120);
+                .clamp(120, 24 * 3600);
             let at = Utc::now() + chrono::Duration::seconds(wait);
             let later = match e.refresh_state() {
                 RefreshState::Rejected(_) => false,

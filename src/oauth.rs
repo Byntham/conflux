@@ -653,7 +653,7 @@ pub fn classify_refresh(provider: Provider, status: u16, retry_after: Option<u64
 
 fn classify_muse_mint(status: u16, retry_after: Option<u64>, body: &str) -> RefreshOutcome {
     if status == 429 {
-        return RefreshOutcome::RetryAfter(Duration::from_secs(retry_after.unwrap_or(0)));
+        return RefreshOutcome::RetryAfter(Duration::from_secs(retry_after.unwrap_or(0).min(MAX_RETRY_AFTER_SECS)));
     }
     if status == 401 {
         return RefreshOutcome::Rejected(truncate(body, 200));
