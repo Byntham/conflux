@@ -44,6 +44,8 @@
   .small { font-size: 12.5px; }
   .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .secret { border-radius: 3px; filter: blur(5px); user-select: none; }
+  .secret[data-reveal] { cursor: pointer; }
 
   .app { display: grid; grid-template-columns: 224px minmax(0, 1fr); min-height: 100vh; }
   .sidebar { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: 22px; padding: 18px 12px 14px; border-right: 1px solid var(--line); background: var(--sidebar); }
@@ -64,9 +66,10 @@
   .hub-state { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 500; }
   .dot.on + #hub-status { color: var(--fg-2); font-weight: 400; }
   .hub-meta { margin-top: 2px; font-size: 12px; color: var(--muted); }
-  .fleet { display: flex; flex-direction: column; gap: 3px; max-height: 40vh; overflow-y: auto; margin: 8px 0 6px; padding: 0; list-style: none; font-size: 12.5px; }
+  .fleet { display: flex; flex-direction: column; gap: 3px; max-height: 40vh; overflow-y: auto; margin: 0 -8px -2px; padding: 8px; list-style: none; font-size: 12.5px; }
   .fleet:empty { display: none; }
   .fleet li { display: flex; align-items: center; gap: 7px; color: var(--fg-2); }
+  .fleet .truncate { margin: -8px; padding: 8px; }
   .fleet li.offline { color: var(--muted); }
   .fleet .dot.on { box-shadow: none; }
   .fleet .dot.routing-off { background: var(--warn-fill); }
@@ -144,7 +147,7 @@
   .account.off .meter > span, .account.blocked .meter > span { color: var(--muted); font-weight: 400; }
   .account-head { display: flex; align-items: flex-start; gap: 10px; }
   .account-title { flex: 1; min-width: 0; }
-  .email { font-weight: 500; overflow: hidden; overflow-wrap: break-word; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .email { margin: -8px; padding: 8px; font-weight: 500; overflow: hidden; overflow-wrap: break-word; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   .account-sub { display: flex; align-items: center; flex-wrap: wrap; gap: 0 7px; font-size: 13px; color: var(--muted); margin-top: 1px; }
   .meta::before { content: "·"; margin-right: 7px; }
   .account-actions { display: flex; align-items: center; gap: 2px; margin: -3px -5px 0 0; }
@@ -293,8 +296,8 @@
   .thread:hover { background: var(--raised); }
   .thread.selected { background: var(--row-on); box-shadow: inset 2px 0 var(--accent); }
   .thread.selected .thread-title { font-weight: 500; }
-  .thread-title { font-weight: 400; font-size: 13.5px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .thread-meta { display: flex; gap: 6px; margin-top: 4px; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; }
+  .thread-title { margin: -8px; padding: 8px; font-weight: 400; font-size: 13.5px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .thread-meta { display: flex; gap: 6px; margin: -4px -8px -8px; padding: 8px; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; }
   .thread-meta .project { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .thread-meta .ago { margin-left: auto; flex: none; }
   .snippet { margin-top: 3px; font-size: 12.5px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -308,7 +311,7 @@
   .viewer-empty svg { width: 26px; height: 26px; }
   .viewer-empty strong { color: var(--fg); font-size: 14.5px; font-weight: 600; }
   .viewer-head { position: sticky; top: 0; z-index: 1; padding: 13px 18px 12px; background: var(--surface); border-bottom: 1px solid var(--line); display: flex; align-items: flex-start; gap: 8px; }
-  .viewer-title { font-size: 15px; font-weight: 600; line-height: 1.35; letter-spacing: -.008em; }
+  .viewer-title { margin: -8px; padding: 8px; font-size: 15px; font-weight: 600; line-height: 1.35; letter-spacing: -.008em; }
   .viewer-meta { display: flex; flex-wrap: wrap; gap: 0 6px; margin-top: 2px; font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
   .viewer-meta > span { min-width: 0; }
   .viewer-back { display: none; margin: -3px 0 0 -7px; }
@@ -633,12 +636,41 @@
 </div>
 <div id="menu" role="menu" hidden></div>
 <div id="tip" hidden></div>
+<style id="revealed"></style>
 <div id="toast" role="status" hidden></div>
 <dialog id="modal"><div class="modal" id="modal-body"></div></dialog>
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const icon = (name) => `<svg class="i" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+const revealed = new Set();
+
+function secret(value, html = esc(value), mode = "button") {
+  if (!value) return html;
+  const control = { button: ' data-reveal tabindex="0" role="button"', click: " data-reveal", inert: "" }[mode];
+  return `<span class="secret" data-secret="${esc(value)}"${control}${control ? ' title="Click to show or hide"' : ""}>${html}</span>`;
+}
+
+function toggleSecret(el) {
+  const value = el.dataset.secret;
+  if (revealed.has(value)) revealed.delete(value); else revealed.add(value);
+  const shown = [...revealed].map((v) => `.secret[data-secret="${CSS.escape(v)}"]`);
+  $("revealed").textContent = shown.length ? `${shown.join(",")} { filter: none; user-select: auto; }` : "";
+}
+
+function withKnownNames(text) {
+  const emails = text.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)*/g) || [];
+  const names = [...new Set([...emails, latest?.hub.name, ...(latest?.machines || []).map((m) => m.hostname)].filter(Boolean))];
+  const wrap = (part, [name, ...rest]) => (name ? withSecret(part, name, (piece) => wrap(piece, rest)) : esc(part));
+  return wrap(text, names);
+}
+
+function withSecret(text, value, render = esc) {
+  if (!value) return render(text);
+  const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return text.split(new RegExp(`(?<![\\w-])(?<!\\w\\.)${escaped}(?![\\w-])(?!\\.\\w)`)).map(render).join(secret(value));
+}
+
 const VIEWS = ["overview", "requests", "machines", "threads"];
 const HOUR_MS = 3600000;
 const REQUEST_ROWS = 100;
@@ -838,7 +870,7 @@ function renderAccount(a, requests) {
   return `<div class="card account ${a.enabled ? "" : "off"} ${a.billing_blocked ? "blocked" : ""} ${name.length > 32 ? "long-email" : ""}">
     <div class="account-head">
       <div class="account-title">
-        <div class="email" title="${esc(name)}">${breakableEmail(name)}</div>
+        <div class="email">${secret(name, breakableEmail(name))}</div>
         <div class="account-sub"><span class="dot ${esc(a.provider)}"></span><span>${esc(providerName(a.provider))}</span>${accountMeta(a, requests)}</div>
       </div>
       ${statusPill(a)}
@@ -856,12 +888,12 @@ function renderAlerts(d) {
   const rows = [];
   const moving = d.hub.state && d.hub.state.state === "moving";
   $("hub-alert").hidden = !moving;
-  setHtml("hub-alert", moving ? `<div class="alert-row warn" role="status">${icon("alert")}<div class="alert-text"><div class="alert-title">The hub is moving to ${esc(d.hub.state.hub)}</div><div class="alert-detail">Requests are paused until it finishes.</div></div><button class="btn" data-cancel-move>Cancel</button></div>` : "");
+  setHtml("hub-alert", moving ? `<div class="alert-row warn" role="status">${icon("alert")}<div class="alert-text"><div class="alert-title">The hub is moving to ${secret(d.hub.state.hub)}</div><div class="alert-detail">Requests are paused until it finishes.</div></div><button class="btn" data-cancel-move>Cancel</button></div>` : "");
   for (const a of d.accounts.filter((x) => x.needs_login)) {
-    rows.push(`<div class="alert-row">${icon("alert")}<div class="alert-text"><div class="alert-title">${esc(accountKind(a))} account needs a new login</div><div class="alert-detail">${breakableEmail(a.email || a.id)}</div></div>${loginButton(a, true)}</div>`);
+    rows.push(`<div class="alert-row">${icon("alert")}<div class="alert-text"><div class="alert-title">${esc(accountKind(a))} account needs a new login</div><div class="alert-detail">${secret(a.email || a.id, breakableEmail(a.email || a.id))}</div></div>${loginButton(a, true)}</div>`);
   }
   for (const a of d.accounts.filter((x) => x.billing_blocked)) {
-    rows.push(`<div class="alert-row">${icon("alert")}<div class="alert-text"><div class="alert-title">${esc(accountKind(a))} account is billing blocked</div><div class="alert-detail"><span class="alert-part">${breakableEmail(a.email || a.id)}</span><span class="alert-sep"> · </span><span class="alert-part">Skipped until a usage check shows quota again.</span></div></div><button class="btn primary" data-act="usage" data-id="${esc(a.id)}">Check usage</button></div>`);
+    rows.push(`<div class="alert-row">${icon("alert")}<div class="alert-text"><div class="alert-title">${esc(accountKind(a))} account is billing blocked</div><div class="alert-detail"><span class="alert-part">${secret(a.email || a.id, breakableEmail(a.email || a.id))}</span><span class="alert-sep"> · </span><span class="alert-part">Skipped until a usage check shows quota again.</span></div></div><button class="btn primary" data-act="usage" data-id="${esc(a.id)}">Check usage</button></div>`);
   }
   $("alerts").hidden = !rows.length;
   $("alerts").classList.toggle("urgent", d.accounts.some((x) => x.needs_login || x.billing_blocked));
@@ -943,7 +975,7 @@ function requestTable(requests) {
     const hit = cachePercent(u.cache_read, prompt);
     const split = [[u.input, "uncached"], [u.cache_read, "cache read"], [u.cache_write, "cache write"]].filter(([n]) => n).map(([n, label]) => `${n.toLocaleString()} ${label}`).join(", ");
     const account = r.email || r.account;
-    return `<tr class="${r.status < 400 ? "" : "failed"}"><td class="when">${esc(ago(r.at))}</td><td class="hide-sm dim">${esc(r.machine)}</td><td class="acct" title="${esc(account)}">${esc(account)}<div class="cell-sub show-sm">${esc([r.machine, r.model].filter(Boolean).join(" · "))}</div></td><td class="mono hide-sm dim">${esc(r.model || "")}</td>${via}<td class="num status"><span class="code ${r.status < 400 ? "ok" : "bad"}">${r.status}</span></td><td class="num lat">${seconds(r.latency_ms)}<div class="cell-sub show-sm">${esc(ago(r.at))}</div></td><td class="num hide-sm dim"${split ? ` data-tip="${esc(split)}"` : ""}>${tokens(prompt)}</td><td class="num hide-sm dim">${hit === null ? "–" : `${hit}%`}</td><td class="num hide-sm dim">${tokens(u.output)}</td></tr>`;
+    return `<tr class="${r.status < 400 ? "" : "failed"}"><td class="when">${esc(ago(r.at))}</td><td class="hide-sm dim">${secret(r.machine, esc(r.machine), "click")}</td><td class="acct">${secret(account, esc(account), "click")}<div class="cell-sub show-sm">${[secret(r.machine, esc(r.machine), "click"), esc(r.model || "")].filter(Boolean).join(" · ")}</div></td><td class="mono hide-sm dim">${esc(r.model || "")}</td>${via}<td class="num status"><span class="code ${r.status < 400 ? "ok" : "bad"}">${r.status}</span></td><td class="num lat">${seconds(r.latency_ms)}<div class="cell-sub show-sm">${esc(ago(r.at))}</div></td><td class="num hide-sm dim"${split ? ` data-tip="${esc(split)}"` : ""}>${tokens(prompt)}</td><td class="num hide-sm dim">${hit === null ? "–" : `${hit}%`}</td><td class="num hide-sm dim">${tokens(u.output)}</td></tr>`;
   }).join("") : `<tr><td colspan="${span}"><div class="empty"><strong>No requests yet</strong>Requests appear here once a machine sends one through the hub.</div></td></tr>`;
   return `${head}<tbody>${rows}</tbody>`;
 }
@@ -1022,17 +1054,19 @@ function renderMachines(d) {
   $("machines-pending").hidden = !waiting;
   $("machines-pending").textContent = `${waiting} waiting`;
   setHtml("machine-list", `<thead><tr><th>Machine</th><th>Status</th><th class="hide-sm">Version</th><th class="hide-sm">Transcript sync</th><th class="num hide-sm">Last seen</th><th class="num">Update</th><th aria-label="Actions"></th></tr></thead><tbody>${d.machines.map((m) =>
-    `<tr class="${m.online ? "" : "offline"}"><td><span class="machine-name">${esc(m.hostname)}${roleBadge(m)}</span>${m.guest ? `<div class="cell-sub">${esc(m.user || "Tagged machine")}</div>` : ""}<div class="cell-sub show-sm">v${esc(m.version)} · sync ${m.transcript_sync ? "on" : "off"}</div></td><td class="${m.online ? "" : "muted"}">${statusCell(m)}</td><td class="mono hide-sm">${esc(m.version)}</td><td class="hide-sm ${m.transcript_sync ? "" : "muted"}">${m.transcript_sync ? "On" : "Off"}</td><td class="num when hide-sm">${esc(ago(m.last_seen))}</td><td class="num"><span class="update-cell">${wantsToJoin(m) ? guestButtons(m) : updateCell(m, d.latest_version)}</span></td><td class="row-actions">${machineMenuButton(m)}</td></tr>`
+    `<tr class="${m.online ? "" : "offline"}"><td><span class="machine-name">${secret(m.hostname)}${roleBadge(m)}</span>${m.guest ? `<div class="cell-sub">${m.user ? secret(m.user) : "Tagged machine"}</div>` : ""}<div class="cell-sub show-sm">v${esc(m.version)} · sync ${m.transcript_sync ? "on" : "off"}</div></td><td class="${m.online ? "" : "muted"}">${statusCell(m)}</td><td class="mono hide-sm">${esc(m.version)}</td><td class="hide-sm ${m.transcript_sync ? "" : "muted"}">${m.transcript_sync ? "On" : "Off"}</td><td class="num when hide-sm">${esc(ago(m.last_seen))}</td><td class="num"><span class="update-cell">${wantsToJoin(m) ? guestButtons(m) : updateCell(m, d.latest_version)}</span></td><td class="row-actions">${machineMenuButton(m)}</td></tr>`
   ).join("")}</tbody>`);
   setHtml("fleet", d.machines.map((m) =>
-    `<li class="${m.online ? "" : "offline"}" title="${esc(m.hostname)}${m.online && m.routing === false ? " · routing off" : ""}"><span class="dot ${m.online ? "on" : ""} ${m.online && m.routing === false ? "routing-off" : ""}"></span><span class="truncate">${esc(m.hostname)}</span>${roleBadge(m)}</li>`
+    `<li class="${m.online ? "" : "offline"}"${m.online && m.routing === false ? ' title="Routing off"' : ""}><span class="dot ${m.online ? "on" : ""} ${m.online && m.routing === false ? "routing-off" : ""}"></span><span class="truncate">${secret(m.hostname)}</span>${roleBadge(m)}</li>`
   ).join(""));
   renderInstall();
 }
 
 function commandHtml(text) {
+  const hub = latest?.hub.name;
   return text.split(/(\s+)/).map((token) => {
     if (!token.trim()) return token;
+    if (token === hub) return `<span class="nb">${secret(hub)}</span>`;
     return token.includes("/") ? esc(token).replace(/(?<=[^:/])\//g, "/<wbr>") : `<span class="nb">${esc(token)}</span>`;
   }).join("");
 }
@@ -1040,7 +1074,7 @@ function commandHtml(text) {
 function renderInstall() {
   if (latest?.add_machine) {
     const text = latest.add_machine[installKey];
-    $("install-text").innerHTML = installKey === "agent_prompt" ? esc(text) : commandHtml(text);
+    setHtml("install-text", installKey === "agent_prompt" ? withSecret(text, latest.hub.name) : commandHtml(text));
   }
   $("install-text").classList.toggle("wrap", installKey === "agent_prompt");
   document.querySelectorAll("[data-install]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.install === installKey)));
@@ -1395,7 +1429,7 @@ function showPoolTip(ev) {
     return `<div class="pool-${esc(p.provider)}"><i></i><span>${esc(providerName(p.provider))}</span><span>${show(poolValueAt(p, tt, "v"))}</span></div>${scoped}`;
   }).join("");
   const note = near
-    ? `${esc(near.who.join(", ") || "An account")} ${near.past ? "reset" : "resets"}, +${pct(near.gain)} for ${esc(providerName(near.provider))}`
+    ? `${near.who.map((w) => secret(w, esc(w), "inert")).join(", ") || "An account"} ${near.past ? "reset" : "resets"}, +${pct(near.gain)} for ${esc(providerName(near.provider))}`
     : tt < 0 ? "Measured at a usage check" : { all: `At the last ${POOL_BURN_H}h burn rate`, some: `At the last ${POOL_BURN_H}h burn rate, where known`, none: "If you use nothing more" }[projected];
   const when = at(tt);
   const label = Math.abs(tt) < 0.6 ? "Now" : `${when.toLocaleDateString([], { weekday: "short" })} ${when.getDate()}, ${when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
@@ -1415,11 +1449,10 @@ function setConnection(ok, message, refused = false) {
   $("connection").hidden = ok || !latest;
   $("unavailable").hidden = ok || Boolean(latest);
   $("down-title").textContent = titleCase(currentView());
-  $("unavailable").title = detail;
-  $("unavailable-title").textContent = refused ? detail : "Can't reach the hub";
+  setHtml("unavailable-title", refused ? withKnownNames(detail) : "Can't reach the hub");
   $("unavailable-detail").textContent = refused ? "This page fills in once you're approved." : "Retrying every 5 seconds.";
   if (!latest) $("hub-line").textContent = ok ? "" : "Waiting for the hub";
-  setHtml("connection", ok ? "" : `<div class="alert-row" role="alert">${icon("alert")}<div class="alert-text"><div class="alert-title">Can't reach the hub</div><div class="alert-detail">${esc(detail)}. Showing the last data received, retrying every 5 seconds.</div></div></div>`);
+  setHtml("connection", ok ? "" : `<div class="alert-row" role="alert">${icon("alert")}<div class="alert-text"><div class="alert-title">Can't reach the hub</div><div class="alert-detail">${withKnownNames(detail)}. Showing the last data received, retrying every 5 seconds.</div></div></div>`);
 }
 
 function currentView() {
@@ -1437,7 +1470,7 @@ function render(d) {
   document.body.classList.add("loaded");
   document.body.classList.toggle("guest", d.guest);
   $("hub-line").textContent = `v${d.hub.version}`;
-  $("top-line").textContent = d.hub.name;
+  setHtml("top-line", secret(d.hub.name));
   $("view-overview").classList.toggle("first-run", !d.accounts.length);
   renderAlerts(d);
   renderPools(d);
@@ -1497,8 +1530,8 @@ function showView() {
 function threadRow(t) {
   const errors = t.errors ? `<span class="failed-count">${t.errors} ${t.errors === 1 ? "error" : "errors"}</span>` : "";
   return `<button class="thread ${t.id === selectedThread ? "selected" : ""}" data-thread="${esc(t.id)}">
-    <div class="thread-title">${esc(t.title || t.path)}</div>
-    <div class="thread-meta"><span>${esc(t.machine)}</span><span>·</span><span>${esc(providerName(t.tool))}</span><span>·</span><span>${t.turns} turns</span>${errors ? `<span>·</span>${errors}` : ""}<span class="ago">${t.last_active ? esc(ago(t.last_active)) : ""}</span></div>
+    <div class="thread-title">${t.title ? esc(t.title) : secret(t.path, esc(t.path), "inert")}</div>
+    <div class="thread-meta"><span>${secret(t.machine, esc(t.machine), "inert")}</span><span>·</span><span>${esc(providerName(t.tool))}</span><span>·</span><span>${t.turns} turns</span>${errors ? `<span>·</span>${errors}` : ""}<span class="ago">${t.last_active ? esc(ago(t.last_active)) : ""}</span></div>
   </button>`;
 }
 
@@ -1574,11 +1607,11 @@ async function openThread(id) {
     const d = await api("GET", `/conflux/api/threads/${encodeURIComponent(id)}`);
     if (token !== threadToken) return;
     const t = d.thread;
-    const metaParts = [t.project, t.machine, providerName(t.tool), `${t.turns} turns`].filter(Boolean).map((v) => `<span ${v === t.project ? 'class="meta-path"' : ""}>${esc(v)}</span>`);
+    const metaParts = [t.project, t.machine, providerName(t.tool), `${t.turns} turns`].filter(Boolean).map((v) => `<span ${v === t.project ? 'class="meta-path"' : ""}>${v === t.project || v === t.machine ? secret(v) : esc(v)}</span>`);
     if (t.errors) metaParts.push(`<span class="failed-count">${t.errors} ${t.errors === 1 ? "error" : "errors"}</span>`);
     const meta = metaParts.join('<span class="sep">·</span>');
     const omitted = d.omitted ? `<div class="muted small">${d.omitted} earlier events are not shown.</div>` : "";
-    box.innerHTML = `<div class="viewer-head"><button class="icon-btn viewer-back" data-back aria-label="Back to threads">${icon("back")}</button><div><div class="viewer-title">${esc(t.title || t.path)}</div><div class="viewer-meta">${meta}</div></div></div><div class="events">${omitted}${eventsHtml(d.events, query)}</div>`;
+    box.innerHTML = `<div class="viewer-head"><button class="icon-btn viewer-back" data-back aria-label="Back to threads">${icon("back")}</button><div><div class="viewer-title">${t.title ? esc(t.title) : secret(t.path)}</div><div class="viewer-meta">${meta}</div></div></div><div class="events">${omitted}${eventsHtml(d.events, query)}</div>`;
     box.scrollTop = 0;
     const firstMatch = box.querySelector(".events mark");
     if (firstMatch) {
@@ -1606,7 +1639,7 @@ async function searchThreads() {
     if (token !== listToken) return;
     const head = `<div class="list-head"><span>${d.hits.length} ${d.hits.length === 1 ? "match" : "matches"}</span><button data-clear-search>Clear</button></div>`;
     setHtml("thread-pane", d.hits.length
-      ? head + d.hits.map((h) => `<button class="thread ${h.thread === selectedThread ? "selected" : ""}" data-thread="${esc(h.thread)}"><div class="thread-title">${esc(h.title || "Untitled thread")}</div><div class="snippet">${highlight(h.snippet, q)}</div><div class="thread-meta"><span>${esc(h.machine)}</span><span class="ago">${h.at ? esc(ago(h.at)) : ""}</span></div></button>`).join("")
+      ? head + d.hits.map((h) => `<button class="thread ${h.thread === selectedThread ? "selected" : ""}" data-thread="${esc(h.thread)}"><div class="thread-title">${esc(h.title || "Untitled thread")}</div><div class="snippet">${highlight(h.snippet, q)}</div><div class="thread-meta"><span>${secret(h.machine, esc(h.machine), "inert")}</span><span class="ago">${h.at ? esc(ago(h.at)) : ""}</span></div></button>`).join("")
       : head + '<div class="empty"><strong>No matches</strong>Try a different word.</div>');
   } catch (e) { showError(e); }
 }
@@ -1621,12 +1654,12 @@ function closeModal() {
 }
 
 function loginDone(account) {
-  openModal(`<h2>Account added</h2><p>${esc(account)} is ready to take requests.</p><div class="modal-actions"><button class="btn primary" data-close>Done</button></div>`);
+  openModal(`<h2>Account added</h2><p>${secret(account, esc(account), "click")} is ready to take requests.</p><div class="modal-actions"><button class="btn primary" data-close>Done</button></div>`);
   refresh();
 }
 
 function loginHeading(provider, email) {
-  return email ? `<h2>Log in again</h2><p>Sign in as ${esc(email)}.</p>` : `<h2>Add a ${providerName(provider)} account</h2>`;
+  return email ? `<h2>Log in again</h2><p>Sign in as ${secret(email, esc(email), "click")}.</p>` : `<h2>Add a ${providerName(provider)} account</h2>`;
 }
 
 async function loginClaude(email) {
@@ -1697,7 +1730,7 @@ function accountMenu(a) {
 function machineMenu(m) {
   const on = m.routing !== false;
   const item = `<button role="menuitem" data-routing="${esc(m.hostname)}" data-on="${!on}" ${m.routing === null ? "disabled" : ""}>${on ? "Turn routing off" : "Turn routing on"}</button>`;
-  const routing = m.routing === null ? `${item}<div class="menu-note">Update ${esc(m.hostname)} to change its routing from here.</div>` : item;
+  const routing = m.routing === null ? `${item}<div class="menu-note">Update ${secret(m.hostname, esc(m.hostname), "inert")} to change its routing from here.</div>` : item;
   const makeHub = m.role === "hub" || m.guest ? "" : `<hr><button role="menuitem" data-make-hub="${esc(m.hostname)}">Make hub</button>`;
   return routing + makeHub;
 }
@@ -1706,8 +1739,8 @@ function confirmMakeHub(name) {
   closeMenu();
   const m = latest.machines.find((x) => x.hostname === name && !x.guest);
   if (!m) return;
-  const battery = m.has_battery ? `<p>${esc(name)} has a battery. If it leaves home or changes its IP address, your other machines lose the hub.</p>` : "";
-  openModal(`<h2>Make ${esc(name)} the hub?</h2><p>Your accounts move to ${esc(name)}, and this machine becomes its node. Requests pause for a few seconds. Codex sessions reconnect.</p>${battery}<div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn primary" id="confirm-make-hub">${m.has_battery ? "Make hub anyway" : "Make hub"}</button></div>`);
+  const battery = m.has_battery ? `<p>${secret(name, esc(name), "click")} has a battery. If it leaves home or changes its IP address, your other machines lose the hub.</p>` : "";
+  openModal(`<h2>Make ${secret(name, esc(name), "click")} the hub?</h2><p>Your accounts move to ${secret(name, esc(name), "click")}, and this machine becomes its node. Requests pause for a few seconds. Codex sessions reconnect.</p>${battery}<div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn primary" id="confirm-make-hub">${m.has_battery ? "Make hub anyway" : "Make hub"}</button></div>`);
   $("confirm-make-hub").onclick = async (ev) => {
     ev.currentTarget.disabled = true;
     try {
@@ -1755,7 +1788,7 @@ function openMenu(button) {
 }
 
 function confirmRemove(id, name, kind) {
-  openModal(`<h2>Remove this ${esc(kind)} account?</h2><p>${esc(name)} stops taking requests. You will need to log in again to add it back.</p><div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn danger" id="confirm-remove">Remove account</button></div>`);
+  openModal(`<h2>Remove this ${esc(kind)} account?</h2><p>${secret(name, esc(name), "click")} stops taking requests. You will need to log in again to add it back.</p><div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn danger" id="confirm-remove">Remove account</button></div>`);
   $("confirm-remove").onclick = async () => {
     closeModal();
     try { await api("DELETE", `/conflux/api/accounts/${encodeURIComponent(id)}`); refresh(); } catch (e) { showError(e); }
@@ -1769,7 +1802,7 @@ function foundRow(m, i) {
   const address = esc(m.address);
   const action = m.state === "waiting" ? `<button class="btn small primary" data-link="${address}">Link</button>` : m.can_install ? `<button class="btn small primary" data-install-on="${address}" data-name="${esc(m.name)}">Install</button>` : "";
   const install = m.install ? `<div class="code-block"${m.can_install ? " hidden" : ""}><span class="code-text" id="found-${i}">${commandHtml(m.install)}</span><button class="icon-btn" data-copy="found-${i}" title="Copy" aria-label="Copy">${icon("copy")}</button></div>` : "";
-  return `<div class="found-row"><div class="found-text"><span class="machine-name">${esc(m.name)}</span><div class="cell-sub">${esc(OS_NAMES[m.os] || m.os)} · <span class="found-state">${esc(what)}</span></div></div>${action}${install}</div>`;
+  return `<div class="found-row"><div class="found-text"><span class="machine-name">${secret(m.name)}</span><div class="cell-sub">${esc(OS_NAMES[m.os] || m.os)} · <span class="found-state">${esc(what)}</span></div></div>${action}${install}</div>`;
 }
 
 async function findMachines(button) {
@@ -1820,7 +1853,7 @@ async function installOnMachine(button) {
     if (!row.isConnected) return showError(e);
     button.disabled = false;
     button.textContent = "Try again";
-    state.textContent = `${e.message.replace(/\.$/, "")}. Try again, or run this on ${button.dataset.name}:`;
+    state.innerHTML = `${withSecret(e.message.replace(/\.$/, ""), button.dataset.name)}. Try again, or run this on ${secret(button.dataset.name)}:`;
     row.querySelector(".code-block").hidden = false;
   }
 }
@@ -1927,6 +1960,12 @@ $("menu").addEventListener("keydown", (ev) => {
 });
 
 document.addEventListener("keydown", (ev) => {
+  const hidden = ev.target.closest?.("[data-reveal]");
+  if (hidden && (ev.key === "Enter" || ev.key === " ")) {
+    ev.preventDefault();
+    if (ev.repeat) return;
+    return toggleSecret(hidden);
+  }
   if (ev.key !== "Escape" || !menuAnchor) return;
   const anchor = menuAnchor;
   closeMenu();
@@ -1947,6 +1986,11 @@ document.addEventListener("mouseover", (ev) => {
 });
 
 document.addEventListener("click", (ev) => {
+  const hidden = ev.target.closest("[data-reveal]");
+  if (hidden) {
+    if (menuAnchor && !hidden.closest("#menu")) closeMenu();
+    return toggleSecret(hidden);
+  }
   const menuButton = ev.target.closest("[data-menu]");
   if (menuButton) {
     const reopen = menuAnchor !== menuButton;
