@@ -570,13 +570,16 @@ async fn muse_requests_route_report_quota_and_fail_over() {
         .await
         .unwrap();
     assert_eq!(r.status(), 200);
-    for path in ["key", "key/", "%6Bey", "/key", "Key"] {
-        let r = h
-            .http
-            .post(format!("{}/muse-code/{path}", h.base))
-            .send()
-            .await
-            .unwrap();
+    for path in [
+        "muse-code/key",
+        "muse-code/key/",
+        "muse-code/%6Bey",
+        "muse-code//key",
+        "muse-code/Key",
+        "muse/v1/files",
+        "muse/v1/",
+    ] {
+        let r = h.http.post(format!("{}/{path}", h.base)).send().await.unwrap();
         assert_eq!(
             r.status(),
             404,
@@ -704,7 +707,7 @@ async fn muse_polls_and_refreshes_by_minting_its_key() {
         other => panic!("{other:?}"),
     }
     let mints = h.hits_for("rt-slow");
-    assert!(h.app.usage.poll(&throttled).await.is_err());
+    h.app.usage.poll(&throttled).await.unwrap();
     assert_eq!(
         h.hits_for("rt-slow"),
         mints,
@@ -723,6 +726,23 @@ async fn muse_polls_and_refreshes_by_minting_its_key() {
     assert!(
         h.app.usage.get(&fresh).updated_at.is_some(),
         "a mint with no usage still counts as a poll, so it is not repeated every minute"
+    );
+
+    let polled = h.add(Provider::Muse, "polled").await;
+    h.reply(
+        "rt-polled",
+        Reply::Json(429, vec![("retry-after", "3600".into())], "{}".into()),
+    );
+    let polled = h.app.store.get(&polled).unwrap();
+    assert!(h.app.usage.poll(&polled).await.is_err());
+    h.app.usage.poll(&polled).await.unwrap();
+    assert_eq!(
+        h.hits_for("rt-polled"),
+        1,
+        "a throttled poll mint waits out its Retry-After"
+    );
+    assert!(
+        matches!(polled.refresh_state(), RefreshState::RetryAt { at, .. } if at > Utc::now() + chrono::Duration::minutes(59))
     );
 
     let interrupted = e.credentials().generation + 1;

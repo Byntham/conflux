@@ -476,8 +476,17 @@ pub fn muse_mint(http: &reqwest::Client, ep: &Endpoints, oauth_token: &str) -> r
 async fn muse_key(http: &reqwest::Client, ep: &Endpoints, oauth_token: &str) -> Result<Value> {
     let resp = muse_mint(http, ep, oauth_token).send().await?;
     let status = resp.status();
+    let wait = resp
+        .headers()
+        .get("retry-after")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|s| *s <= 60);
     let text = resp.text().await?;
     if !status.is_success() {
+        if let Some(s) = wait.filter(|_| status == reqwest::StatusCode::TOO_MANY_REQUESTS) {
+            tokio::time::sleep(Duration::from_secs(s)).await;
+        }
         bail!("Muse key request failed (HTTP {status}): {}", truncate(&text, 300));
     }
     serde_json::from_str(&text).context("parse Muse key response")

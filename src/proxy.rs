@@ -27,18 +27,21 @@ pub const HUB_NOT_ACTIVE: &str = "conflux: the hub is moving to another machine.
 pub const GROK_PREFIX: &str = "/grok/v1/";
 pub const MUSE_PREFIX: &str = "/muse/v1/";
 pub const MUSE_CODE_PREFIX: &str = "/muse-code/";
+const MUSE_PATHS: &[&str] = &["responses"];
 const MUSE_CODE_PATHS: &[&str] = &["models", "search", "browser_open", "feedback"];
 
-fn is_muse_code_path(path: &str) -> bool {
-    path.strip_prefix(MUSE_CODE_PREFIX)
+fn first_segment_in(path: &str, prefix: &str, allowed: &[&str]) -> bool {
+    path.strip_prefix(prefix)
         .and_then(|rest| rest.split('/').next())
-        .is_some_and(|first| MUSE_CODE_PATHS.contains(&first))
+        .is_some_and(|first| allowed.contains(&first))
 }
 
 pub fn provider_for(path: &str, user_agent: &str) -> Option<Provider> {
     if path.starts_with(GROK_PREFIX) {
         Some(Provider::Grok)
-    } else if path.starts_with(MUSE_PREFIX) || is_muse_code_path(path) {
+    } else if first_segment_in(path, MUSE_PREFIX, MUSE_PATHS)
+        || first_segment_in(path, MUSE_CODE_PREFIX, MUSE_CODE_PATHS)
+    {
         Some(Provider::Muse)
     } else if path.starts_with("/v1/messages") {
         Some(Provider::Claude)

@@ -436,7 +436,7 @@ impl Usage {
         if let (Provider::Muse, RefreshState::RetryAt { at, .. }) = (e.provider, e.refresh_state())
             && at > Utc::now()
         {
-            anyhow::bail!("the Muse mint is backing off until {at}");
+            return Ok(());
         }
         let creds = e.credentials();
         let token = &creds.grant.access_token;
@@ -468,6 +468,19 @@ impl Usage {
         };
         let resp = req.send().await?;
         let status = resp.status();
+        if e.provider == Provider::Muse && status == http::StatusCode::TOO_MANY_REQUESTS {
+            let wait = header(resp.headers(), "retry-after")
+                .and_then(|v| v.parse::<i64>().ok())
+                .unwrap_or(0)
+                .max(120);
+            if e.refresh_state() == RefreshState::Normal {
+                e.set_refresh_state(RefreshState::RetryAt {
+                    at: Utc::now() + chrono::Duration::seconds(wait),
+                    retries: 0,
+                });
+            }
+            anyhow::bail!("the Muse mint is throttled for {wait}s");
+        }
         let body: Value = resp.json().await?;
         if !status.is_success() {
             anyhow::bail!("usage endpoint returned HTTP {status}");
