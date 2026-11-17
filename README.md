@@ -13,7 +13,9 @@
   <a href="docs/troubleshooting.md">Troubleshooting</a>
 </p>
 
-conflux is a proxy. One always-on machine, the **hub**, holds your Claude and ChatGPT logins. Claude Code and Codex on each of your machines send their requests to it over [Tailscale](https://tailscale.com), so every machine draws from the same pool of accounts.
+With more than one subscription or computer, one account often hits its limit while another sits unused. conflux puts them in one pool.
+
+One always-on machine, the **hub**, holds your Claude and ChatGPT logins. Claude Code and Codex on each of your machines send their requests to it over [Tailscale](https://tailscale.com), and the hub picks an account with room.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/dashboard-dark.png">
@@ -35,7 +37,7 @@ conflux is a proxy. One always-on machine, the **hub**, holds your Claude and Ch
 
 ## Quick start
 
-Working on one machine only? Skip step 4.
+Working on one machine only? Skip step 3.
 
 ### Before you start
 
@@ -46,9 +48,9 @@ Working on one machine only? Skip step 4.
 - Keep the hub off VPNs and exit nodes, so the providers see one home IP address.
 - Linux x64 or ARM64 with systemd, macOS on Apple silicon, or Windows x64. On anything else, [build from source](docs/install.md#build-from-source).
 
-### 1. Install conflux
+### 1. Set up the hub
 
-Run this on the hub, and on each other machine you work from. Step 4 has a shortcut for Mac and Linux machines.
+Run the installer on the hub.
 
 macOS and Linux:
 
@@ -62,21 +64,17 @@ Windows, in PowerShell:
 irm https://raw.githubusercontent.com/Byntham/conflux/main/install.ps1 | iex
 ```
 
-conflux now runs as a background service. On a Mac, you also get a [menu bar app](docs/install.md#the-mac-menu-bar-app). If the installer says it changed your PATH, open a new terminal.
+conflux now runs as a background service and waits. On a Mac, you also get a [menu bar app](docs/install.md#the-mac-menu-bar-app). If the installer says it changed your PATH, open a new terminal.
 
-### 2. Make one machine the hub
-
-On the hub:
+Then make this machine the hub:
 
 ```sh
 conflux join self
 ```
 
-Ignore the installer's hint to run `conflux join`. That one is for your other machines.
-
 The last line it prints is the dashboard's address. The last line of `conflux` shows it again.
 
-### 3. Add your accounts
+### 2. Add your accounts
 
 On the hub, run the command for each subscription you have. Run it again for each extra account.
 
@@ -92,23 +90,25 @@ Each one prints a link. Open it in a browser signed in to that account, on any m
 
 Your accounts now show on the dashboard. Its "Add Claude" and "Add Codex" buttons do the same as these commands.
 
-### 4. Link your other machines
+### 3. Add your other machines
+
+Pick one way for each machine.
 
 **From the dashboard.** Open Machines, click "Find machines", then click "Install". The hub installs conflux on the machine over ssh and links it. This works for Mac and Linux machines the hub can ssh to without a password or passphrase.
 
-**From the machine.** On each other machine where you ran step 1:
+**From the machine.** Run the installer from step 1 there, then:
 
 ```sh
 conflux join
 ```
 
-It finds your hub and links to it. If it lists more than one hub, or finds none, run `conflux join <hub>` with your hub's name.
+It finds your hub and links to it. If it lists more than one hub, or finds none, run `conflux join <hub>` with your hub's name from `tailscale status`.
 
 Either way, the machine then shows on the dashboard's Machines page, and its Claude Code and Codex send their requests through the hub. `conflux leave` puts their settings back.
 
-### 5. Restart and check
+### 4. Restart and check
 
-Restart Claude Code and Codex on every machine, including the hub. Send a message. It shows up on the dashboard's Requests page. If it doesn't, see [Troubleshooting](docs/troubleshooting.md) or [open an issue](https://github.com/Byntham/conflux/issues).
+Restart Claude Code and Codex on every machine that runs them, including the hub. Send a message. It shows up on the dashboard's Requests page. If it doesn't, see [Troubleshooting](docs/troubleshooting.md) or [open an issue](https://github.com/Byntham/conflux/issues).
 
 The [install guide](docs/install.md) covers guests, linking from the hub, the Mac menu bar app, updates, and uninstalling.
 
@@ -122,7 +122,7 @@ The [install guide](docs/install.md) covers guests, linking from the hub, the Ma
 | `conflux update` | Update every online machine that is behind |
 | `conflux leave` | Stop conflux on this machine and restore Claude Code's and Codex's settings |
 
-`<account>` is an ID from `conflux status`. [Commands](docs/commands.md) explains every command, including how to move the hub to another machine.
+`<account>` is an ID from `conflux status`. Account commands work from any linked machine. [Commands](docs/commands.md) explains every command, including how to move the hub to another machine.
 
 ## Security
 
