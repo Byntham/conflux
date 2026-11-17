@@ -4,7 +4,7 @@ The [README](../README.md#quick-start) has the short version. This page covers e
 
 ## Requirements
 
-- Every machine runs [Tailscale](https://tailscale.com) with MagicDNS on, which is the default. Use a tailnet that holds only your own devices, because anyone who can reach the hub can use your accounts.
+- Every machine runs [Tailscale](https://tailscale.com) with MagicDNS on, which is the default. Every machine signed in to Tailscale as you can use and manage your accounts. Machines of other users, and tagged machines, need your approval first. See [Security](../README.md#security).
 - The hub stays on and stays at home. Linux is best, because a macOS or Windows hub runs only while you're signed in. Don't route its traffic through another VPN or an exit node, so the providers see one home IP address.
 - Each machine you work from has Claude Code or Codex. The hub doesn't need them.
 - The installer supports Linux x64 and ARM64 with systemd, macOS on Apple silicon, and Windows x64. On other systems, [build from source](#build-from-source).
@@ -37,7 +37,7 @@ conflux login claude    # a Claude subscription
 conflux login codex     # a ChatGPT subscription
 ```
 
-Each command prints a link and the steps to follow. Open the link in a browser signed in to that account. The browser can be on any machine.
+Each command prints a link. Open it in a browser signed in to that account. The browser can be on any machine. For Claude, the browser then shows a connection error. That is expected. Paste the whole URL from the address bar into the terminal. For Codex, enter the code that the command prints.
 
 Your accounts now show on the dashboard. Its address is the "Dashboard:" line that step 1 printed, and it works from any of your devices. Run `conflux` on the hub to print it again.
 
