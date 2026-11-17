@@ -718,6 +718,10 @@ async fn muse_polls_and_refreshes_by_minting_its_key() {
     h.app
         .usage
         .observe_headers(&fresh, Provider::Muse, &http::HeaderMap::new());
+    let until = Utc::now() + chrono::Duration::hours(3);
+    h.app
+        .router
+        .cool(&fresh, conflux::router::ACCOUNT, until, "Muse usage limit");
     h.reply(
         "rt-fresh",
         Reply::Json(200, vec![], json!({"api_key": "at-fresh"}).to_string()),
@@ -726,6 +730,11 @@ async fn muse_polls_and_refreshes_by_minting_its_key() {
     assert!(
         h.app.usage.get(&fresh).updated_at.is_some(),
         "a mint with no usage still counts as a poll, so it is not repeated every minute"
+    );
+    assert_eq!(
+        h.app.router.cooldowns(&fresh).len(),
+        1,
+        "a mint with no usage shows no room, so the cooldown stays"
     );
 
     let polled = h.add(Provider::Muse, "polled").await;
