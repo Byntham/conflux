@@ -65,6 +65,7 @@
   .update-all:disabled { opacity: .45; cursor: default; }
   .update-all.check, .secrets-toggle { border-color: var(--line-strong); color: var(--fg-2); }
   .secrets-toggle[aria-pressed="true"] { border-color: var(--fg); background: var(--fg); color: var(--bg); }
+  .secrets-toggle[aria-pressed="true"]:hover { opacity: .85; }
   .hub-state { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 500; }
   .dot.on + #hub-status { color: var(--fg-2); font-weight: 400; }
   .hub-meta { margin-top: 2px; font-size: 12px; color: var(--muted); }
@@ -682,6 +683,7 @@ function applyShowAll() {
   for (const button of document.querySelectorAll("[data-secrets-toggle]")) {
     button.setAttribute("aria-pressed", String(showAll));
     button.dataset.tip = showAll ? "Hide personal details" : "Show personal details";
+    if (!$("tip").hidden && button.matches(":hover")) $("tip").textContent = button.dataset.tip;
     button.innerHTML = icon(showAll ? "eye-off" : "eye");
   }
 }
@@ -692,6 +694,7 @@ function toggleShowAll() {
   revealed.clear();
   $("revealed").textContent = "";
   applyShowAll();
+  if (latest) render(latest);
   syncRevealControls();
 }
 
