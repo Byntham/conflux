@@ -65,7 +65,7 @@ irm https://raw.githubusercontent.com/Byntham/conflux/main/install.ps1 | iex
 
 The machine now waits to be linked. Link it from either side:
 
-- On the new machine, run `conflux join`. conflux finds the hub on your tailnet and links to it. On a Mac, the menu bar app shows a "Link to" button with the hub's name instead.
+- On the new machine, run `conflux join`. If the installer changed your PATH, open a new terminal first. conflux finds the hub on your tailnet and links to it. On a Mac, the menu bar app shows a "Link to" button with the hub's name instead.
 - On the hub's dashboard, open Machines, click "Find machines", and click "Link" next to the machine. Or run `conflux add <machine>` on the hub.
 
 Once linked, conflux points Claude Code and Codex at the hub. The hub finds only machines that are online and owned by the same Tailscale user.
@@ -127,3 +127,5 @@ Requests already running finish on the old version. A machine that is off stays 
 ## Uninstall
 
 `conflux leave` stops conflux on a machine and gives Claude Code and Codex their old settings back. It keeps the binary and any account tokens. On the hub, run `conflux remove <account>` for each account first. See [`conflux leave`](commands.md#conflux-leave).
+
+After a hub move, the old hub keeps a copy of the account tokens in a `retired-*` folder under `~/.local/share/conflux`. Delete it once the move has worked.
