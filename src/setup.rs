@@ -502,7 +502,11 @@ pub fn env_warnings() -> Vec<String> {
         "XDG_CONFIG_HOME",
     ]
     .iter()
-    .filter(|k| std::env::var(k).is_ok_and(|v| !v.is_empty()))
+    .filter(|k| {
+        let default = crate::config::home_dir().ok().map(|h| h.join(".config"));
+        std::env::var(k)
+            .is_ok_and(|v| !v.is_empty() && !(**k == "XDG_CONFIG_HOME" && default == Some(PathBuf::from(&v))))
+    })
     .map(|k| format!("{k} is set in your shell. It can override or bypass the config conflux wrote."))
     .collect()
 }

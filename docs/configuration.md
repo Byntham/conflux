@@ -57,7 +57,7 @@ transcript_sync = false
 | `CODEX_HOME` | Where conflux finds Codex's `config.toml`. |
 | `GROK_HOME` | Where conflux finds Grok Build's `config.toml`. |
 
-`conflux join` warns you if your shell sets `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `OPENAI_BASE_URL`, `GROK_HOME`, or `GROK_CLI_CHAT_PROXY_BASE_URL`. These can make a coding tool skip the settings conflux wrote.
+`conflux join` warns you if your shell sets `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `OPENAI_BASE_URL`, `GROK_HOME`, `GROK_CLI_CHAT_PROXY_BASE_URL`, or `XDG_CONFIG_HOME` when it is not `~/.config`. These can make a coding tool skip the settings conflux wrote.
 
 ### For development and tests
 
