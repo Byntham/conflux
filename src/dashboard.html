@@ -362,24 +362,30 @@
   .pool-chart { position: relative; padding: 14px 22px 0; touch-action: pan-y; }
   .pool-chart.narrow { padding: 12px 16px 0; }
   .pool-chart > svg { display: block; width: 100%; overflow: visible; }
-  .pool-gut { position: absolute; left: 22px; display: flex; flex-direction: column; align-items: flex-start; }
+  .pool-gut { position: absolute; left: 22px; right: 22px; display: flex; align-items: flex-end; gap: 12px 32px; }
+  .pool-title { display: flex; flex-direction: column; }
   .pool-name { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; }
   .pool-name i { width: 9px; height: 9px; border-radius: 2px; background: var(--series); }
-  .pool-big { margin: 2px 0 6px; font-size: 46px; line-height: 1; font-weight: 600; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
+  .pool-big { margin-top: 2px; font-size: 40px; line-height: 1; font-weight: 600; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
   .pool-big span { margin-left: 5px; font-size: 13px; font-weight: 400; letter-spacing: 0; color: var(--muted); }
-  .pool-stats { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .pool-stats .warn { color: var(--warn); }
+  .pool-stats { display: flex; gap: 28px; padding-bottom: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .pool-stat { display: flex; flex-direction: column; gap: 2px; }
+  .pool-label { font-size: 12.5px; color: var(--muted); }
+  .pool-value { font-size: 15px; font-weight: 500; }
+  .pool-stat.warn .pool-value { color: var(--warn); }
   .pool-tag { display: none; font-size: 12px; color: var(--muted); white-space: nowrap; }
-  .pool-chip { display: inline-flex; align-items: center; gap: 6px; margin-top: 9px; padding: 3px 4px 3px 8px; border-radius: 8px; background: var(--warn-soft); font-size: 12.5px; white-space: nowrap; }
+  .pool-chip { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 3px auto; padding: 3px 4px 3px 8px; border-radius: 8px; background: var(--warn-soft); font-size: 12.5px; white-space: nowrap; }
   .pool-chip svg { color: var(--warn); width: 14px; height: 14px; }
   .pool-chip .btn { height: 22px; padding: 0 8px; }
-  .narrow .pool-gut { left: 16px; right: 16px; flex-direction: row; align-items: center; gap: 10px; }
+  .narrow .pool-gut { left: 16px; right: 16px; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+  .narrow .pool-title { flex-direction: row; align-items: center; gap: 10px; }
   .narrow .pool-big { margin: 0; font-size: 24px; }
   .narrow .pool-big span, .narrow .pool-chip-text { display: none; }
   .narrow .pool-tag { display: block; }
   .narrow .pool-chip { margin: 0 0 0 auto; }
-  .narrow .pool-gut { flex-wrap: wrap; row-gap: 4px; }
-  .narrow .pool-stats { order: 1; flex-basis: 100%; flex-direction: row; flex-wrap: wrap; column-gap: 12px; }
+  .narrow .pool-stats { order: 1; flex-basis: 100%; flex-wrap: wrap; gap: 0 12px; padding: 0; font-size: 12.5px; }
+  .narrow .pool-stat { flex-direction: row; gap: 4px; }
+  .narrow .pool-value { font-size: inherit; font-weight: 400; color: var(--fg-2); }
   .narrow .pool-stats .since { display: none; }
   .pool-chart text { font-size: 11.5px; fill: var(--muted); font-variant-numeric: tabular-nums; }
   .pool-chart text.strong { fill: var(--fg); font-weight: 500; }
@@ -427,6 +433,9 @@
     .stats { grid-template-columns: repeat(6, minmax(0, 1fr)); row-gap: 16px; }
     .stat { grid-column: span 2; }
     .stat:nth-child(n+4) { grid-column: span 3; }
+    .accounts { grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); }
+    .meter { grid-template-columns: minmax(0, 1fr) auto 42px; grid-template-areas: "name reset pct" "track track track"; gap: 5px 8px; }
+    .meter-name { grid-area: name; } .meter-reset { grid-area: reset; } .meter-pct { grid-area: pct; } .track { grid-area: track; }
   }
   @media (max-width: 760px) {
     .app { display: block; }
@@ -449,8 +458,6 @@
     .stat, .stat:nth-child(n+4) { grid-column: auto; }
     .stat:first-child { grid-column: span 2; }
     .stat-value { font-size: 21px; }
-    .meter { grid-template-columns: minmax(0, 1fr) auto 42px; grid-template-areas: "name reset pct" "track track track"; gap: 5px 8px; }
-    .meter-name { grid-area: name; } .meter-reset { grid-area: reset; } .meter-pct { grid-area: pct; } .track { grid-area: track; }
     .account-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "email pill" "sub actions"; align-items: center; gap: 4px 8px; }
     .account-title { display: contents; }
     .email { grid-area: email; display: block; }
@@ -772,7 +779,7 @@ function statusPill(a) {
   const cooling = accountCooldown(a);
   if (cooling) return `<span class="pill warn" title="${esc(cooling.reason)}">Cooling ${esc(until(cooling.until))}</span>`;
   if (quotaExhausted(a)) return '<span class="pill warn">Out of quota</span>';
-  if (!a.cooldowns.length) return '<span class="pill ok">Ready</span>';
+  if (!a.cooldowns.length) return "";
   const n = a.cooldowns.length;
   return `<span class="pill warn">${n} ${n === 1 ? "model" : "models"} cooling</span>`;
 }
@@ -831,7 +838,6 @@ function renderActionRow(a) {
 
 function renderAccount(a, requests) {
   const name = a.email || a.id;
-  const refreshTitle = a.usage.updated_at ? `Refresh usage (checked ${ago(a.usage.updated_at)})` : "Refresh usage";
   const body = a.needs_login && !a.usage.windows.length ? '<div class="no-usage">Quota is unavailable until this account logs in.</div>' : renderMeters(a);
   return `<div class="card account ${a.enabled ? "" : "off"} ${a.billing_blocked ? "blocked" : ""} ${name.length > 32 ? "long-email" : ""}">
     <div class="account-head">
@@ -841,7 +847,6 @@ function renderAccount(a, requests) {
       </div>
       ${statusPill(a)}
       <div class="account-actions">
-        ${a.billing_blocked ? "" : `<button class="icon-btn" data-act="usage" data-id="${esc(a.id)}" title="${esc(refreshTitle)}" aria-label="Refresh usage for ${esc(name)}">${icon("refresh")}</button>`}
         <button class="icon-btn" data-menu="${esc(a.id)}" title="More actions" aria-label="More actions for ${esc(name)}" aria-haspopup="menu">${icon("more")}</button>
       </div>
     </div>
@@ -1046,7 +1051,7 @@ function renderInstall() {
 }
 
 function renderAccounts(d) {
-  const ordered = [...d.accounts].sort((x, y) => severity(x) - severity(y));
+  const ordered = [...d.accounts].sort((x, y) => x.provider.localeCompare(y.provider) || severity(x) - severity(y));
   setHtml("accounts", ordered.map((a) => renderAccount(a, d.requests)).join(""));
 }
 
@@ -1214,16 +1219,23 @@ const POOL_DAYS = Math.round(POOL_AHEAD_H / 24);
 function poolOutlook(p) {
   if (p.now <= POOL_EMPTY) {
     const back = p.refills.find((r) => !r.past);
-    return { text: back ? `Back ${shortDate(back.t)}` : `Empty for ${POOL_DAYS}+ days`, warn: true };
+    return back ? { label: "Back", value: shortDate(back.t), warn: true } : { label: "Empty for", value: `${POOL_DAYS}+ days`, warn: true };
   }
   if (p.burn === null) return null;
-  return p.emptyAt === undefined ? { text: `Lasts ${POOL_DAYS}+ days`, warn: false } : { text: `Runs out ${shortDate(p.emptyAt)}`, warn: true };
+  return p.emptyAt === undefined ? { label: "Lasts", value: `${POOL_DAYS}+ days`, warn: false } : { label: "Runs out", value: shortDate(p.emptyAt), warn: true };
 }
 
-function poolForecast(p) {
-  const rate = p.burn === null ? "<span>No burn rate yet</span>" : `<span>Burn ${p.burn < 10 ? p.burn.toFixed(1) : Math.round(p.burn)}%/h<span class="since">, last ${POOL_BURN_H}h</span></span>`;
+function poolStat(label, value, cls = "") {
+  return `<div class="pool-stat ${cls}"><span class="pool-label">${label}</span><span class="pool-value">${esc(value)}</span></div>`;
+}
+
+function poolStats(p) {
+  const stats = [poolStat("Ready", `${p.accounts.filter(isReady).length} of ${p.accounts.length}`)];
+  if (!p.size) return stats.join("");
+  stats.push(poolStat(`Burn<span class="since">, last ${POOL_BURN_H}h</span>`, p.burn === null ? "No data yet" : `${p.burn < 10 ? p.burn.toFixed(1) : Math.round(p.burn)}%/h`));
   const outlook = poolOutlook(p);
-  return outlook ? `${rate}<span class="${outlook.warn ? "warn" : ""}">${esc(outlook.text)}</span>` : rate;
+  if (outlook) stats.push(poolStat(outlook.label, outlook.value, outlook.warn ? "warn" : ""));
+  return stats.join("");
 }
 
 function shortDate(hours) {
@@ -1235,11 +1247,9 @@ function poolGutter(l, narrow) {
   const p = l.pool;
   const chips = p.accounts.filter((a) => a.needs_login).map((a) => `<span class="pool-chip" data-tip="${esc(a.email || a.id)} needs login, so it is not in the pool">${icon("alert")}<span class="pool-chip-text">Needs login</span><button class="btn small" data-add="${esc(a.provider)}" data-email="${esc(a.email || "")}">Log in</button></span>`).join("");
   const tag = p.scope && p.size ? `<span class="pool-tag">${esc(p.scope)} ${esc(pctLeft(p.nowScoped))}</span>` : "";
-  const ready = p.accounts.filter(isReady).length;
-  return `<div class="pool-gut pool-${esc(p.provider)}" style="top:${narrow ? l.top - 62 : l.top + 4}px">
-    <div class="pool-name"><i></i>${esc(providerName(p.provider))}</div>
-    <div class="pool-big">${p.size ? esc(pctLeft(p.now)) : "–"}<span>left</span></div>
-    <div class="pool-stats"><span>${ready} of ${p.accounts.length} ready</span>${p.size ? poolForecast(p) : ""}</div>
+  return `<div class="pool-gut pool-${esc(p.provider)}" style="top:${l.top - (narrow ? 78 : 80)}px">
+    <div class="pool-title"><div class="pool-name"><i></i>${esc(providerName(p.provider))}</div><div class="pool-big">${p.size ? esc(pctLeft(p.now)) : "–"}<span>left</span></div></div>
+    <div class="pool-stats">${poolStats(p)}</div>
     ${tag}${chips}
   </div>`;
 }
@@ -1257,15 +1267,15 @@ function renderPools(d) {
   const narrow = outer < 600;
   const pad = narrow ? 16 : 22;
   const width = outer - 2 - pad * 2;
-  const padL = narrow ? 38 : 204, padR = narrow ? 6 : 14;
+  const padL = narrow ? 38 : 46, padR = narrow ? 6 : 14;
   const plotW = width - padL - padR;
   let y = 22;
   for (const l of lanes) {
-    l.top = y + (narrow ? 90 : 30);
+    l.top = y + (narrow ? 104 : 96);
     l.h = narrow ? 120 : 200;
-    y = l.top + l.h;
+    y = l.top + l.h + (narrow ? 12 : 24);
   }
-  const bottom = y;
+  const bottom = lanes[lanes.length - 1].top + lanes[lanes.length - 1].h;
   const height = bottom + 22;
   const x = (t) => padL + ((t + POOL_BACK_H) / (POOL_BACK_H + POOL_AHEAD_H)) * plotW;
   const at = (hours) => new Date(now + hours * HOUR_MS);
@@ -1276,15 +1286,15 @@ function renderPools(d) {
   const first = new Date(now - POOL_BACK_H * HOUR_MS);
   first.setHours(24, 0, 0, 0);
   for (let m = first.getTime(); (m - now) / HOUR_MS <= POOL_AHEAD_H; m += 24 * HOUR_MS) midnights.push((m - now) / HOUR_MS);
-  for (const t of midnights) parts.push(`<line class="grid" x1="${x(t)}" x2="${x(t)}" y1="${lanes[0].top}" y2="${bottom}"/>`);
-  const nowSpans = narrow ? [[2, 18], ...lanes.map((l) => [l.top, l.top + l.h + (l === lanes[lanes.length - 1] ? 6 : 0)])] : [[2, bottom + 6]];
+  for (const l of lanes) for (const t of midnights) parts.push(`<line class="grid" x1="${x(t)}" x2="${x(t)}" y1="${l.top}" y2="${l.top + l.h}"/>`);
+  const nowSpans = [[2, 18], ...lanes.map((l) => [l.top, l.top + l.h + (l === lanes[lanes.length - 1] ? 6 : 0)])];
   for (const [y1, y2] of nowSpans) parts.push(`<line class="nowline" x1="${x(0)}" x2="${x(0)}" y1="${y1}" y2="${y2}"/>`);
   parts.push(`<text class="zone" x="${x(0) - 10}" y="13" text-anchor="end">Measured</text>`);
   const drawn = lanes.filter((l) => l.pool.size);
   const known = drawn.filter((l) => l.pool.burn !== null).length;
   const full = drawn.filter((l) => l.pool.burnKnown).length;
   const projected = !known ? "none" : full === drawn.length ? "all" : "some";
-  parts.push(`<text class="zone" x="${x(0) + 10}" y="13">${projected === "none" ? "Scheduled resets" : narrow || projected === "some" ? "Projected" : `Projected at the last ${POOL_BURN_H}h burn`}</text>`);
+  parts.push(`<text class="zone" x="${x(0) + 10}" y="13">${projected === "none" ? "Scheduled resets" : "Projected"}</text>`);
 
   for (const l of lanes) {
     const p = l.pool;
@@ -1340,7 +1350,7 @@ function renderPools(d) {
 
   const summary = `Pooled quota left over the past 7 days, and a projection of the next 7 days. ${lanes.map((l) => {
     const outlook = l.pool.size && poolOutlook(l.pool);
-    return `${providerName(l.pool.provider)} has ${l.pool.size ? pctLeft(l.pool.now) : "no quota data"} left${outlook ? `. ${outlook.text}` : ""}.`;
+    return `${providerName(l.pool.provider)} has ${l.pool.size ? pctLeft(l.pool.now) : "no quota data"} left${outlook ? `. ${outlook.label} ${outlook.value}` : ""}.`;
   }).join(" ")}`;
   poolGeom = { lanes, padL, plotW, width, pad, height, x, at, projected };
   setHtml("pool", `<div class="card pool-board"><div class="pool-chart${narrow ? " narrow" : ""}"><svg viewBox="0 0 ${width} ${height}" height="${height}" role="img" aria-label="${esc(summary)}">${parts.join("")}</svg>${lanes.map((l) => poolGutter(l, narrow)).join("")}<div class="pool-tip" hidden></div></div></div>`);
@@ -1683,7 +1693,8 @@ function accountMenu(a) {
   const overage = a.provider === "claude"
     ? `<button role="menuitem" data-act="overage" data-id="${id}" data-on="${!a.allow_overage}">${a.allow_overage ? "Block extra usage" : "Allow extra usage"}</button>`
     : "";
-  return `${overage}<button role="menuitem" data-act="toggle" data-id="${id}" data-on="${!a.enabled}">${a.enabled ? "Disable account" : "Enable account"}</button><hr><button role="menuitem" class="danger" data-act="remove" data-id="${id}" data-name="${esc(a.email || a.id)}" data-kind="${esc(accountKind(a))}">Remove account</button>`;
+  const usage = a.billing_blocked ? "" : `<button role="menuitem" data-act="usage" data-id="${id}">Check usage now</button>${a.usage.updated_at ? `<div class="menu-note">Checked ${esc(ago(a.usage.updated_at))}</div>` : ""}<hr>`;
+  return `${usage}${overage}<button role="menuitem" data-act="toggle" data-id="${id}" data-on="${!a.enabled}">${a.enabled ? "Disable account" : "Enable account"}</button><hr><button role="menuitem" class="danger" data-act="remove" data-id="${id}" data-name="${esc(a.email || a.id)}" data-kind="${esc(accountKind(a))}">Remove account</button>`;
 }
 
 function machineMenu(m) {
@@ -1876,6 +1887,7 @@ async function accountAction(button) {
     if (act === "overage") await api("PATCH", path, { allow_overage: on === "true" });
     if (act === "usage") await api("POST", `${path}/usage`, {});
     await refresh();
+    if (act === "usage") toast("Usage checked");
   } catch (e) { showError(e); } finally { button.classList.remove("spin"); }
 }
 
