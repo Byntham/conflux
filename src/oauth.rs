@@ -626,7 +626,7 @@ pub fn classify_refresh(provider: Provider, status: u16, retry_after: Option<u64
 }
 
 fn classify_muse_mint(status: u16, body: &str) -> RefreshOutcome {
-    if status == 401 || status == 403 {
+    if status == 401 {
         return RefreshOutcome::Rejected(truncate(body, 200));
     }
     let key = serde_json::from_str::<Value>(body)
