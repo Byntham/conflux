@@ -44,8 +44,7 @@
   .small { font-size: 12.5px; }
   .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-  .secret { border-radius: 3px; }
-  .secret { filter: blur(5px); user-select: none; }
+  .secret { border-radius: 3px; filter: blur(5px); user-select: none; }
   .secret[role="button"] { cursor: pointer; }
 
   .app { display: grid; grid-template-columns: 224px minmax(0, 1fr); min-height: 100vh; }
@@ -658,10 +657,16 @@ function toggleSecret(el) {
   $("revealed").textContent = shown.length ? `${shown.join(",")} { filter: none; user-select: auto; }` : "";
 }
 
+function withKnownNames(text) {
+  const names = [...new Set([latest?.hub.name, ...(latest?.machines || []).map((m) => m.hostname)].filter(Boolean))];
+  const wrap = (part, [name, ...rest]) => (name ? withSecret(part, name, (piece) => wrap(piece, rest)) : esc(part));
+  return wrap(text, names);
+}
+
 function withSecret(text, value, render = esc) {
   if (!value) return render(text);
   const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return text.split(new RegExp(`(?<![\\w.-])${escaped}(?![\\w.-])`)).map(render).join(secret(value));
+  return text.split(new RegExp(`(?<![\\w-])(?<!\\w\\.)${escaped}(?![\\w-])(?!\\.\\w)`)).map(render).join(secret(value));
 }
 
 const VIEWS = ["overview", "requests", "machines", "threads"];
@@ -1067,7 +1072,7 @@ function commandHtml(text) {
 function renderInstall() {
   if (latest?.add_machine) {
     const text = latest.add_machine[installKey];
-    $("install-text").innerHTML = installKey === "agent_prompt" ? withSecret(text, latest.hub.name) : commandHtml(text);
+    setHtml("install-text", installKey === "agent_prompt" ? withSecret(text, latest.hub.name) : commandHtml(text));
   }
   $("install-text").classList.toggle("wrap", installKey === "agent_prompt");
   document.querySelectorAll("[data-install]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.install === installKey)));
@@ -1442,11 +1447,10 @@ function setConnection(ok, message, refused = false) {
   $("connection").hidden = ok || !latest;
   $("unavailable").hidden = ok || Boolean(latest);
   $("down-title").textContent = titleCase(currentView());
-  $("unavailable").title = detail;
-  $("unavailable-title").textContent = refused ? detail : "Can't reach the hub";
+  setHtml("unavailable-title", refused ? withKnownNames(detail) : "Can't reach the hub");
   $("unavailable-detail").textContent = refused ? "This page fills in once you're approved." : "Retrying every 5 seconds.";
   if (!latest) $("hub-line").textContent = ok ? "" : "Waiting for the hub";
-  setHtml("connection", ok ? "" : `<div class="alert-row" role="alert">${icon("alert")}<div class="alert-text"><div class="alert-title">Can't reach the hub</div><div class="alert-detail">${esc(detail)}. Showing the last data received, retrying every 5 seconds.</div></div></div>`);
+  setHtml("connection", ok ? "" : `<div class="alert-row" role="alert">${icon("alert")}<div class="alert-text"><div class="alert-title">Can't reach the hub</div><div class="alert-detail">${withKnownNames(detail)}. Showing the last data received, retrying every 5 seconds.</div></div></div>`);
 }
 
 function currentView() {
@@ -1648,12 +1652,12 @@ function closeModal() {
 }
 
 function loginDone(account) {
-  openModal(`<h2>Account added</h2><p>${secret(account, esc(account), "inert")} is ready to take requests.</p><div class="modal-actions"><button class="btn primary" data-close>Done</button></div>`);
+  openModal(`<h2>Account added</h2><p>${secret(account, esc(account), "click")} is ready to take requests.</p><div class="modal-actions"><button class="btn primary" data-close>Done</button></div>`);
   refresh();
 }
 
 function loginHeading(provider, email) {
-  return email ? `<h2>Log in again</h2><p>Sign in as ${secret(email, esc(email), "inert")}.</p>` : `<h2>Add a ${providerName(provider)} account</h2>`;
+  return email ? `<h2>Log in again</h2><p>Sign in as ${secret(email, esc(email), "click")}.</p>` : `<h2>Add a ${providerName(provider)} account</h2>`;
 }
 
 async function loginClaude(email) {
@@ -1733,8 +1737,8 @@ function confirmMakeHub(name) {
   closeMenu();
   const m = latest.machines.find((x) => x.hostname === name && !x.guest);
   if (!m) return;
-  const battery = m.has_battery ? `<p>${secret(name, esc(name), "inert")} has a battery. If it leaves home or changes its IP address, your other machines lose the hub.</p>` : "";
-  openModal(`<h2>Make ${secret(name, esc(name), "inert")} the hub?</h2><p>Your accounts move to ${secret(name, esc(name), "inert")}, and this machine becomes its node. Requests pause for a few seconds. Codex sessions reconnect.</p>${battery}<div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn primary" id="confirm-make-hub">${m.has_battery ? "Make hub anyway" : "Make hub"}</button></div>`);
+  const battery = m.has_battery ? `<p>${secret(name, esc(name), "click")} has a battery. If it leaves home or changes its IP address, your other machines lose the hub.</p>` : "";
+  openModal(`<h2>Make ${secret(name, esc(name), "click")} the hub?</h2><p>Your accounts move to ${secret(name, esc(name), "click")}, and this machine becomes its node. Requests pause for a few seconds. Codex sessions reconnect.</p>${battery}<div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn primary" id="confirm-make-hub">${m.has_battery ? "Make hub anyway" : "Make hub"}</button></div>`);
   $("confirm-make-hub").onclick = async (ev) => {
     ev.currentTarget.disabled = true;
     try {
@@ -1782,7 +1786,7 @@ function openMenu(button) {
 }
 
 function confirmRemove(id, name, kind) {
-  openModal(`<h2>Remove this ${esc(kind)} account?</h2><p>${secret(name, esc(name), "inert")} stops taking requests. You will need to log in again to add it back.</p><div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn danger" id="confirm-remove">Remove account</button></div>`);
+  openModal(`<h2>Remove this ${esc(kind)} account?</h2><p>${secret(name, esc(name), "click")} stops taking requests. You will need to log in again to add it back.</p><div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn danger" id="confirm-remove">Remove account</button></div>`);
   $("confirm-remove").onclick = async () => {
     closeModal();
     try { await api("DELETE", `/conflux/api/accounts/${encodeURIComponent(id)}`); refresh(); } catch (e) { showError(e); }
