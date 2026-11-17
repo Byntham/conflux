@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct MenuView: View {
-    static let shadowMargin: CGFloat = 24
+    static let shadowMargin: CGFloat = 40
     @EnvironmentObject var model: Model
 
     var body: some View {
