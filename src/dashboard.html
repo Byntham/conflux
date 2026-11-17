@@ -650,12 +650,24 @@ const icon = (name) => `<svg class="i" aria-hidden="true"><use href="#i-${name}"
 const revealed = new Set();
 const SHOW_ALL_KEY = "conflux.showPersonalDetails";
 let showAll = false;
-try { showAll = localStorage.getItem(SHOW_ALL_KEY) === "1"; } catch {}
+try { showAll = sessionStorage.getItem(SHOW_ALL_KEY) === "1"; } catch {}
+const REVEAL_CONTROLS = { button: { "data-reveal": "", tabindex: "0", role: "button" }, click: { "data-reveal": "" }, inert: {} };
 
 function secret(value, html = esc(value), mode = "button") {
   if (!value) return html;
-  const control = showAll ? "" : { button: ' data-reveal tabindex="0" role="button"', click: " data-reveal", inert: "" }[mode];
-  return `<span class="secret" data-secret="${esc(value)}"${control}${control ? ' title="Click to show or hide"' : ""}>${html}</span>`;
+  const controls = showAll ? [] : Object.entries(REVEAL_CONTROLS[mode]);
+  const attrs = controls.map(([k, v]) => (v ? ` ${k}="${v}"` : ` ${k}`)).join("");
+  return `<span class="secret" data-secret="${esc(value)}" data-mode="${mode}"${attrs}${controls.length ? ' title="Click to show or hide"' : ""}>${html}</span>`;
+}
+
+function syncRevealControls() {
+  for (const el of document.querySelectorAll("[data-mode]")) {
+    for (const k of ["data-reveal", "tabindex", "role", "title"]) el.removeAttribute(k);
+    if (showAll) continue;
+    const controls = Object.entries(REVEAL_CONTROLS[el.dataset.mode]);
+    for (const [k, v] of controls) el.setAttribute(k, v);
+    if (controls.length) el.title = "Click to show or hide";
+  }
 }
 
 function toggleSecret(el) {
@@ -676,11 +688,11 @@ function applyShowAll() {
 
 function toggleShowAll() {
   showAll = !showAll;
-  try { localStorage.setItem(SHOW_ALL_KEY, showAll ? "1" : "0"); } catch {}
+  try { sessionStorage.setItem(SHOW_ALL_KEY, showAll ? "1" : "0"); } catch {}
   revealed.clear();
   $("revealed").textContent = "";
   applyShowAll();
-  if (latest) render(latest);
+  syncRevealControls();
 }
 
 function withKnownNames(text) {
@@ -2011,7 +2023,10 @@ document.addEventListener("mouseover", (ev) => {
 });
 
 document.addEventListener("click", (ev) => {
-  if (ev.target.closest("[data-secrets-toggle]")) return toggleShowAll();
+  if (ev.target.closest("[data-secrets-toggle]")) {
+    if (menuAnchor) closeMenu();
+    return toggleShowAll();
+  }
   const hidden = ev.target.closest("[data-reveal]");
   if (hidden) {
     if (menuAnchor && !hidden.closest("#menu")) closeMenu();
