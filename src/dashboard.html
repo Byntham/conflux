@@ -725,11 +725,15 @@ function titleCase(v) {
 
 const providerName = (p) => ({ claude: "Claude", codex: "Codex" }[p] || titleCase(p));
 
+function cachePercent(read, total) {
+  return total ? Math.floor((read * 100) / total) : null;
+}
+
 function cacheTotals(requests) {
   let read = 0, write = 0, input = 0;
   for (const r of requests) { read += r.usage.cache_read; write += r.usage.cache_write; input += r.usage.input; }
   const total = read + write + input;
-  return { read, write, hit: total ? Math.floor((read * 100) / total) : null };
+  return { read, write, hit: cachePercent(read, total) };
 }
 
 function accountCooldown(a) {
@@ -933,10 +937,11 @@ function requestTable(requests) {
   const rows = requests.length ? requests.map((r) => {
     const via = `<td class="hide-sm dim">${esc(r.transport)}</td>`;
     const u = r.usage;
-    const input = u.input + u.cache_read + u.cache_write;
+    const prompt = u.input + u.cache_read + u.cache_write;
+    const hit = cachePercent(u.cache_read, prompt);
     const split = [[u.input, "uncached"], [u.cache_read, "cache read"], [u.cache_write, "cache write"]].filter(([n]) => n).map(([n, label]) => `${n.toLocaleString()} ${label}`).join(", ");
     const account = r.email || r.account;
-    return `<tr class="${r.status < 400 ? "" : "failed"}"><td class="when">${esc(ago(r.at))}</td><td class="hide-sm dim">${esc(r.machine)}</td><td class="acct" title="${esc(account)}">${esc(account)}<div class="cell-sub show-sm">${esc([r.machine, r.model].filter(Boolean).join(" · "))}</div></td><td class="mono hide-sm dim">${esc(r.model || "")}</td>${via}<td class="num status"><span class="code ${r.status < 400 ? "ok" : "bad"}">${r.status}</span></td><td class="num lat">${seconds(r.latency_ms)}<div class="cell-sub show-sm">${esc(ago(r.at))}</div></td><td class="num hide-sm dim"${split ? ` data-tip="${esc(split)}"` : ""}>${tokens(input)}</td><td class="num hide-sm dim">${input ? `${Math.floor((u.cache_read * 100) / input)}%` : "–"}</td><td class="num hide-sm dim">${tokens(u.output)}</td></tr>`;
+    return `<tr class="${r.status < 400 ? "" : "failed"}"><td class="when">${esc(ago(r.at))}</td><td class="hide-sm dim">${esc(r.machine)}</td><td class="acct" title="${esc(account)}">${esc(account)}<div class="cell-sub show-sm">${esc([r.machine, r.model].filter(Boolean).join(" · "))}</div></td><td class="mono hide-sm dim">${esc(r.model || "")}</td>${via}<td class="num status"><span class="code ${r.status < 400 ? "ok" : "bad"}">${r.status}</span></td><td class="num lat">${seconds(r.latency_ms)}<div class="cell-sub show-sm">${esc(ago(r.at))}</div></td><td class="num hide-sm dim"${split ? ` data-tip="${esc(split)}"` : ""}>${tokens(prompt)}</td><td class="num hide-sm dim">${hit === null ? "–" : `${hit}%`}</td><td class="num hide-sm dim">${tokens(u.output)}</td></tr>`;
   }).join("") : `<tr><td colspan="${span}"><div class="empty"><strong>No requests yet</strong>Requests appear here once a machine sends one through the hub.</div></td></tr>`;
   return `${head}<tbody>${rows}</tbody>`;
 }
