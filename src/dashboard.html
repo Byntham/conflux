@@ -1056,6 +1056,7 @@ const POOL_STEP_H = 0.001;
 const POOL_SIM_STEP_H = 0.25;
 const POOL_BURN_H = 3;
 const POOL_BURN_MIN_H = 1;
+const POOL_EMPTY = 1e-6;
 let poolGeom = null;
 
 const pct = (v) => `${Math.round(v)}%`;
@@ -1146,13 +1147,13 @@ function buildPool(provider, d, now) {
     if (who.length) pool.refills.push({ t: after.t, gain: after.v - before.v, to: after.v, who, past: true });
   }
   const burn = (k) => {
-    let rate = null;
-    for (const s of series) {
-      const pts = (s[k] || []).filter((p) => p.t >= -POOL_BURN_H);
-      if (pts.length < 2 || pts[0].t > -POOL_BURN_MIN_H) continue;
+    let rate = 0;
+    for (const s of series.filter((x) => x[k])) {
+      const pts = s[k].filter((p) => p.t >= -POOL_BURN_H);
+      if (pts.length < 2 || pts[0].t > -POOL_BURN_MIN_H) return null;
       let used = 0;
       for (let i = 1; i < pts.length; i++) used += Math.max(0, pts[i].v - pts[i - 1].v);
-      rate = (rate || 0) + used / -pts[0].t;
+      rate += used / -pts[0].t;
     }
     return rate;
   };
@@ -1191,7 +1192,7 @@ function buildPool(provider, d, now) {
     drain(next - t);
     t = next;
     const before = total(t);
-    if (pool.emptyAt === undefined && before.v <= 1e-6) pool.emptyAt = t;
+    if (pool.emptyAt === undefined && before.v <= POOL_EMPTY) pool.emptyAt = t;
     const who = [];
     for (const s of series) {
       if (s.state.allReset <= t) { s.state.allLeft = 100; s.state.allReset += s.state.allEvery; who.push(s.name); }
@@ -1209,7 +1210,7 @@ function buildPool(provider, d, now) {
 const POOL_DAYS = Math.round(POOL_AHEAD_H / 24);
 
 function poolOutlook(p) {
-  if (p.now < 0.5) {
+  if (p.now <= POOL_EMPTY) {
     const back = p.refills.find((r) => !r.past);
     return { text: back ? `Back ${shortDate(back.t)}` : `Empty for ${POOL_DAYS}+ days`, warn: true };
   }
