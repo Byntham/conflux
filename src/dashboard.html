@@ -44,6 +44,9 @@
   .small { font-size: 12.5px; }
   .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .secret { border-radius: 3px; }
+  .secret:not(.shown) { filter: blur(5px); user-select: none; }
+  .secret[role="button"] { cursor: pointer; }
 
   .app { display: grid; grid-template-columns: 224px minmax(0, 1fr); min-height: 100vh; }
   .sidebar { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: 22px; padding: 18px 12px 14px; border-right: 1px solid var(--line); background: var(--sidebar); }
@@ -639,6 +642,34 @@
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const icon = (name) => `<svg class="i" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+const revealed = new Set();
+
+function secret(value, html = esc(value), inert = false) {
+  if (!value) return html;
+  const shown = revealed.has(value);
+  const control = inert ? "" : ` tabindex="0" role="button" aria-pressed="${shown}" title="${shown ? "Click to hide" : "Click to show"}"`;
+  return `<span class="secret${shown ? " shown" : ""}" data-secret="${esc(value)}"${control}>${html}</span>`;
+}
+
+function toggleSecret(el) {
+  const value = el.dataset.secret;
+  const shown = !revealed.has(value);
+  if (shown) revealed.add(value); else revealed.delete(value);
+  for (const s of document.querySelectorAll("[data-secret]")) {
+    if (s.dataset.secret !== value) continue;
+    s.classList.toggle("shown", shown);
+    if (!s.hasAttribute("role")) continue;
+    s.setAttribute("aria-pressed", String(shown));
+    s.title = shown ? "Click to hide" : "Click to show";
+  }
+}
+
+function withSecret(text, value, render = esc) {
+  if (!value) return render(text);
+  const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return text.split(new RegExp(`(?<![\\w.-])${escaped}(?![\\w.-])`)).map(render).join(secret(value));
+}
+
 const VIEWS = ["overview", "requests", "machines", "threads"];
 const HOUR_MS = 3600000;
 const REQUEST_ROWS = 100;
@@ -838,7 +869,7 @@ function renderAccount(a, requests) {
   return `<div class="card account ${a.enabled ? "" : "off"} ${a.billing_blocked ? "blocked" : ""} ${name.length > 32 ? "long-email" : ""}">
     <div class="account-head">
       <div class="account-title">
-        <div class="email" title="${esc(name)}">${breakableEmail(name)}</div>
+        <div class="email">${secret(name, breakableEmail(name))}</div>
         <div class="account-sub"><span class="dot ${esc(a.provider)}"></span><span>${esc(providerName(a.provider))}</span>${accountMeta(a, requests)}</div>
       </div>
       ${statusPill(a)}
@@ -858,10 +889,10 @@ function renderAlerts(d) {
   $("hub-alert").hidden = !moving;
   setHtml("hub-alert", moving ? `<div class="alert-row warn" role="status">${icon("alert")}<div class="alert-text"><div class="alert-title">The hub is moving to ${esc(d.hub.state.hub)}</div><div class="alert-detail">Requests are paused until it finishes.</div></div><button class="btn" data-cancel-move>Cancel</button></div>` : "");
   for (const a of d.accounts.filter((x) => x.needs_login)) {
-    rows.push(`<div class="alert-row">${icon("alert")}<div class="alert-text"><div class="alert-title">${esc(accountKind(a))} account needs a new login</div><div class="alert-detail">${breakableEmail(a.email || a.id)}</div></div>${loginButton(a, true)}</div>`);
+    rows.push(`<div class="alert-row">${icon("alert")}<div class="alert-text"><div class="alert-title">${esc(accountKind(a))} account needs a new login</div><div class="alert-detail">${secret(a.email || a.id, breakableEmail(a.email || a.id))}</div></div>${loginButton(a, true)}</div>`);
   }
   for (const a of d.accounts.filter((x) => x.billing_blocked)) {
-    rows.push(`<div class="alert-row">${icon("alert")}<div class="alert-text"><div class="alert-title">${esc(accountKind(a))} account is billing blocked</div><div class="alert-detail"><span class="alert-part">${breakableEmail(a.email || a.id)}</span><span class="alert-sep"> · </span><span class="alert-part">Skipped until a usage check shows quota again.</span></div></div><button class="btn primary" data-act="usage" data-id="${esc(a.id)}">Check usage</button></div>`);
+    rows.push(`<div class="alert-row">${icon("alert")}<div class="alert-text"><div class="alert-title">${esc(accountKind(a))} account is billing blocked</div><div class="alert-detail"><span class="alert-part">${secret(a.email || a.id, breakableEmail(a.email || a.id))}</span><span class="alert-sep"> · </span><span class="alert-part">Skipped until a usage check shows quota again.</span></div></div><button class="btn primary" data-act="usage" data-id="${esc(a.id)}">Check usage</button></div>`);
   }
   $("alerts").hidden = !rows.length;
   $("alerts").classList.toggle("urgent", d.accounts.some((x) => x.needs_login || x.billing_blocked));
@@ -943,7 +974,7 @@ function requestTable(requests) {
     const hit = cachePercent(u.cache_read, prompt);
     const split = [[u.input, "uncached"], [u.cache_read, "cache read"], [u.cache_write, "cache write"]].filter(([n]) => n).map(([n, label]) => `${n.toLocaleString()} ${label}`).join(", ");
     const account = r.email || r.account;
-    return `<tr class="${r.status < 400 ? "" : "failed"}"><td class="when">${esc(ago(r.at))}</td><td class="hide-sm dim">${esc(r.machine)}</td><td class="acct" title="${esc(account)}">${esc(account)}<div class="cell-sub show-sm">${esc([r.machine, r.model].filter(Boolean).join(" · "))}</div></td><td class="mono hide-sm dim">${esc(r.model || "")}</td>${via}<td class="num status"><span class="code ${r.status < 400 ? "ok" : "bad"}">${r.status}</span></td><td class="num lat">${seconds(r.latency_ms)}<div class="cell-sub show-sm">${esc(ago(r.at))}</div></td><td class="num hide-sm dim"${split ? ` data-tip="${esc(split)}"` : ""}>${tokens(prompt)}</td><td class="num hide-sm dim">${hit === null ? "–" : `${hit}%`}</td><td class="num hide-sm dim">${tokens(u.output)}</td></tr>`;
+    return `<tr class="${r.status < 400 ? "" : "failed"}"><td class="when">${esc(ago(r.at))}</td><td class="hide-sm dim">${secret(r.machine)}</td><td class="acct">${secret(account)}<div class="cell-sub show-sm">${[secret(r.machine), esc(r.model || "")].filter(Boolean).join(" · ")}</div></td><td class="mono hide-sm dim">${esc(r.model || "")}</td>${via}<td class="num status"><span class="code ${r.status < 400 ? "ok" : "bad"}">${r.status}</span></td><td class="num lat">${seconds(r.latency_ms)}<div class="cell-sub show-sm">${esc(ago(r.at))}</div></td><td class="num hide-sm dim"${split ? ` data-tip="${esc(split)}"` : ""}>${tokens(prompt)}</td><td class="num hide-sm dim">${hit === null ? "–" : `${hit}%`}</td><td class="num hide-sm dim">${tokens(u.output)}</td></tr>`;
   }).join("") : `<tr><td colspan="${span}"><div class="empty"><strong>No requests yet</strong>Requests appear here once a machine sends one through the hub.</div></td></tr>`;
   return `${head}<tbody>${rows}</tbody>`;
 }
@@ -1022,17 +1053,19 @@ function renderMachines(d) {
   $("machines-pending").hidden = !waiting;
   $("machines-pending").textContent = `${waiting} waiting`;
   setHtml("machine-list", `<thead><tr><th>Machine</th><th>Status</th><th class="hide-sm">Version</th><th class="hide-sm">Transcript sync</th><th class="num hide-sm">Last seen</th><th class="num">Update</th><th aria-label="Actions"></th></tr></thead><tbody>${d.machines.map((m) =>
-    `<tr class="${m.online ? "" : "offline"}"><td><span class="machine-name">${esc(m.hostname)}${roleBadge(m)}</span>${m.guest ? `<div class="cell-sub">${esc(m.user || "Tagged machine")}</div>` : ""}<div class="cell-sub show-sm">v${esc(m.version)} · sync ${m.transcript_sync ? "on" : "off"}</div></td><td class="${m.online ? "" : "muted"}">${statusCell(m)}</td><td class="mono hide-sm">${esc(m.version)}</td><td class="hide-sm ${m.transcript_sync ? "" : "muted"}">${m.transcript_sync ? "On" : "Off"}</td><td class="num when hide-sm">${esc(ago(m.last_seen))}</td><td class="num"><span class="update-cell">${wantsToJoin(m) ? guestButtons(m) : updateCell(m, d.latest_version)}</span></td><td class="row-actions">${machineMenuButton(m)}</td></tr>`
+    `<tr class="${m.online ? "" : "offline"}"><td><span class="machine-name">${secret(m.hostname)}${roleBadge(m)}</span>${m.guest ? `<div class="cell-sub">${m.user ? secret(m.user) : "Tagged machine"}</div>` : ""}<div class="cell-sub show-sm">v${esc(m.version)} · sync ${m.transcript_sync ? "on" : "off"}</div></td><td class="${m.online ? "" : "muted"}">${statusCell(m)}</td><td class="mono hide-sm">${esc(m.version)}</td><td class="hide-sm ${m.transcript_sync ? "" : "muted"}">${m.transcript_sync ? "On" : "Off"}</td><td class="num when hide-sm">${esc(ago(m.last_seen))}</td><td class="num"><span class="update-cell">${wantsToJoin(m) ? guestButtons(m) : updateCell(m, d.latest_version)}</span></td><td class="row-actions">${machineMenuButton(m)}</td></tr>`
   ).join("")}</tbody>`);
   setHtml("fleet", d.machines.map((m) =>
-    `<li class="${m.online ? "" : "offline"}" title="${esc(m.hostname)}${m.online && m.routing === false ? " · routing off" : ""}"><span class="dot ${m.online ? "on" : ""} ${m.online && m.routing === false ? "routing-off" : ""}"></span><span class="truncate">${esc(m.hostname)}</span>${roleBadge(m)}</li>`
+    `<li class="${m.online ? "" : "offline"}"${m.online && m.routing === false ? ' title="Routing off"' : ""}><span class="dot ${m.online ? "on" : ""} ${m.online && m.routing === false ? "routing-off" : ""}"></span><span class="truncate">${secret(m.hostname)}</span>${roleBadge(m)}</li>`
   ).join(""));
   renderInstall();
 }
 
 function commandHtml(text) {
+  const hub = latest?.hub.name;
   return text.split(/(\s+)/).map((token) => {
     if (!token.trim()) return token;
+    if (token === hub) return `<span class="nb">${secret(hub)}</span>`;
     return token.includes("/") ? esc(token).replace(/(?<=[^:/])\//g, "/<wbr>") : `<span class="nb">${esc(token)}</span>`;
   }).join("");
 }
@@ -1040,7 +1073,7 @@ function commandHtml(text) {
 function renderInstall() {
   if (latest?.add_machine) {
     const text = latest.add_machine[installKey];
-    $("install-text").innerHTML = installKey === "agent_prompt" ? esc(text) : commandHtml(text);
+    $("install-text").innerHTML = installKey === "agent_prompt" ? withSecret(text, latest.hub.name) : commandHtml(text);
   }
   $("install-text").classList.toggle("wrap", installKey === "agent_prompt");
   document.querySelectorAll("[data-install]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.install === installKey)));
@@ -1395,7 +1428,7 @@ function showPoolTip(ev) {
     return `<div class="pool-${esc(p.provider)}"><i></i><span>${esc(providerName(p.provider))}</span><span>${show(poolValueAt(p, tt, "v"))}</span></div>${scoped}`;
   }).join("");
   const note = near
-    ? `${esc(near.who.join(", ") || "An account")} ${near.past ? "reset" : "resets"}, +${pct(near.gain)} for ${esc(providerName(near.provider))}`
+    ? `${near.who.map((w) => secret(w, esc(w), true)).join(", ") || "An account"} ${near.past ? "reset" : "resets"}, +${pct(near.gain)} for ${esc(providerName(near.provider))}`
     : tt < 0 ? "Measured at a usage check" : { all: `At the last ${POOL_BURN_H}h burn rate`, some: `At the last ${POOL_BURN_H}h burn rate, where known`, none: "If you use nothing more" }[projected];
   const when = at(tt);
   const label = Math.abs(tt) < 0.6 ? "Now" : `${when.toLocaleDateString([], { weekday: "short" })} ${when.getDate()}, ${when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
@@ -1437,7 +1470,7 @@ function render(d) {
   document.body.classList.add("loaded");
   document.body.classList.toggle("guest", d.guest);
   $("hub-line").textContent = `v${d.hub.version}`;
-  $("top-line").textContent = d.hub.name;
+  setHtml("top-line", secret(d.hub.name));
   $("view-overview").classList.toggle("first-run", !d.accounts.length);
   renderAlerts(d);
   renderPools(d);
@@ -1498,7 +1531,7 @@ function threadRow(t) {
   const errors = t.errors ? `<span class="failed-count">${t.errors} ${t.errors === 1 ? "error" : "errors"}</span>` : "";
   return `<button class="thread ${t.id === selectedThread ? "selected" : ""}" data-thread="${esc(t.id)}">
     <div class="thread-title">${esc(t.title || t.path)}</div>
-    <div class="thread-meta"><span>${esc(t.machine)}</span><span>·</span><span>${esc(providerName(t.tool))}</span><span>·</span><span>${t.turns} turns</span>${errors ? `<span>·</span>${errors}` : ""}<span class="ago">${t.last_active ? esc(ago(t.last_active)) : ""}</span></div>
+    <div class="thread-meta"><span>${secret(t.machine, esc(t.machine), true)}</span><span>·</span><span>${esc(providerName(t.tool))}</span><span>·</span><span>${t.turns} turns</span>${errors ? `<span>·</span>${errors}` : ""}<span class="ago">${t.last_active ? esc(ago(t.last_active)) : ""}</span></div>
   </button>`;
 }
 
@@ -1574,7 +1607,7 @@ async function openThread(id) {
     const d = await api("GET", `/conflux/api/threads/${encodeURIComponent(id)}`);
     if (token !== threadToken) return;
     const t = d.thread;
-    const metaParts = [t.project, t.machine, providerName(t.tool), `${t.turns} turns`].filter(Boolean).map((v) => `<span ${v === t.project ? 'class="meta-path"' : ""}>${esc(v)}</span>`);
+    const metaParts = [t.project, t.machine, providerName(t.tool), `${t.turns} turns`].filter(Boolean).map((v) => `<span ${v === t.project ? 'class="meta-path"' : ""}>${v === t.project || v === t.machine ? secret(v) : esc(v)}</span>`);
     if (t.errors) metaParts.push(`<span class="failed-count">${t.errors} ${t.errors === 1 ? "error" : "errors"}</span>`);
     const meta = metaParts.join('<span class="sep">·</span>');
     const omitted = d.omitted ? `<div class="muted small">${d.omitted} earlier events are not shown.</div>` : "";
@@ -1621,12 +1654,12 @@ function closeModal() {
 }
 
 function loginDone(account) {
-  openModal(`<h2>Account added</h2><p>${esc(account)} is ready to take requests.</p><div class="modal-actions"><button class="btn primary" data-close>Done</button></div>`);
+  openModal(`<h2>Account added</h2><p>${secret(account)} is ready to take requests.</p><div class="modal-actions"><button class="btn primary" data-close>Done</button></div>`);
   refresh();
 }
 
 function loginHeading(provider, email) {
-  return email ? `<h2>Log in again</h2><p>Sign in as ${esc(email)}.</p>` : `<h2>Add a ${providerName(provider)} account</h2>`;
+  return email ? `<h2>Log in again</h2><p>Sign in as ${secret(email)}.</p>` : `<h2>Add a ${providerName(provider)} account</h2>`;
 }
 
 async function loginClaude(email) {
@@ -1697,7 +1730,7 @@ function accountMenu(a) {
 function machineMenu(m) {
   const on = m.routing !== false;
   const item = `<button role="menuitem" data-routing="${esc(m.hostname)}" data-on="${!on}" ${m.routing === null ? "disabled" : ""}>${on ? "Turn routing off" : "Turn routing on"}</button>`;
-  const routing = m.routing === null ? `${item}<div class="menu-note">Update ${esc(m.hostname)} to change its routing from here.</div>` : item;
+  const routing = m.routing === null ? `${item}<div class="menu-note">Update ${secret(m.hostname, esc(m.hostname), true)} to change its routing from here.</div>` : item;
   const makeHub = m.role === "hub" || m.guest ? "" : `<hr><button role="menuitem" data-make-hub="${esc(m.hostname)}">Make hub</button>`;
   return routing + makeHub;
 }
@@ -1706,8 +1739,8 @@ function confirmMakeHub(name) {
   closeMenu();
   const m = latest.machines.find((x) => x.hostname === name && !x.guest);
   if (!m) return;
-  const battery = m.has_battery ? `<p>${esc(name)} has a battery. If it leaves home or changes its IP address, your other machines lose the hub.</p>` : "";
-  openModal(`<h2>Make ${esc(name)} the hub?</h2><p>Your accounts move to ${esc(name)}, and this machine becomes its node. Requests pause for a few seconds. Codex sessions reconnect.</p>${battery}<div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn primary" id="confirm-make-hub">${m.has_battery ? "Make hub anyway" : "Make hub"}</button></div>`);
+  const battery = m.has_battery ? `<p>${secret(name)} has a battery. If it leaves home or changes its IP address, your other machines lose the hub.</p>` : "";
+  openModal(`<h2>Make ${secret(name)} the hub?</h2><p>Your accounts move to ${secret(name)}, and this machine becomes its node. Requests pause for a few seconds. Codex sessions reconnect.</p>${battery}<div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn primary" id="confirm-make-hub">${m.has_battery ? "Make hub anyway" : "Make hub"}</button></div>`);
   $("confirm-make-hub").onclick = async (ev) => {
     ev.currentTarget.disabled = true;
     try {
@@ -1755,7 +1788,7 @@ function openMenu(button) {
 }
 
 function confirmRemove(id, name, kind) {
-  openModal(`<h2>Remove this ${esc(kind)} account?</h2><p>${esc(name)} stops taking requests. You will need to log in again to add it back.</p><div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn danger" id="confirm-remove">Remove account</button></div>`);
+  openModal(`<h2>Remove this ${esc(kind)} account?</h2><p>${secret(name)} stops taking requests. You will need to log in again to add it back.</p><div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn danger" id="confirm-remove">Remove account</button></div>`);
   $("confirm-remove").onclick = async () => {
     closeModal();
     try { await api("DELETE", `/conflux/api/accounts/${encodeURIComponent(id)}`); refresh(); } catch (e) { showError(e); }
@@ -1769,7 +1802,7 @@ function foundRow(m, i) {
   const address = esc(m.address);
   const action = m.state === "waiting" ? `<button class="btn small primary" data-link="${address}">Link</button>` : m.can_install ? `<button class="btn small primary" data-install-on="${address}" data-name="${esc(m.name)}">Install</button>` : "";
   const install = m.install ? `<div class="code-block"${m.can_install ? " hidden" : ""}><span class="code-text" id="found-${i}">${commandHtml(m.install)}</span><button class="icon-btn" data-copy="found-${i}" title="Copy" aria-label="Copy">${icon("copy")}</button></div>` : "";
-  return `<div class="found-row"><div class="found-text"><span class="machine-name">${esc(m.name)}</span><div class="cell-sub">${esc(OS_NAMES[m.os] || m.os)} · <span class="found-state">${esc(what)}</span></div></div>${action}${install}</div>`;
+  return `<div class="found-row"><div class="found-text"><span class="machine-name">${secret(m.name)}</span><div class="cell-sub">${esc(OS_NAMES[m.os] || m.os)} · <span class="found-state">${esc(what)}</span></div></div>${action}${install}</div>`;
 }
 
 async function findMachines(button) {
@@ -1927,6 +1960,11 @@ $("menu").addEventListener("keydown", (ev) => {
 });
 
 document.addEventListener("keydown", (ev) => {
+  const hidden = ev.target.closest?.('[data-secret][role="button"]');
+  if (hidden && (ev.key === "Enter" || ev.key === " ")) {
+    ev.preventDefault();
+    return toggleSecret(hidden);
+  }
   if (ev.key !== "Escape" || !menuAnchor) return;
   const anchor = menuAnchor;
   closeMenu();
@@ -1947,6 +1985,8 @@ document.addEventListener("mouseover", (ev) => {
 });
 
 document.addEventListener("click", (ev) => {
+  const hidden = ev.target.closest('[data-secret][role="button"]');
+  if (hidden) return toggleSecret(hidden);
   const menuButton = ev.target.closest("[data-menu]");
   if (menuButton) {
     const reopen = menuAnchor !== menuButton;
