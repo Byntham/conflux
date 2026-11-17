@@ -150,6 +150,27 @@ fn read_grok(path: &Path) -> Result<DocumentMut> {
             anyhow::bail!("`{table}` in {} is not a table", path.display());
         }
     }
+    let item = |table: &str, key: &str| doc.get(table).and_then(|t| t.get(key));
+    let wrong = [
+        (
+            "endpoints",
+            "cli_chat_proxy_base_url",
+            item("endpoints", "cli_chat_proxy_base_url").is_some_and(|v| !v.is_str()),
+        ),
+        (
+            "auth",
+            "auth_provider_command",
+            item("auth", "auth_provider_command").is_some_and(|v| !v.is_str()),
+        ),
+        (
+            "auth",
+            "auth_token_ttl",
+            item("auth", "auth_token_ttl").is_some_and(|v| !v.is_integer()),
+        ),
+    ];
+    if let Some((table, key, _)) = wrong.into_iter().find(|w| w.2) {
+        anyhow::bail!("`{table}.{key}` in {} has the wrong type", path.display());
+    }
     Ok(doc)
 }
 
@@ -581,7 +602,11 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let (p, conf) = paths(d.path());
         std::fs::create_dir_all(p.grok_config.parent().unwrap()).unwrap();
-        for broken in ["not = [toml", "auth = \"x\"\n"] {
+        for broken in [
+            "not = [toml",
+            "auth = \"x\"\n",
+            "[endpoints]\ncli_chat_proxy_base_url = 1\n",
+        ] {
             std::fs::write(&p.grok_config, broken).unwrap();
             assert!(apply(&p, &conf, 8317).is_err(), "{broken}");
             assert!(!p.claude_settings.exists());
