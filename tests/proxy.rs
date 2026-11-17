@@ -338,6 +338,64 @@ async fn grok_requests_use_grok_accounts_and_fail_over_on_quota() {
 }
 
 #[tokio::test]
+async fn grok_device_login_adds_the_account() {
+    use base64::Engine;
+    let h = Harness::new().await;
+    let jwt = |claims: serde_json::Value| {
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(claims.to_string());
+        format!("x.{payload}.y")
+    };
+    let code = json!({"device_code": "dc", "user_code": "ABCD-EFGH", "verification_uri": "https://accounts.example/device", "interval": 1});
+    h.reply("", Reply::Json(200, vec![], code.to_string()));
+    let pending = json!({"error": "authorization_pending"}).to_string();
+    let tokens = json!({
+        "access_token": jwt(json!({"sub": "user-1"})),
+        "refresh_token": "rt-new",
+        "expires_in": 21600,
+        "id_token": jwt(json!({"email": "g@example.com"})),
+    });
+    {
+        let mut refresh = h.fake.refresh_replies.lock().unwrap();
+        refresh.push_back(Reply::Json(400, vec![], pending));
+        refresh.push_back(Reply::Json(200, vec![], tokens.to_string()));
+    }
+
+    let start: serde_json::Value = h
+        .http
+        .post(format!("{}/conflux/api/login/grok/start", h.base))
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(start["status"]["user_code"], "ABCD-EFGH");
+    let id = start["login_id"].as_str().unwrap();
+    let mut status = serde_json::Value::Null;
+    for _ in 0..100 {
+        status = h
+            .http
+            .get(format!("{}/conflux/api/login/{id}", h.base))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        if status["state"] != "pending" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(status["state"], "done", "{status}");
+    assert_eq!(status["email"], "g@example.com");
+    let account = h.app.store.get(status["account"].as_str().unwrap()).unwrap();
+    assert_eq!(account.provider, Provider::Grok);
+    assert_eq!(account.credentials().grant.refresh_token, "rt-new");
+}
+
+#[tokio::test]
 async fn dot_segments_cannot_leave_the_provider_path() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let h = Harness::new().await;

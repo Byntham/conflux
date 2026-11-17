@@ -136,10 +136,21 @@ fn grok_has_login(paths: &ClientPaths) -> bool {
     let Some(auth) = paths.grok_config.parent().map(|d| d.join("auth.json")) else {
         return false;
     };
-    let Ok(Some(Value::Object(entries))) = fsutil::read_json::<Value>(&auth) else {
-        return false;
-    };
-    entries.values().any(|e| e["auth_mode"].as_str() != Some("external"))
+    match fsutil::read_json::<Value>(&auth) {
+        Ok(None) => false,
+        Ok(Some(Value::Object(entries))) => entries.values().any(|e| e["auth_mode"].as_str() != Some("external")),
+        _ => true,
+    }
+}
+
+fn read_grok(path: &Path) -> Result<DocumentMut> {
+    let doc = read_codex(path)?;
+    for table in ["endpoints", "auth"] {
+        if doc.get(table).is_some_and(|t| t.as_table_like().is_none()) {
+            anyhow::bail!("`{table}` in {} is not a table", path.display());
+        }
+    }
+    Ok(doc)
 }
 
 fn toml_str(doc: &DocumentMut, table: &str, key: &str) -> Option<String> {
@@ -258,7 +269,7 @@ pub fn apply(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Joined
     let mut doc = read_codex(&paths.codex_config)?;
     let providers_has_ours = doc.get("model_providers").and_then(|p| p.get(CODEX_PROVIDER)).is_some();
     let grok = grok_installed(paths)
-        .then(|| read_codex(&paths.grok_config))
+        .then(|| read_grok(&paths.grok_config))
         .transpose()?;
 
     let mut newly_recorded = false;
@@ -330,7 +341,7 @@ pub fn restore(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Opti
     }
     let (url, token) = ours_claude(port);
     let grok = (joined.grok_recorded && paths.grok_config.exists())
-        .then(|| read_codex(&paths.grok_config))
+        .then(|| read_grok(&paths.grok_config))
         .transpose()?;
 
     let mut claude = read_claude(&paths.claude_settings)?;
@@ -479,14 +490,15 @@ mod tests {
             Some(GROK_AUTH_COMMAND)
         );
 
-        std::fs::write(
-            grok_dir.join("auth.json"),
+        for login in [
             r#"{"https://auth.x.ai::client":{"auth_mode":"oidc","key":"k"}}"#,
-        )
-        .unwrap();
-        apply(&p, &conf, 8317).unwrap();
-        assert!(read()["endpoints"]["cli_chat_proxy_base_url"].is_str());
-        assert!(read().get("auth").is_none(), "a new login drops the dummy command");
+            r#"{"https://auth.x.ai::cli"#,
+        ] {
+            std::fs::write(grok_dir.join("auth.json"), login).unwrap();
+            apply(&p, &conf, 8317).unwrap();
+            assert!(read()["endpoints"]["cli_chat_proxy_base_url"].is_str());
+            assert!(read().get("auth").is_none(), "{login} keeps its own auth");
+        }
         restore(&p, &conf, 8317).unwrap();
         assert_eq!(std::fs::read_to_string(&p.grok_config).unwrap().trim(), "");
     }
@@ -569,9 +581,11 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let (p, conf) = paths(d.path());
         std::fs::create_dir_all(p.grok_config.parent().unwrap()).unwrap();
-        std::fs::write(&p.grok_config, "not = [toml").unwrap();
-        assert!(apply(&p, &conf, 8317).is_err());
-        assert!(!p.claude_settings.exists());
+        for broken in ["not = [toml", "auth = \"x\"\n"] {
+            std::fs::write(&p.grok_config, broken).unwrap();
+            assert!(apply(&p, &conf, 8317).is_err(), "{broken}");
+            assert!(!p.claude_settings.exists());
+        }
 
         std::fs::write(&p.grok_config, "").unwrap();
         apply(&p, &conf, 8317).unwrap();

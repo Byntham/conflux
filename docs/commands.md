@@ -121,7 +121,7 @@ Points the coding tools back at this machine's own logins, using the values `joi
 
 Use it when the hub is down. If you have never logged in to Claude Code or Codex on this machine, log in directly first.
 
-To turn routing off or on for another machine, open Machines on the dashboard, click the ⋯ button on that machine's row, and pick Turn routing off or Turn routing on. New sessions on that machine pick up the change. The dashboard edits the default folders, so if you set `CLAUDE_CONFIG_DIR` or `CODEX_HOME` there, run `conflux off` or `conflux on` on that machine instead.
+To turn routing off or on for another machine, open Machines on the dashboard, click the ⋯ button on that machine's row, and pick Turn routing off or Turn routing on. New sessions on that machine pick up the change. The dashboard edits the default folders, so if you set `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, or `GROK_HOME` there, run `conflux off` or `conflux on` on that machine instead.
 
 ### `conflux on`
 

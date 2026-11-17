@@ -90,7 +90,8 @@ pub enum Command {
                       name to make this machine a node of that hub. On a machine that is waiting \
                       to be linked, pass nothing, and conflux finds the hub on your tailnet.\n\n\
                       join installs conflux as a background service and points Claude Code \
-                      (~/.claude/settings.json) and Codex (~/.codex/config.toml) at it. It saves \
+                      (~/.claude/settings.json), Codex (~/.codex/config.toml), and Grok Build \
+                      (~/.grok/config.toml, if it exists) at it. It saves \
                       the values it replaces, so `conflux off` and `conflux leave` can put them back."
     )]
     Join {

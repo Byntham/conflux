@@ -413,9 +413,14 @@ async fn grok_userinfo_email(http: &reqwest::Client, ep: &Endpoints, access: &st
 pub async fn grok_tokens(http: &reqwest::Client, ep: &Endpoints, v: &Value) -> Result<LoginTokens> {
     let access = v["access_token"].as_str().context("no access_token")?.to_string();
     let refresh = v["refresh_token"].as_str().context("no refresh_token")?.to_string();
-    let user = jwt_claims(&access)
-        .and_then(|c| c["sub"].as_str().map(str::to_string))
-        .context("the Grok access token names no user")?;
+    let sub = |token: &str| {
+        jwt_claims(token)
+            .and_then(|c| c["sub"].as_str().map(str::to_string))
+            .filter(|s| !s.is_empty())
+    };
+    let user = sub(&access)
+        .or_else(|| v["id_token"].as_str().and_then(sub))
+        .context("the Grok login names no user")?;
     let mut email = v["id_token"]
         .as_str()
         .and_then(jwt_claims)
