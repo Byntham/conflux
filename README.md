@@ -27,7 +27,7 @@ One always-on machine, the **hub**, holds your Claude and ChatGPT logins. Claude
 ## What you get
 
 - **Less wasted quota.** New sessions start on the available account whose weekly limit resets soonest.
-- **Automatic failover.** When an account hits its limit before a reply starts, conflux retries the request on one that still has room.
+- **Automatic failover.** When an account runs out, conflux moves new requests to one that still has room.
 - **Stable sessions.** An active session stays on one account while it has room, so its prompt cache keeps working.
 - **One dashboard.** See each pool's quota, your machines, and recent requests from any device on your tailnet.
 - **Optional thread sync.** `conflux sync on` copies a machine's transcripts to the hub, where you can search them. It's off by default.
@@ -122,7 +122,7 @@ The [install guide](docs/install.md) covers guests, linking from the hub, the Ma
 | `conflux update` | Update every online machine that is behind |
 | `conflux leave` | Stop conflux on this machine and restore Claude Code's and Codex's settings |
 
-`<account>` is an ID from `conflux status`. Account commands work from any linked machine. [Commands](docs/commands.md) explains every command, including how to move the hub to another machine.
+`<account>` is an ID from `conflux status`. Account commands work from any linked machine signed in to Tailscale as you. [Commands](docs/commands.md) explains every command, including how to move the hub to another machine.
 
 ## Security
 
