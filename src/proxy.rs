@@ -27,11 +27,12 @@ pub const HUB_NOT_ACTIVE: &str = "conflux: the hub is moving to another machine.
 pub const GROK_PREFIX: &str = "/grok/v1/";
 pub const MUSE_PREFIX: &str = "/muse/v1/";
 pub const MUSE_CODE_PREFIX: &str = "/muse-code/";
+const MUSE_KEY_PATH: &str = "/muse-code/key";
 
 pub fn provider_for(path: &str, user_agent: &str) -> Option<Provider> {
     if path.starts_with(GROK_PREFIX) {
         Some(Provider::Grok)
-    } else if path.starts_with(MUSE_PREFIX) || path.starts_with(MUSE_CODE_PREFIX) {
+    } else if path.starts_with(MUSE_PREFIX) || (path.starts_with(MUSE_CODE_PREFIX) && path != MUSE_KEY_PATH) {
         Some(Provider::Muse)
     } else if path.starts_with("/v1/messages") {
         Some(Provider::Claude)

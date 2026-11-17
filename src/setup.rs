@@ -36,8 +36,10 @@ impl ClientPaths {
             .map(PathBuf::from)
             .unwrap_or_else(|_| home.join(".grok"));
         let muse_dir = std::env::var("XDG_CONFIG_HOME")
+            .ok()
+            .filter(|v| Path::new(v).is_absolute())
             .map(PathBuf::from)
-            .unwrap_or_else(|_| home.join(".config"))
+            .unwrap_or_else(|| home.join(".config"))
             .join("muse");
         Ok(Self {
             claude_settings: claude_dir.join("settings.json"),

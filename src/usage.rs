@@ -474,13 +474,13 @@ impl Usage {
             Provider::Grok => parse_grok_usage(&body, now),
             Provider::Muse => parse_muse_usage(&body, now),
         };
-        if snap.windows.is_empty() && e.provider == Provider::Grok {
+        if snap.windows.is_empty() && matches!(e.provider, Provider::Grok | Provider::Muse) {
             let mut snaps = self.snaps.write().unwrap();
             let slot = snaps.entry(e.id.clone()).or_default();
             if slot.windows.is_empty() {
                 *slot = snap;
             }
-            anyhow::bail!("the Grok billing response has no usage");
+            anyhow::bail!("the {} usage response has no usage", e.provider.display_name());
         }
         if let Some(old) = self.snaps.read().unwrap().get(&e.id) {
             snap.overage_in_use = old.overage_in_use && snap.exhausted(now);

@@ -570,6 +570,8 @@ async fn muse_requests_route_report_quota_and_fail_over() {
         .await
         .unwrap();
     assert_eq!(r.status(), 200);
+    let r = h.http.post(format!("{}/muse-code/key", h.base)).send().await.unwrap();
+    assert_eq!(r.status(), 404, "the pooled key never reaches the mint endpoint");
     let hits = h.fake.hits.lock().unwrap().clone();
     let paths: Vec<_> = hits.iter().map(|(p, t)| (p.as_str(), t.as_str())).collect();
     assert_eq!(
@@ -596,6 +598,9 @@ async fn muse_polls_and_refreshes_by_minting_its_key() {
     h.reply("rt-m", Reply::Json(200, vec![], key("at-m")));
     let e = h.app.store.get(&id).unwrap();
     h.app.usage.poll(&e).await.unwrap();
+    assert_eq!(h.app.usage.get(&id).longest().unwrap().used_pct, 34.0);
+    h.reply("rt-m", Reply::Json(200, vec![], json!({"api_key": "at-m"}).to_string()));
+    assert!(h.app.usage.poll(&e).await.is_err());
     assert_eq!(h.app.usage.get(&id).longest().unwrap().used_pct, 34.0);
 
     h.reply("rt-m", Reply::Json(200, vec![], key("at-m-new")));
