@@ -9,7 +9,7 @@ use http::HeaderMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::accounts::{AccountEntry, Provider, RefreshState, Store};
+use crate::accounts::{AccountEntry, Provider, Receipt, RefreshState, Store};
 use crate::config::Endpoints;
 use crate::fsutil;
 
@@ -473,11 +473,24 @@ impl Usage {
                 .and_then(|v| v.parse::<i64>().ok())
                 .unwrap_or(0)
                 .max(120);
-            if e.refresh_state() == RefreshState::Normal {
-                e.set_refresh_state(RefreshState::RetryAt {
-                    at: Utc::now() + chrono::Duration::seconds(wait),
-                    retries: 0,
-                });
+            let at = Utc::now() + chrono::Duration::seconds(wait);
+            let later = match e.refresh_state() {
+                RefreshState::Rejected(_) => false,
+                RefreshState::RetryAt { at: current, .. } => at > current,
+                _ => true,
+            };
+            if later && let Ok(_op) = e.op_lock.try_lock() {
+                let n = e.credentials().generation + 1;
+                if let Err(err) = e.journal.write_receipt(
+                    n,
+                    &Receipt::Retry {
+                        next_at: at,
+                        retries: 0,
+                    },
+                ) {
+                    tracing::warn!(account = %e.id, "could not save the mint backoff: {err:#}");
+                }
+                e.set_refresh_state(RefreshState::RetryAt { at, retries: 0 });
             }
             anyhow::bail!("the Muse mint is throttled for {wait}s");
         }

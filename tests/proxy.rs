@@ -738,6 +738,11 @@ async fn muse_polls_and_refreshes_by_minting_its_key() {
     );
 
     let polled = h.add(Provider::Muse, "polled").await;
+    h.app
+        .store
+        .get(&polled)
+        .unwrap()
+        .set_refresh_state(RefreshState::Unknown);
     h.reply(
         "rt-polled",
         Reply::Json(429, vec![("retry-after", "3600".into())], "{}".into()),
@@ -759,6 +764,14 @@ async fn muse_polls_and_refreshes_by_minting_its_key() {
         h.hits_for("rt-polled"),
         1,
         "a refresh after a 401 also waits out the mint's Retry-After"
+    );
+    let reloaded = conflux::accounts::Store::load(&Paths::under(h.dir.path()).accounts_dir()).unwrap();
+    assert!(
+        matches!(
+            reloaded.get(&polled.id).unwrap().refresh_state(),
+            RefreshState::RetryAt { .. }
+        ),
+        "the poll's backoff survives a restart"
     );
     assert!(
         matches!(polled.refresh_state(), RefreshState::RetryAt { at, .. } if at > Utc::now() + chrono::Duration::minutes(59))

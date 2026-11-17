@@ -1,6 +1,6 @@
 # conflux
 
-Rust proxy that pools Claude Code, Codex, and Grok Build subscription accounts on one hub machine.
+Rust proxy that pools Claude Code, Codex, Grok Build, and Muse Code subscription accounts on one hub machine.
 
 ## Approach
 
