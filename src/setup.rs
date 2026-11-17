@@ -56,6 +56,8 @@ pub struct Joined {
     #[serde(default)]
     pub grok_auth_ttl: Option<i64>,
     #[serde(default)]
+    pub grok_recorded: bool,
+    #[serde(default)]
     pub recorded: bool,
 }
 
@@ -149,14 +151,16 @@ fn toml_int(doc: &DocumentMut, table: &str, key: &str) -> Option<i64> {
 }
 
 fn set_in(doc: &mut DocumentMut, table: &str, key: &str, v: Item) {
-    if doc.get(table).and_then(Item::as_table).is_none() {
+    if doc.get(table).and_then(Item::as_table_like).is_none() {
         doc[table] = Item::Table(Table::new());
     }
-    doc[table][key] = v;
+    if let Some(t) = doc[table].as_table_like_mut() {
+        t.insert(key, v);
+    }
 }
 
 fn restore_in(doc: &mut DocumentMut, table: &str, key: &str, ours: &Item, previous: Option<Item>) {
-    let Some(t) = doc.get_mut(table).and_then(Item::as_table_mut) else {
+    let Some(t) = doc.get_mut(table).and_then(Item::as_table_like_mut) else {
         return;
     };
     let same = match (t.get(key).and_then(Item::as_value), ours.as_value()) {
@@ -179,17 +183,42 @@ fn restore_in(doc: &mut DocumentMut, table: &str, key: &str, ours: &Item, previo
     }
 }
 
-fn apply_grok(paths: &ClientPaths, port: u16) -> Result<()> {
-    if !grok_installed(paths) {
-        return Ok(());
-    }
-    let mut doc = read_codex(&paths.grok_config)?;
+fn record_grok(joined: &mut Joined, doc: &DocumentMut) {
+    joined.grok_base_url = toml_str(doc, "endpoints", "cli_chat_proxy_base_url");
+    joined.grok_auth_command = toml_str(doc, "auth", "auth_provider_command");
+    joined.grok_auth_ttl = toml_int(doc, "auth", "auth_token_ttl");
+    joined.grok_recorded = true;
+}
+
+fn apply_grok(paths: &ClientPaths, joined: &Joined, mut doc: DocumentMut, port: u16) -> Result<()> {
     set_in(&mut doc, "endpoints", "cli_chat_proxy_base_url", value(grok_url(port)));
-    if !grok_has_login(paths) {
+    if grok_has_login(paths) {
+        restore_grok_auth(&mut doc, joined);
+    } else {
         set_in(&mut doc, "auth", "auth_provider_command", value(GROK_AUTH_COMMAND));
         set_in(&mut doc, "auth", "auth_token_ttl", value(GROK_AUTH_TTL));
     }
     write_codex(&paths.grok_config, &doc)
+}
+
+fn restore_grok_auth(doc: &mut DocumentMut, joined: &Joined) {
+    if toml_str(doc, "auth", "auth_provider_command").as_deref() != Some(GROK_AUTH_COMMAND) {
+        return;
+    }
+    restore_in(
+        doc,
+        "auth",
+        "auth_provider_command",
+        &value(GROK_AUTH_COMMAND),
+        joined.grok_auth_command.as_deref().map(value),
+    );
+    restore_in(
+        doc,
+        "auth",
+        "auth_token_ttl",
+        &value(GROK_AUTH_TTL),
+        joined.grok_auth_ttl.map(value),
+    );
 }
 
 fn restore_grok(paths: &ClientPaths, joined: &Joined, port: u16) -> Result<()> {
@@ -197,7 +226,6 @@ fn restore_grok(paths: &ClientPaths, joined: &Joined, port: u16) -> Result<()> {
         return Ok(());
     }
     let mut doc = read_codex(&paths.grok_config)?;
-    let had_our_command = toml_str(&doc, "auth", "auth_provider_command").as_deref() == Some(GROK_AUTH_COMMAND);
     restore_in(
         &mut doc,
         "endpoints",
@@ -205,22 +233,7 @@ fn restore_grok(paths: &ClientPaths, joined: &Joined, port: u16) -> Result<()> {
         &value(grok_url(port)),
         joined.grok_base_url.as_deref().map(value),
     );
-    restore_in(
-        &mut doc,
-        "auth",
-        "auth_provider_command",
-        &value(GROK_AUTH_COMMAND),
-        joined.grok_auth_command.as_deref().map(value),
-    );
-    if had_our_command {
-        restore_in(
-            &mut doc,
-            "auth",
-            "auth_token_ttl",
-            &value(GROK_AUTH_TTL),
-            joined.grok_auth_ttl.map(value),
-        );
-    }
+    restore_grok_auth(&mut doc, joined);
     write_codex(&paths.grok_config, &doc)
 }
 
@@ -248,7 +261,15 @@ pub fn apply(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Joined
 
     let mut doc = read_codex(&paths.codex_config)?;
     let providers_has_ours = doc.get("model_providers").and_then(|p| p.get(CODEX_PROVIDER)).is_some();
+    let grok = grok_installed(paths)
+        .then(|| read_codex(&paths.grok_config))
+        .transpose()?;
 
+    let mut newly_recorded = false;
+    if let Some(g) = grok.as_ref().filter(|_| !joined.grok_recorded) {
+        record_grok(&mut joined, g);
+        newly_recorded = true;
+    }
     if !joined.recorded {
         joined.claude_base_url = env.get("ANTHROPIC_BASE_URL").cloned();
         joined.claude_auth_token = env.get("ANTHROPIC_AUTH_TOKEN").cloned();
@@ -257,12 +278,11 @@ pub fn apply(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Joined
         joined.codex_table = providers_has_ours
             .then(|| doc["model_providers"][CODEX_PROVIDER].as_table().map(|t| t.to_string()))
             .flatten();
-        let grok = read_codex(&paths.grok_config)?;
-        joined.grok_base_url = toml_str(&grok, "endpoints", "cli_chat_proxy_base_url");
-        joined.grok_auth_command = toml_str(&grok, "auth", "auth_provider_command");
-        joined.grok_auth_ttl = toml_int(&grok, "auth", "auth_token_ttl");
         joined.recorded = true;
         joined.active = false;
+        newly_recorded = true;
+    }
+    if newly_recorded {
         fsutil::ensure_private_dir(config_dir)?;
         fsutil::write_json_durable(&joined_path(config_dir), &joined)?;
     }
@@ -281,7 +301,9 @@ pub fn apply(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Joined
     }
     doc["model_providers"][CODEX_PROVIDER] = Item::Table(conflux_table(port));
     write_codex(&paths.codex_config, &doc)?;
-    apply_grok(paths, port)?;
+    if let Some(g) = grok {
+        apply_grok(paths, &joined, g, port)?;
+    }
 
     joined.active = true;
     fsutil::ensure_private_dir(config_dir)?;
@@ -366,6 +388,7 @@ pub fn restore(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Opti
 
     joined.active = false;
     joined.recorded = false;
+    joined.grok_recorded = false;
     fsutil::write_json_durable(&joined_path(config_dir), &joined)?;
     Ok(Some(joined))
 }
@@ -414,7 +437,7 @@ mod tests {
         std::fs::write(&p.claude_settings, claude_before).unwrap();
         std::fs::write(&p.codex_config, CODEX).unwrap();
         std::fs::create_dir_all(p.grok_config.parent().unwrap()).unwrap();
-        let grok_before = "[ui]\nyolo = false\n\n[endpoints]\nweb_base_url = \"https://example.com\"\n";
+        let grok_before = "endpoints = { web_base_url = \"https://example.com\" }\n\n[ui]\nyolo = false\n";
         std::fs::write(&p.grok_config, grok_before).unwrap();
 
         apply(&p, &conf, 8317).unwrap();
@@ -432,6 +455,7 @@ mod tests {
             grok["endpoints"]["cli_chat_proxy_base_url"].as_str(),
             Some("http://127.0.0.1:8317/grok/v1")
         );
+        assert_eq!(grok["endpoints"]["web_base_url"].as_str(), Some("https://example.com"));
         assert_eq!(grok["auth"]["auth_provider_command"].as_str(), Some(GROK_AUTH_COMMAND));
 
         apply(&p, &conf, 8317).unwrap();
@@ -447,17 +471,42 @@ mod tests {
         let (p, conf) = paths(d.path());
         let grok_dir = p.grok_config.parent().unwrap();
         std::fs::create_dir_all(grok_dir).unwrap();
+        let read = || -> toml::Value { toml::from_str(&std::fs::read_to_string(&p.grok_config).unwrap()).unwrap() };
+        apply(&p, &conf, 8317).unwrap();
+        assert_eq!(
+            read()["auth"]["auth_provider_command"].as_str(),
+            Some(GROK_AUTH_COMMAND)
+        );
+
         std::fs::write(
             grok_dir.join("auth.json"),
             r#"{"https://auth.x.ai::client":{"auth_mode":"oidc","key":"k"}}"#,
         )
         .unwrap();
         apply(&p, &conf, 8317).unwrap();
-        let grok: toml::Value = toml::from_str(&std::fs::read_to_string(&p.grok_config).unwrap()).unwrap();
-        assert!(grok["endpoints"]["cli_chat_proxy_base_url"].is_str());
-        assert!(grok.get("auth").is_none());
+        assert!(read()["endpoints"]["cli_chat_proxy_base_url"].is_str());
+        assert!(read().get("auth").is_none(), "a new login drops the dummy command");
         restore(&p, &conf, 8317).unwrap();
         assert_eq!(std::fs::read_to_string(&p.grok_config).unwrap().trim(), "");
+    }
+
+    #[test]
+    fn an_upgraded_join_records_grok_before_changing_it() {
+        let d = tempfile::tempdir().unwrap();
+        let (p, conf) = paths(d.path());
+        apply(&p, &conf, 8317).unwrap();
+        let mut old: Value = serde_json::from_str(&std::fs::read_to_string(joined_path(&conf)).unwrap()).unwrap();
+        for key in ["grok_base_url", "grok_auth_command", "grok_auth_ttl", "grok_recorded"] {
+            old.as_object_mut().unwrap().remove(key);
+        }
+        std::fs::write(joined_path(&conf), old.to_string()).unwrap();
+        std::fs::create_dir_all(p.grok_config.parent().unwrap()).unwrap();
+        let mine = "[auth]\nauth_provider_command = \"my-sso\"\n";
+        std::fs::write(&p.grok_config, mine).unwrap();
+
+        apply(&p, &conf, 8317).unwrap();
+        restore(&p, &conf, 8317).unwrap();
+        assert_eq!(std::fs::read_to_string(&p.grok_config).unwrap(), mine);
     }
 
     #[test]

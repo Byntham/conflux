@@ -62,7 +62,7 @@ Claude Code / Codex
                                         Anthropic API / ChatGPT Codex API
 ```
 
-A node does not route or hold credentials. `src/node.rs` copies each HTTP request and WebSocket session to the hub, minus hop-by-hop headers, and streams the reply back. It adds an `x-conflux-node` header so the hub can log which machine sent the request. If the hub is unreachable, the node returns an error in the provider's format. `GET /` on a node redirects to the hub's dashboard.
+A node does not route or hold credentials. `src/node.rs` copies each HTTP request and WebSocket session to the hub, minus hop-by-hop headers, and streams the reply back. On proxy paths it also drops the client's own `authorization`, `x-api-key`, and `cookie`, because a Grok Build with its own login sends its real xAI token. It adds an `x-conflux-node` header so the hub can log which machine sent the request. If the hub is unreachable, the node returns an error in the provider's format. `GET /` on a node redirects to the hub's dashboard.
 
 On the hub, `src/proxy.rs` handles `/v1/*`, `/backend-api/*`, and `/grok/*`.
 

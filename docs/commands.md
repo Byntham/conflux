@@ -87,7 +87,7 @@ Makes this machine the hub, or a node of a hub.
 3. It points Codex at conflux. It sets `model_provider = "conflux"` and adds a `[model_providers.conflux]` table in `~/.codex/config.toml`.
 4. If `~/.grok` exists, it points Grok Build at conflux. It sets `cli_chat_proxy_base_url` under `[endpoints]` in `~/.grok/config.toml`. If Grok Build has no login of its own on this machine, it also sets `auth_provider_command` under `[auth]`, so Grok Build starts without one. A machine where you ran `grok login` keeps that login, and conflux replaces its token with a pooled account's.
 
-Before it changes these files, conflux saves the values it replaces. `conflux off` and `conflux leave` put them back. If `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, or `GROK_HOME` is set, conflux edits the files there instead. If you install Grok Build after `join`, run `conflux off` and then `conflux on`.
+Before it changes these files, conflux saves the values it replaces. `conflux off` and `conflux leave` put them back. If `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, or `GROK_HOME` is set, conflux edits the files there instead. If you install Grok Build after `join`, run `conflux on` again.
 
 conflux warns you if your shell sets a variable that can bypass these settings, such as `ANTHROPIC_API_KEY` or `OPENAI_BASE_URL`.
 

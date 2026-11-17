@@ -87,6 +87,45 @@ async fn request_flows_through_node_and_hub() {
 }
 
 #[tokio::test]
+async fn client_credentials_stop_at_the_node() {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let record = seen.clone();
+    let hub = axum::Router::new().fallback(move |req: axum::extract::Request| {
+        let record = record.clone();
+        async move {
+            record
+                .lock()
+                .unwrap()
+                .push((req.uri().path().to_string(), req.headers().clone()));
+            "{}"
+        }
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let hub_port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move { axum::serve(listener, hub).await.unwrap() });
+    let n = start_node(hub_port).await;
+    for (method, path) in [
+        (Method::POST, "/grok/v1/responses"),
+        (Method::GET, "/conflux/api/status"),
+    ] {
+        n.http
+            .request(method, format!("{}{path}", n.base))
+            .header("authorization", "Bearer users-own-token")
+            .send()
+            .await
+            .unwrap();
+    }
+    let seen = seen.lock().unwrap();
+    let auth = |path: &str| {
+        seen.iter()
+            .find(|(p, _)| p == path)
+            .map(|(_, h)| h.get("authorization").is_some())
+    };
+    assert_eq!(auth("/grok/v1/responses"), Some(false));
+    assert_eq!(auth("/conflux/api/status"), Some(true));
+}
+
+#[tokio::test]
 async fn websocket_flows_through_node_and_hub() {
     let hub = Harness::new().await;
     hub.add(Provider::Codex, "c").await;

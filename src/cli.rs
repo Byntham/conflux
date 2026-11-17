@@ -133,17 +133,17 @@ pub enum Command {
         machines: Vec<String>,
     },
     #[command(
-        about = "Point Claude Code and Codex back at this machine's own logins",
-        long_about = "Point Claude Code and Codex back at this machine's own logins.\n\n\
+        about = "Point the coding tools back at this machine's own logins",
+        long_about = "Point the coding tools back at this machine's own logins.\n\n\
                       Use it when the hub is down. The service keeps running. Restart open \
                       sessions to pick up the change. `conflux on` undoes it."
     )]
     Off,
-    #[command(about = "Point Claude Code and Codex at conflux again after `conflux off`")]
+    #[command(about = "Point the coding tools at conflux again after `conflux off`")]
     On,
     #[command(
-        about = "Stop conflux and give Claude Code and Codex their old settings back",
-        long_about = "Stop conflux and give Claude Code and Codex their old settings back.\n\n\
+        about = "Stop conflux and give the coding tools their old settings back",
+        long_about = "Stop conflux and give the coding tools their old settings back.\n\n\
                       leave removes the background service. It keeps the binary, the config, and \
                       any account tokens on this machine. Run `conflux remove` first if you want \
                       the tokens gone."
@@ -438,7 +438,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             println!(
                 "{}",
                 if restored.is_some() {
-                    "Claude Code and Codex now use this machine's own logins. Run `conflux on` to go back."
+                    "The coding tools now use this machine's own logins. Run `conflux on` to go back."
                 } else {
                     "This machine has not joined a hub."
                 }
@@ -448,14 +448,14 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::On => {
             setup::apply(&ClientPaths::from_env()?, &paths.config_dir, cfg.port)?;
             daemon.report_to_hub(&cfg).await;
-            println!("Claude Code and Codex now go through conflux.");
+            println!("The coding tools now go through conflux.");
             Ok(())
         }
         Command::Leave => {
             setup::restore(&ClientPaths::from_env()?, &paths.config_dir, cfg.port)?;
             service::uninstall()?;
             crate::fsutil::remove_durable(&setup::joined_path(&paths.config_dir))?;
-            println!("conflux is stopped and removed from Claude Code and Codex. Account data was left in place.");
+            println!("conflux is stopped and removed from the coding tools. Account data was left in place.");
             Ok(())
         }
         Command::Login {
@@ -594,7 +594,7 @@ async fn join(mut cfg: Config, paths: Paths, hub: &str, no_service: bool, force:
     if guest {
         println!(
             "{hub} belongs to another Tailscale user, who must approve this machine. \
-             Until then, Claude Code and Codex keep using this machine's own logins. \
+             Until then, the coding tools keep using this machine's own logins. \
              `conflux status` shows when the hub approves it."
         );
         return Ok(());
@@ -628,9 +628,9 @@ fn print_joined(cfg: &Config) {
                 "This machine is now the hub. Add accounts with `conflux login claude`, `conflux login codex`, or `conflux login grok`."
             )
         }
-        Some(hub) => println!("Claude Code and Codex on this machine now go through {hub}."),
+        Some(hub) => println!("The coding tools on this machine now go through {hub}."),
     }
-    println!("New or restarted Claude Code and Codex sessions pick this up. Running ones keep their old settings.");
+    println!("New or restarted coding tool sessions pick this up. Running ones keep their old settings.");
     if let Some(url) = dashboard_url(cfg) {
         println!("\nDashboard: {url}");
     }
@@ -663,7 +663,7 @@ async fn join_found_hub(cfg: Config, paths: Paths, daemon: &Daemon) -> Result<()
                 println!("  {:<24} {:<16} {}", name(hub), address, found_hub(hub));
             }
             let guests = if hubs.iter().any(|hub| hub["guest"] == true) {
-                " A guest's Claude Code and Codex prompts go through the owner's hub."
+                " A guest's coding tools go through the owner's hub."
             } else {
                 ""
             };
