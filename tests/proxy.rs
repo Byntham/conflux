@@ -298,6 +298,96 @@ async fn codex_usage_limit_fails_over() {
     assert_eq!(h.hits_for("at-c2"), 1);
 }
 
+fn grok(h: &Harness, session: &str) -> reqwest::RequestBuilder {
+    h.http
+        .post(format!("{}/grok/v1/responses", h.base))
+        .header("user-agent", "grok-shell/1.0.88 (linux; x86_64)")
+        .header("authorization", "Bearer conflux")
+        .header("x-grok-session-id", session)
+        .json(&json!({"model": "grok-4.7", "stream": true}))
+}
+
+#[tokio::test]
+async fn grok_requests_use_grok_accounts_and_fail_over_on_quota() {
+    let h = Harness::new().await;
+    h.add(Provider::Codex, "c").await;
+    let g1 = h.add(Provider::Grok, "g1").await;
+    let g2 = h.add(Provider::Grok, "g2").await;
+    let (first, first_id, second) = if g1 < g2 {
+        ("at-g1", g1, "at-g2")
+    } else {
+        ("at-g2", g2, "at-g1")
+    };
+    let limit = json!({"error": {"code": "usage_pool_exhausted", "message": "limit", "resets_at": (Utc::now() + chrono::Duration::days(2)).timestamp()}});
+    h.reply(first, Reply::Json(429, vec![], limit.to_string()));
+
+    let r = grok(&h, "s1").send().await.unwrap();
+    assert_eq!(r.status(), 200);
+    let v: serde_json::Value = r.json().await.unwrap();
+    assert_eq!(v["token"], second);
+    let hits = h.fake.hits.lock().unwrap().clone();
+    assert!(hits.iter().all(|(path, _)| path == "/grok-api/responses"), "{hits:?}");
+    let cooled = h.app.router.cooldowns(&first_id);
+    assert_eq!(cooled.len(), 1);
+    assert!(cooled[0].until > Utc::now() + chrono::Duration::days(1));
+
+    let r = grok(&h, "s2").send().await.unwrap();
+    let v: serde_json::Value = r.json().await.unwrap();
+    assert_eq!(v["token"], second);
+    assert_eq!(h.hits_for("at-c"), 0);
+}
+
+#[tokio::test]
+async fn grok_usage_polls_and_refreshes_against_xai() {
+    let h = Harness::new().await;
+    let id = h.add(Provider::Grok, "g").await;
+    let end = Utc::now() + chrono::Duration::days(3);
+    let billing = json!({"config": {
+        "currentPeriod": {"type": "USAGE_PERIOD_TYPE_WEEKLY", "start": (end - chrono::Duration::days(7)).to_rfc3339(), "end": end.to_rfc3339()},
+        "creditUsagePercent": 42.0
+    }});
+    h.reply("at-g", Reply::Json(200, vec![], billing.to_string()));
+    let r = h
+        .http
+        .post(format!("{}/conflux/api/accounts/{id}/usage", h.base))
+        .header("content-type", "application/json")
+        .body("{}")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let snap = h.app.usage.get(&id);
+    let w = snap.longest().unwrap();
+    assert_eq!(w.used_pct, 42.0);
+    assert_eq!(w.duration_secs, Some(7 * 86400));
+    assert_eq!(w.resets_at.unwrap().timestamp(), end.timestamp());
+    assert!(
+        h.fake
+            .hits
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(path, token)| path == "/grok-api/billing" && token == "at-g")
+    );
+
+    h.fake.refresh_replies.lock().unwrap().push_back(Reply::Json(
+        200,
+        vec![],
+        json!({"access_token": "at-g2", "refresh_token": "rt-g2", "expires_in": 21600}).to_string(),
+    ));
+    let e = h.app.store.get(&id).unwrap();
+    assert_eq!(h.app.refresher.refresh(&e).await, RefreshResult::Refreshed);
+    assert_eq!(e.credentials().grant.refresh_token, "rt-g2");
+    assert!(
+        h.fake
+            .hits
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(path, _)| path == "/xai/oauth2/token")
+    );
+}
+
 #[tokio::test]
 async fn client_disconnect_cancels_upstream() {
     let h = Harness::new().await;

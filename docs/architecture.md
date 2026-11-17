@@ -3,7 +3,7 @@
 > [!IMPORTANT]
 > For agents: do not rely on this document for architecture decisions. It is a map, and it can be out of date. Read the code before you change anything.
 
-conflux is one Rust binary. One machine, the hub, holds the Claude and Codex subscription accounts and talks to the providers. Every other machine runs conflux as a node and forwards its traffic to the hub. Machines find each other over Tailscale.
+conflux is one Rust binary. One machine, the hub, holds the Claude, Codex, and Grok subscription accounts and talks to the providers. Every other machine runs conflux as a node and forwards its traffic to the hub. Machines find each other over Tailscale.
 
 ## Roles
 
@@ -46,7 +46,7 @@ The hub and a waiting machine ask the release page for the latest version when t
 
 ## Request flow
 
-Claude Code and Codex on every machine point at `http://127.0.0.1:<port>`. On the hub, that is the hub itself. On a node, it is the node's own conflux.
+Claude Code, Codex, and Grok Build on every machine point at `http://127.0.0.1:<port>`. On the hub, that is the hub itself. On a node, it is the node's own conflux.
 
 ```
 Claude Code / Codex
@@ -64,9 +64,10 @@ Claude Code / Codex
 
 A node does not route or hold credentials. `src/node.rs` copies each HTTP request and WebSocket session to the hub, minus hop-by-hop headers, and streams the reply back. It adds an `x-conflux-node` header so the hub can log which machine sent the request. If the hub is unreachable, the node returns an error in the provider's format. `GET /` on a node redirects to the hub's dashboard.
 
-On the hub, `src/proxy.rs` handles `/v1/*` and `/backend-api/*`.
+On the hub, `src/proxy.rs` handles `/v1/*`, `/backend-api/*`, and `/grok/*`.
 
 - `/v1/messages` is Claude. `/backend-api/codex/*` is Codex. Other `/v1/*` paths are Claude when the user agent is Claude Code, and Codex otherwise.
+- `/grok/v1/*` is Grok Build. Grok Build and Codex both call `/responses`, so Grok gets its own prefix. The hub sends `/grok/v1/<rest>` to `https://cli-chat-proxy.grok.com/v1/<rest>`.
 - By default, the hub only serves Claude requests that come from Claude Code. The `claude_code_only` setting controls this.
 - The hub reads the model and a session id from the request. It asks the router for an account, removes the client's credentials, and adds the account's OAuth token.
 - It streams the response back and scans it for token usage. The in-memory request log (`src/requests.rs`) keeps recent requests for the dashboard. It does not record every failure.
@@ -95,7 +96,9 @@ A cooldown or billing block lifts early when a usage reading taken after it show
 
 `src/usage.rs` keeps a usage snapshot per account. It updates the snapshot from the rate-limit headers on each response. It also polls each provider's usage endpoint every 5 minutes for every account, busy or idle, and within a minute for an account with no data. It keeps up to 7 days of readings per account, at most one every 15 minutes, for the dashboard's pool chart. It saves them to `usage-history.json` in the data folder, so they survive a restart. Rate-limit headers carry no model-scoped window, so a model-scoped window such as Fable weekly enters this history only from a poll.
 
-`src/refresh.rs` refreshes OAuth tokens before they expire. Claude tokens refresh an hour ahead, and Codex tokens a few days ahead. Refresh tokens are single use, so each refresh writes a claim and then a receipt to a per-account journal before and after the call. After a crash, the store replays a finished receipt. If the outcome is unknown, conflux does not retry with a token that may already be spent. The account needs a new login once its access token expires. Logins (`src/oauth.rs`, `src/api.rs`) use a pasted redirect URL for Claude and a device code for Codex.
+`src/refresh.rs` refreshes OAuth tokens before they expire. Claude and Grok tokens refresh an hour ahead, and Codex tokens a few days ahead. Refresh tokens are single use, so each refresh writes a claim and then a receipt to a per-account journal before and after the call. After a crash, the store replays a finished receipt. If the outcome is unknown, conflux does not retry with a token that may already be spent. The account needs a new login once its access token expires. Logins (`src/oauth.rs`, `src/api.rs`) use a pasted redirect URL for Claude and a device code for Codex and Grok.
+
+Grok sends no quota headers. The poll reads `creditUsagePercent` and the current weekly period from `/v1/billing?format=credits` on the Grok Build API.
 
 ## Hub move
 
@@ -159,7 +162,7 @@ Each upload carries a byte offset. The hub (`src/transcripts.rs`) appends only w
 
 The config dir is `$XDG_CONFIG_HOME/conflux`, or `~/.config/conflux`. The data dir is `$XDG_DATA_HOME/conflux`, or `~/.local/share/conflux`. The transcripts dir is `~/conflux/transcripts`. `CONFLUX_HOME` moves all three under `<home>/config` and `<home>/data`. `src/config.rs` has the details.
 
-`src/setup.rs` points the clients at conflux. In Claude Code's `settings.json`, it sets `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and `CLAUDE_CODE_PROMPT_CACHE_TTL=1h` under `env`. The last one keeps the main conversation on the 1 hour cache a subscription gets, because Claude Code treats the token as an API key. In Codex's `config.toml`, it adds a `conflux` model provider and selects it. It records the old values in `joined.json`, and `conflux off` or `conflux leave` puts them back. `CLAUDE_CONFIG_DIR` and `CODEX_HOME` change where it looks.
+`src/setup.rs` points the clients at conflux. In Claude Code's `settings.json`, it sets `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and `CLAUDE_CODE_PROMPT_CACHE_TTL=1h` under `env`. The last one keeps the main conversation on the 1 hour cache a subscription gets, because Claude Code treats the token as an API key. In Codex's `config.toml`, it adds a `conflux` model provider and selects it. If `~/.grok` exists, it sets `[endpoints] cli_chat_proxy_base_url` in Grok Build's `config.toml`. It adds an `[auth] auth_provider_command` that prints a dummy token only when Grok Build has no login of its own, because Grok Build writes that token over its saved login. It records the old values in `joined.json`, and `conflux off` or `conflux leave` puts them back. `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, and `GROK_HOME` change where it looks.
 
 ## Module map
 
@@ -187,7 +190,7 @@ The config dir is `$XDG_CONFIG_HOME/conflux`, or `~/.config/conflux`. The data d
 | `src/lifecycle.rs` | Listener handoff and draining between workers |
 | `src/transcript_sync.rs` | Transcript upload from each machine |
 | `src/transcripts.rs` | Transcript storage, index, and search on the hub |
-| `src/setup.rs` | Edits to Claude Code and Codex config |
+| `src/setup.rs` | Edits to Claude Code, Codex, and Grok Build config |
 | `src/service.rs` | systemd, launchd, and Windows service install |
 | `src/tailnet.rs` | Tailscale status, peers, and addresses |
 | `src/access.rs` | Host and origin checks |

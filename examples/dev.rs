@@ -30,7 +30,7 @@ struct Seed {
     days_to_long_reset: i64,
 }
 
-const SEEDS: [Seed; 4] = [
+const SEEDS: [Seed; 5] = [
     Seed {
         name: "dev-a",
         provider: Provider::Claude,
@@ -58,6 +58,13 @@ const SEEDS: [Seed; 4] = [
         short_pct: 30.0,
         long_pct: 15.0,
         days_to_long_reset: 5,
+    },
+    Seed {
+        name: "dev-e",
+        provider: Provider::Grok,
+        short_pct: 0.0,
+        long_pct: 25.0,
+        days_to_long_reset: 3,
     },
 ];
 
@@ -342,6 +349,67 @@ async fn codex_responses(
     }
 }
 
+async fn grok_usage(State(pretend): State<Arc<Pretend>>, headers: HeaderMap) -> Response {
+    let Some((_, quota)) = pretend.caller(&headers) else {
+        return unknown_account();
+    };
+    let used = if quota.exhausted { 100.0 } else { quota.long_pct };
+    let start = quota.long_resets - chrono::Duration::seconds(LONG_WINDOW_SECS);
+    json_reply(
+        StatusCode::OK,
+        vec![],
+        json!({"config": {
+            "currentPeriod": {"start": start.to_rfc3339(), "end": quota.long_resets.to_rfc3339()},
+            "creditUsagePercent": used
+        }}),
+    )
+}
+
+fn grok_events(name: &str, turn: u64) -> Vec<Value> {
+    let id = format!("resp_dev_{turn}");
+    let item = format!("msg_dev_{turn}");
+    let text = reply_text(name);
+    let response = |status: &str, output: Value, usage: Value| {
+        json!({
+            "id": id, "object": "response", "created_at": Utc::now().timestamp(), "model": "grok-dev",
+            "status": status, "output": output, "usage": usage, "error": null
+        })
+    };
+    let message = json!({
+        "id": item, "type": "message", "role": "assistant", "status": "completed",
+        "content": [{"type": "output_text", "text": text, "logprobs": [], "annotations": []}]
+    });
+    let usage = json!({
+        "input_tokens": 1, "input_tokens_details": {"cached_tokens": 0},
+        "output_tokens": 12, "output_tokens_details": {"reasoning_tokens": 0}, "total_tokens": 13
+    });
+    let mut events = vec![
+        json!({"type": "response.created", "response": response("in_progress", json!([]), Value::Null)}),
+        json!({"type": "response.output_item.added", "output_index": 0, "item": {"id": item, "type": "message", "role": "assistant", "status": "in_progress", "content": []}}),
+        json!({"type": "response.output_text.delta", "output_index": 0, "content_index": 0, "item_id": item, "delta": text, "logprobs": []}),
+        json!({"type": "response.output_text.done", "output_index": 0, "content_index": 0, "item_id": item, "text": text, "logprobs": []}),
+        json!({"type": "response.output_item.done", "output_index": 0, "item": message}),
+        json!({"type": "response.completed", "response": response("completed", json!([message]), usage)}),
+    ];
+    for (n, e) in events.iter_mut().enumerate() {
+        e["sequence_number"] = n.into();
+    }
+    events
+}
+
+async fn grok_responses(State(pretend): State<Arc<Pretend>>, headers: HeaderMap) -> Response {
+    let Some((name, quota)) = pretend.caller(&headers) else {
+        return unknown_account();
+    };
+    if quota.exhausted {
+        println!("provider: {name} refused a Grok request, out of quota");
+        return json_reply(StatusCode::TOO_MANY_REQUESTS, vec![], codex_out_of_quota(&quota));
+    }
+    println!("provider: {name} answered a Grok request");
+    let events = grok_events(&name, pretend.next_turn());
+    event_stream(vec![], &events)
+}
+
 fn set_exhausted(pretend: &Pretend, name: &str, exhausted: bool) -> Response {
     let known = pretend
         .quotas
@@ -389,6 +457,8 @@ async fn start_provider() -> Result<String> {
         .route("/api/oauth/usage", get(claude_usage))
         .route("/backend-api/wham/usage", get(codex_usage))
         .route("/backend-api/codex/responses", any(codex_responses))
+        .route("/grok-api/responses", post(grok_responses))
+        .route("/grok-api/billing", get(grok_usage))
         .route("/dev/exhaust/{name}", post(exhaust))
         .route("/dev/restore/{name}", post(restore))
         .fallback(no_reply)
@@ -446,6 +516,8 @@ fn endpoint_env(ep: &Endpoints) -> Vec<(&'static str, String)> {
         ("CONFLUX_CODEX_API", ep.codex_api.clone()),
         ("CONFLUX_CHATGPT_BACKEND", ep.chatgpt_backend.clone()),
         ("CONFLUX_OPENAI_AUTH", ep.openai_auth.clone()),
+        ("CONFLUX_GROK_API", ep.grok_api.clone()),
+        ("CONFLUX_XAI_AUTH", ep.xai_auth.clone()),
         ("CONFLUX_RELEASES", ep.releases.clone()),
     ]
 }
@@ -487,6 +559,7 @@ impl Machine<'_> {
             .env("CONFLUX_HOSTNAME", self.name)
             .env("CLAUDE_CONFIG_DIR", self.clients.join("claude"))
             .env("CODEX_HOME", self.clients.join("codex"))
+            .env("GROK_HOME", self.clients.join("grok"))
             .env_remove("CONFLUX_HANDOFF")
             .envs(env.iter().map(|(k, v)| (k, v)))
             .stdin(Stdio::null())
@@ -560,7 +633,9 @@ async fn main() -> Result<()> {
     let clients = ClientPaths {
         claude_settings: dir.path().join("claude").join("settings.json"),
         codex_config: dir.path().join("codex").join("config.toml"),
+        grok_config: dir.path().join("grok").join("config.toml"),
     };
+    std::fs::create_dir_all(dir.path().join("grok"))?;
     setup::apply(&clients, &node_paths.config_dir, node_port)?;
 
     let provider = if real { None } else { Some(start_provider().await?) };
@@ -599,6 +674,7 @@ async fn main() -> Result<()> {
                 .env("CONFLUX_HOME", &node_home)
                 .env("CLAUDE_CONFIG_DIR", dir.path().join("claude"))
                 .env("CODEX_HOME", dir.path().join("codex"))
+                .env("GROK_HOME", dir.path().join("grok"))
                 .stdin(Stdio::null())
                 .kill_on_drop(true)
                 .spawn()
@@ -611,6 +687,7 @@ async fn main() -> Result<()> {
     let node_home = node_home.display();
     let claude_dir = dir.path().join("claude");
     let codex_dir = dir.path().join("codex");
+    let grok_dir = dir.path().join("grok");
     println!();
     println!("The conflux dev copy is running. It does not touch the real install.");
     println!();
@@ -626,6 +703,8 @@ async fn main() -> Result<()> {
         "  CODEX_HOME={} codex exec --skip-git-repo-check \"say hi\"",
         codex_dir.display()
     );
+    println!("Run Grok Build through the node:");
+    println!("  GROK_HOME={} grok -p \"say hi\"", grok_dir.display());
     println!("Run the CLI against the hub:");
     println!("  CONFLUX_HOME={hub_home} {conflux} status");
     match &provider {
@@ -638,6 +717,7 @@ async fn main() -> Result<()> {
             println!("Add a real account, and approve it in a browser:");
             println!("  CONFLUX_HOME={hub_home} {conflux} login claude");
             println!("  CONFLUX_HOME={hub_home} {conflux} login codex");
+            println!("  CONFLUX_HOME={hub_home} {conflux} login grok");
         }
     }
     if let Some(app) = &mac_app {

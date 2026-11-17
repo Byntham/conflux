@@ -24,8 +24,12 @@ const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 const CLAUDE_OAUTH_BETA: &str = "oauth-2025-04-20";
 pub const HUB_NOT_ACTIVE: &str = "conflux: the hub is moving to another machine. Try again in a minute.";
 
+pub const GROK_PREFIX: &str = "/grok/";
+
 pub fn provider_for(path: &str, user_agent: &str) -> Option<Provider> {
-    if path.starts_with("/v1/messages") {
+    if path.starts_with(GROK_PREFIX) {
+        Some(Provider::Grok)
+    } else if path.starts_with("/v1/messages") {
         Some(Provider::Claude)
     } else if path.starts_with("/backend-api/codex/") {
         Some(Provider::Codex)
@@ -60,6 +64,10 @@ pub fn upstream_url(app: &App, provider: Provider, path: &str, query: Option<&st
                 .or_else(|| path.strip_prefix("/v1"))
                 .unwrap_or(path);
             format!("{}{rest}{q}", app.ep.codex_api)
+        }
+        Provider::Grok => {
+            let rest = path.strip_prefix("/grok/v1").unwrap_or(path);
+            format!("{}{rest}{q}", app.ep.grok_api)
         }
     }
 }
@@ -149,6 +157,7 @@ pub fn apply_account_auth(provider: Provider, account: &AccountEntry, h: &mut He
                 h.insert("chatgpt-account-id", acct);
             }
         }
+        Provider::Grok => {}
     }
 }
 
@@ -195,6 +204,12 @@ pub fn codex_session(h: &HeaderMap, body: &Value) -> Option<String> {
     body["prompt_cache_key"].as_str().map(str::to_string)
 }
 
+fn grok_session(h: &HeaderMap, body: &Value) -> Option<String> {
+    header_str(h, "x-grok-session-id")
+        .map(str::to_string)
+        .or_else(|| body["prompt_cache_key"].as_str().map(str::to_string))
+}
+
 pub fn route_request(provider: Provider, h: &HeaderMap, body: &[u8]) -> RouteRequest {
     let encoded = h.get(header::CONTENT_ENCODING).is_some();
     let json: Value = if encoded {
@@ -208,6 +223,7 @@ pub fn route_request(provider: Provider, h: &HeaderMap, body: &[u8]) -> RouteReq
         session: match provider {
             Provider::Claude => claude_session(h, &json),
             Provider::Codex => codex_session(h, &json),
+            Provider::Grok => grok_session(h, &json),
         },
     }
 }
@@ -295,10 +311,24 @@ pub fn codex_error_object(v: &Value) -> Option<&Value> {
         .find(|e| e["type"].is_string() || e["code"].is_string())
 }
 
-pub fn is_codex_usage_limit(v: &Value) -> bool {
+fn quota_codes(provider: Provider) -> &'static [&'static str] {
+    match provider {
+        Provider::Grok => &["usage_limit_reached", "usage_pool_exhausted"],
+        _ => &["usage_limit_reached"],
+    }
+}
+
+fn is_usage_limit(provider: Provider, v: &Value) -> bool {
+    let codes = quota_codes(provider);
     codex_error_object(v).is_some_and(|e| {
-        e["type"].as_str() == Some("usage_limit_reached") || e["code"].as_str() == Some("usage_limit_reached")
+        [&e["type"], &e["code"]]
+            .into_iter()
+            .any(|c| c.as_str().is_some_and(|c| codes.contains(&c)))
     })
+}
+
+pub fn is_codex_usage_limit(v: &Value) -> bool {
+    is_usage_limit(Provider::Codex, v)
 }
 
 pub fn codex_reset(v: &Value, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
@@ -312,16 +342,26 @@ pub fn codex_reset(v: &Value, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
 }
 
 pub fn classify_codex_429(h: &HeaderMap, body: &[u8], model: Option<&str>, now: DateTime<Utc>) -> Rejection {
+    classify_responses_429(Provider::Codex, h, body, model, now)
+}
+
+pub fn classify_responses_429(
+    provider: Provider,
+    h: &HeaderMap,
+    body: &[u8],
+    model: Option<&str>,
+    now: DateTime<Utc>,
+) -> Rejection {
     let plain = requests::decompressed(header_str(h, "content-encoding"), body);
     let v: Value = serde_json::from_slice(&plain).unwrap_or(Value::Null);
-    if is_codex_usage_limit(&v) {
+    if is_usage_limit(provider, &v) {
         let until = codex_reset(&v, now)
             .or_else(|| retry_after(h, now))
             .unwrap_or(now + chrono::Duration::minutes(15));
         return Rejection::Quota {
             scope: router::ACCOUNT.into(),
             until,
-            reason: "Codex usage limit".into(),
+            reason: format!("{} usage limit", provider.display_name()),
         };
     }
     Rejection::Short {
@@ -343,7 +383,7 @@ fn json_response(status: StatusCode, body: Value, extra: Option<(HeaderName, Str
 pub fn provider_error(provider: Provider, status: StatusCode, kind: &str, message: &str) -> Response {
     let body = match provider {
         Provider::Claude => json!({"type": "error", "error": {"type": kind, "message": message}}),
-        Provider::Codex => json!({"error": {"type": kind, "message": message}}),
+        Provider::Codex | Provider::Grok => json!({"error": {"type": kind, "message": message}}),
     };
     json_response(status, body, None)
 }
@@ -365,7 +405,7 @@ fn no_account_response(provider: Provider, why: NoAccount) -> Response {
             };
             let body = match provider {
                 Provider::Claude => json!({"type": "error", "error": {"type": "rate_limit_error", "message": message}}),
-                Provider::Codex => json!({"error": {
+                Provider::Codex | Provider::Grok => json!({"error": {
                     "type": "usage_limit_reached",
                     "message": message,
                     "resets_in_seconds": secs,
@@ -604,7 +644,7 @@ pub async fn handle(State(app): State<Arc<App>>, req: Request) -> Response {
             let now = Utc::now();
             let rejection = match provider {
                 Provider::Claude => classify_claude_429(&headers, route.model.as_deref(), now),
-                Provider::Codex => classify_codex_429(&headers, &bytes, route.model.as_deref(), now),
+                _ => classify_responses_429(provider, &headers, &bytes, route.model.as_deref(), now),
             };
             match &rejection {
                 Rejection::Quota { scope, until, reason } => app.router.cool(&account.id, scope, *until, reason),

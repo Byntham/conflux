@@ -200,7 +200,7 @@ async fn fake_handler(State(fake): State<Arc<Fake>>, req: Request) -> Response {
         .await
         .unwrap_or_default();
     fake.body_lengths.lock().unwrap().push(body.len());
-    let reply = if path == "/v1/oauth/token" || path == "/oauth/token" {
+    let reply = if path == "/v1/oauth/token" || path == "/oauth/token" || path == "/xai/oauth2/token" {
         fake.refresh_replies.lock().unwrap().pop_front()
     } else {
         fake.by_token
@@ -272,6 +272,7 @@ impl Harness {
         hub.clients = conflux::setup::ClientPaths {
             claude_settings: dir.path().join("claude/settings.json"),
             codex_config: dir.path().join("codex/config.toml"),
+            grok_config: dir.path().join("grok/config.toml"),
         };
         let routes = app
             .routes()

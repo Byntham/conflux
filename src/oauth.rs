@@ -23,6 +23,10 @@ pub const CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 pub const CODEX_DEVICE_VERIFY_URL: &str = "https://auth.openai.com/codex/device";
 pub const CODEX_DEVICE_REDIRECT_URI: &str = "https://auth.openai.com/deviceauth/callback";
 
+pub const GROK_CLIENT_ID: &str = "b1a00492-073a-47ea-816f-4c329264a828";
+pub const GROK_SCOPE: &str = "openid profile email offline_access grok-cli:access api:access conversations:read conversations:write workspaces:read workspaces:write";
+const DEVICE_CODE_GRANT: &str = "urn:ietf:params:oauth:grant-type:device_code";
+
 pub fn control_client() -> reqwest::Client {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
@@ -308,6 +312,130 @@ pub async fn codex_exchange(
     })
 }
 
+#[derive(Clone, Debug)]
+pub struct DeviceCode {
+    pub device_code: String,
+    pub user_code: String,
+    pub verify_url: String,
+    pub interval_secs: u64,
+}
+
+pub enum DeviceToken {
+    Pending,
+    SlowDown,
+    Done(Value),
+}
+
+async fn device_code_start(http: &reqwest::Client, url: &str, form: &[(&str, &str)], name: &str) -> Result<DeviceCode> {
+    let resp = http
+        .post(url)
+        .header("Accept", "application/json")
+        .form(form)
+        .send()
+        .await?;
+    let status = resp.status();
+    let text = resp.text().await?;
+    if !status.is_success() {
+        bail!(
+            "{name} device code request failed (HTTP {status}): {}",
+            truncate(&text, 300)
+        );
+    }
+    let v: Value = serde_json::from_str(&text)?;
+    let verify_url = v["verification_uri_complete"]
+        .as_str()
+        .or_else(|| v["verification_uri"].as_str())
+        .context("no verification_uri")?;
+    Ok(DeviceCode {
+        device_code: v["device_code"].as_str().context("no device_code")?.to_string(),
+        user_code: v["user_code"].as_str().context("no user_code")?.to_string(),
+        verify_url: verify_url.to_string(),
+        interval_secs: v["interval"].as_u64().unwrap_or(5).max(1),
+    })
+}
+
+async fn device_code_poll(
+    http: &reqwest::Client,
+    url: &str,
+    client_id: &str,
+    device_code: &str,
+) -> Result<DeviceToken> {
+    let resp = http
+        .post(url)
+        .header("Accept", "application/json")
+        .form(&[
+            ("grant_type", DEVICE_CODE_GRANT),
+            ("device_code", device_code),
+            ("client_id", client_id),
+        ])
+        .send()
+        .await?;
+    let status = resp.status();
+    let text = resp.text().await?;
+    let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+    if status.is_success() {
+        return Ok(DeviceToken::Done(v));
+    }
+    match v["error"].as_str() {
+        Some("authorization_pending") => Ok(DeviceToken::Pending),
+        Some("slow_down") => Ok(DeviceToken::SlowDown),
+        _ => bail!("device login failed (HTTP {status}): {}", truncate(&text, 300)),
+    }
+}
+
+pub async fn grok_device_start(http: &reqwest::Client, ep: &Endpoints) -> Result<DeviceCode> {
+    let url = format!("{}/oauth2/device/code", ep.xai_auth);
+    device_code_start(
+        http,
+        &url,
+        &[("client_id", GROK_CLIENT_ID), ("scope", GROK_SCOPE)],
+        "Grok",
+    )
+    .await
+}
+
+pub async fn grok_device_poll(http: &reqwest::Client, ep: &Endpoints, device_code: &str) -> Result<DeviceToken> {
+    let url = format!("{}/oauth2/token", ep.xai_auth);
+    device_code_poll(http, &url, GROK_CLIENT_ID, device_code).await
+}
+
+async fn grok_userinfo_email(http: &reqwest::Client, ep: &Endpoints, access: &str) -> Option<String> {
+    let resp = http
+        .get(format!("{}/oauth2/userinfo", ep.xai_auth))
+        .bearer_auth(access)
+        .send()
+        .await
+        .ok()?;
+    let v: Value = resp.error_for_status().ok()?.json().await.ok()?;
+    v["email"].as_str().map(str::to_string)
+}
+
+pub async fn grok_tokens(http: &reqwest::Client, ep: &Endpoints, v: &Value) -> Result<LoginTokens> {
+    let access = v["access_token"].as_str().context("no access_token")?.to_string();
+    let refresh = v["refresh_token"].as_str().context("no refresh_token")?.to_string();
+    let user = jwt_claims(&access)
+        .and_then(|c| c["sub"].as_str().map(str::to_string))
+        .context("the Grok access token names no user")?;
+    let mut email = v["id_token"]
+        .as_str()
+        .and_then(jwt_claims)
+        .and_then(|c| c["email"].as_str().map(str::to_string));
+    if email.is_none() {
+        email = grok_userinfo_email(http, ep, &access).await;
+    }
+    Ok(LoginTokens {
+        provider: Provider::Grok,
+        identity: user,
+        email,
+        plan: None,
+        chatgpt_account_id: None,
+        access_token: access,
+        refresh_token: refresh,
+        expires_at: Utc::now() + chrono::Duration::seconds(v["expires_in"].as_i64().unwrap_or(6 * 3600)),
+        id_token: v["id_token"].as_str().map(str::to_string),
+    })
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct RefreshedTokens {
     pub access_token: String,
@@ -358,6 +486,14 @@ pub async fn refresh(
                 ("grant_type", "refresh_token"),
                 ("refresh_token", refresh_token),
                 ("scope", "openid profile email"),
+            ]),
+        Provider::Grok => http
+            .post(format!("{}/oauth2/token", ep.xai_auth))
+            .header("Accept", "application/json")
+            .form(&[
+                ("client_id", GROK_CLIENT_ID),
+                ("grant_type", "refresh_token"),
+                ("refresh_token", refresh_token),
             ]),
     };
     let resp = match req.send().await {

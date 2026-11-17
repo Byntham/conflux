@@ -9,7 +9,7 @@ conflux uses the same paths on Linux, macOS, and Windows. On Windows, `~` is you
 | Path | What it holds |
 | --- | --- |
 | `~/.config/conflux/config.toml` | This machine's settings. See below. |
-| `~/.config/conflux/joined.json` | The Claude Code and Codex settings that `join` replaced, so `off` and `leave` can restore them. |
+| `~/.config/conflux/joined.json` | The Claude Code, Codex, and Grok Build settings that `join` replaced, so `off` and `leave` can restore them. |
 | `~/.config/conflux/management-key` | The key that `conflux t3-key` prints. Hub only. |
 | `~/.local/share/conflux/accounts/` | One set of files per account, with its OAuth tokens in plain text. Hub only. |
 | `~/.local/share/conflux/retired-*/` | The accounts an old hub kept after a hub move. Delete it once the move has worked. |
@@ -17,12 +17,13 @@ conflux uses the same paths on Linux, macOS, and Windows. On Windows, `~` is you
 
 If `XDG_CONFIG_HOME` or `XDG_DATA_HOME` is set, conflux uses it in place of `~/.config` or `~/.local/share`.
 
-conflux also edits two files that belong to the coding tools. See [`conflux join`](commands.md#conflux-join-hub).
+conflux also edits files that belong to the coding tools. See [`conflux join`](commands.md#conflux-join-hub).
 
 | Path | Changed by |
 | --- | --- |
 | `~/.claude/settings.json`, or `$CLAUDE_CONFIG_DIR/settings.json` | `join`, `on`, `off`, `leave`, and linking a waiting machine |
 | `~/.codex/config.toml`, or `$CODEX_HOME/config.toml` | the same commands |
+| `~/.grok/config.toml`, or `$GROK_HOME/config.toml` | the same commands, if that folder exists |
 
 ## config.toml
 
@@ -53,8 +54,9 @@ transcript_sync = false
 | `CONFLUX_LOG` | The log level, such as `debug` or `conflux=debug`. It uses the `tracing` filter syntax. The default is `info`. |
 | `CLAUDE_CONFIG_DIR` | Where conflux finds Claude Code's `settings.json`. |
 | `CODEX_HOME` | Where conflux finds Codex's `config.toml`. |
+| `GROK_HOME` | Where conflux finds Grok Build's `config.toml`. |
 
-`conflux join` warns you if your shell sets `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, or `OPENAI_BASE_URL`. These can make Claude Code or Codex skip the settings conflux wrote.
+`conflux join` warns you if your shell sets `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `OPENAI_BASE_URL`, `GROK_HOME`, or `GROK_CLI_CHAT_PROXY_BASE_URL`. These can make a coding tool skip the settings conflux wrote.
 
 ### For development and tests
 
@@ -67,6 +69,8 @@ transcript_sync = false
 | `CONFLUX_CODEX_API` | The Codex API. Default `https://chatgpt.com/backend-api/codex`. |
 | `CONFLUX_CHATGPT_BACKEND` | The ChatGPT backend that conflux reads usage from. |
 | `CONFLUX_OPENAI_AUTH` | The OpenAI login server. |
+| `CONFLUX_GROK_API` | The Grok Build API. Default `https://cli-chat-proxy.grok.com/v1`. |
+| `CONFLUX_XAI_AUTH` | The xAI login server. Default `https://auth.x.ai`. |
 | `CONFLUX_RELEASES` | Where `conflux update` looks for releases. |
 | `CONFLUX_HUB_PORT` | The port a node finds its hub on, and a waiting machine looks for one on. Default is the machine's own `port`. It lets a hub and a node run on one machine. |
 | `CONFLUX_HOSTNAME` | The name this machine reports, in place of its hostname. |
@@ -74,7 +78,7 @@ transcript_sync = false
 
 Only the hub reads the endpoint variables, because a node sends everything to the hub. The exception is `CONFLUX_RELEASES`, which every machine reads when it updates.
 
-`CONFLUX_HOME` does not isolate everything. `join`, `on`, `off`, `leave`, and `wait` still edit the real Claude Code and Codex settings and the real background service.
+`CONFLUX_HOME` does not isolate everything. `join`, `on`, `off`, `leave`, and `wait` still edit the real Claude Code, Codex, and Grok Build settings and the real background service.
 
 The Mac menu bar app reads `CONFLUX_HOME` too. With it set, the app leaves the real background service alone. It hides Restart and refuses Set up.
 

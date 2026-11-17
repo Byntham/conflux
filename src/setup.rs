@@ -11,11 +11,14 @@ pub const CLAUDE_TOKEN: &str = "conflux";
 pub const CLAUDE_CACHE_TTL_KEY: &str = "CLAUDE_CODE_PROMPT_CACHE_TTL";
 pub const CLAUDE_CACHE_TTL: &str = "1h";
 pub const CODEX_PROVIDER: &str = "conflux";
+const GROK_AUTH_COMMAND: &str = "echo conflux";
+const GROK_AUTH_TTL: i64 = 365 * 24 * 3600;
 
 #[derive(Clone, Debug)]
 pub struct ClientPaths {
     pub claude_settings: PathBuf,
     pub codex_config: PathBuf,
+    pub grok_config: PathBuf,
 }
 
 impl ClientPaths {
@@ -27,9 +30,13 @@ impl ClientPaths {
         let codex_dir = std::env::var("CODEX_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|_| home.join(".codex"));
+        let grok_dir = std::env::var("GROK_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| home.join(".grok"));
         Ok(Self {
             claude_settings: claude_dir.join("settings.json"),
             codex_config: codex_dir.join("config.toml"),
+            grok_config: grok_dir.join("config.toml"),
         })
     }
 }
@@ -42,6 +49,12 @@ pub struct Joined {
     pub claude_cache_ttl: Option<Value>,
     pub codex_model_provider: Option<String>,
     pub codex_table: Option<String>,
+    #[serde(default)]
+    pub grok_base_url: Option<String>,
+    #[serde(default)]
+    pub grok_auth_command: Option<String>,
+    #[serde(default)]
+    pub grok_auth_ttl: Option<i64>,
     #[serde(default)]
     pub recorded: bool,
 }
@@ -109,6 +122,108 @@ fn write_codex(path: &Path, doc: &DocumentMut) -> Result<()> {
     fsutil::write_durable(path, doc.to_string().as_bytes())
 }
 
+fn grok_url(port: u16) -> String {
+    format!("{}{}v1", base_url(port), crate::proxy::GROK_PREFIX)
+}
+
+fn grok_installed(paths: &ClientPaths) -> bool {
+    paths.grok_config.parent().is_some_and(Path::is_dir)
+}
+
+fn grok_has_login(paths: &ClientPaths) -> bool {
+    let Some(auth) = paths.grok_config.parent().map(|d| d.join("auth.json")) else {
+        return false;
+    };
+    let Ok(Some(Value::Object(entries))) = fsutil::read_json::<Value>(&auth) else {
+        return false;
+    };
+    entries.values().any(|e| e["auth_mode"].as_str() != Some("external"))
+}
+
+fn toml_str(doc: &DocumentMut, table: &str, key: &str) -> Option<String> {
+    doc.get(table)?.get(key)?.as_str().map(str::to_string)
+}
+
+fn toml_int(doc: &DocumentMut, table: &str, key: &str) -> Option<i64> {
+    doc.get(table)?.get(key)?.as_integer()
+}
+
+fn set_in(doc: &mut DocumentMut, table: &str, key: &str, v: Item) {
+    if doc.get(table).and_then(Item::as_table).is_none() {
+        doc[table] = Item::Table(Table::new());
+    }
+    doc[table][key] = v;
+}
+
+fn restore_in(doc: &mut DocumentMut, table: &str, key: &str, ours: &Item, previous: Option<Item>) {
+    let Some(t) = doc.get_mut(table).and_then(Item::as_table_mut) else {
+        return;
+    };
+    let same = match (t.get(key).and_then(Item::as_value), ours.as_value()) {
+        (Some(a), Some(b)) => a.to_string().trim() == b.to_string().trim(),
+        _ => false,
+    };
+    if !same {
+        return;
+    }
+    match previous {
+        Some(p) => {
+            t.insert(key, p);
+        }
+        None => {
+            t.remove(key);
+        }
+    }
+    if t.is_empty() {
+        doc.remove(table);
+    }
+}
+
+fn apply_grok(paths: &ClientPaths, port: u16) -> Result<()> {
+    if !grok_installed(paths) {
+        return Ok(());
+    }
+    let mut doc = read_codex(&paths.grok_config)?;
+    set_in(&mut doc, "endpoints", "cli_chat_proxy_base_url", value(grok_url(port)));
+    if !grok_has_login(paths) {
+        set_in(&mut doc, "auth", "auth_provider_command", value(GROK_AUTH_COMMAND));
+        set_in(&mut doc, "auth", "auth_token_ttl", value(GROK_AUTH_TTL));
+    }
+    write_codex(&paths.grok_config, &doc)
+}
+
+fn restore_grok(paths: &ClientPaths, joined: &Joined, port: u16) -> Result<()> {
+    if !paths.grok_config.exists() {
+        return Ok(());
+    }
+    let mut doc = read_codex(&paths.grok_config)?;
+    let had_our_command = toml_str(&doc, "auth", "auth_provider_command").as_deref() == Some(GROK_AUTH_COMMAND);
+    restore_in(
+        &mut doc,
+        "endpoints",
+        "cli_chat_proxy_base_url",
+        &value(grok_url(port)),
+        joined.grok_base_url.as_deref().map(value),
+    );
+    restore_in(
+        &mut doc,
+        "auth",
+        "auth_provider_command",
+        &value(GROK_AUTH_COMMAND),
+        joined.grok_auth_command.as_deref().map(value),
+    );
+    if had_our_command {
+        restore_in(
+            &mut doc,
+            "auth",
+            "auth_token_ttl",
+            &value(GROK_AUTH_TTL),
+            joined.grok_auth_ttl.map(value),
+        );
+    }
+    write_codex(&paths.grok_config, &doc)
+}
+
 fn conflux_table(port: u16) -> Table {
     let mut t = Table::new();
     t["name"] = value("conflux");
@@ -142,6 +257,10 @@ pub fn apply(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Joined
         joined.codex_table = providers_has_ours
             .then(|| doc["model_providers"][CODEX_PROVIDER].as_table().map(|t| t.to_string()))
             .flatten();
+        let grok = read_codex(&paths.grok_config)?;
+        joined.grok_base_url = toml_str(&grok, "endpoints", "cli_chat_proxy_base_url");
+        joined.grok_auth_command = toml_str(&grok, "auth", "auth_provider_command");
+        joined.grok_auth_ttl = toml_int(&grok, "auth", "auth_token_ttl");
         joined.recorded = true;
         joined.active = false;
         fsutil::ensure_private_dir(config_dir)?;
@@ -162,6 +281,7 @@ pub fn apply(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Joined
     }
     doc["model_providers"][CODEX_PROVIDER] = Item::Table(conflux_table(port));
     write_codex(&paths.codex_config, &doc)?;
+    apply_grok(paths, port)?;
 
     joined.active = true;
     fsutil::ensure_private_dir(config_dir)?;
@@ -242,6 +362,7 @@ pub fn restore(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Opti
         }
     }
     write_codex(&paths.codex_config, &doc)?;
+    restore_grok(paths, &joined, port)?;
 
     joined.active = false;
     joined.recorded = false;
@@ -257,6 +378,8 @@ pub fn env_warnings() -> Vec<String> {
         "CLAUDE_CONFIG_DIR",
         "CODEX_HOME",
         "OPENAI_BASE_URL",
+        "GROK_HOME",
+        "GROK_CLI_CHAT_PROXY_BASE_URL",
     ]
     .iter()
     .filter(|k| std::env::var(k).is_ok_and(|v| !v.is_empty()))
@@ -273,6 +396,7 @@ mod tests {
             ClientPaths {
                 claude_settings: dir.join("claude/settings.json"),
                 codex_config: dir.join("codex/config.toml"),
+                grok_config: dir.join("grok/config.toml"),
             },
             dir.join("conflux"),
         )
@@ -289,6 +413,9 @@ mod tests {
         let claude_before = "{\n  \"theme\": \"dark\",\n  \"autoCompactEnabled\": true\n}\n";
         std::fs::write(&p.claude_settings, claude_before).unwrap();
         std::fs::write(&p.codex_config, CODEX).unwrap();
+        std::fs::create_dir_all(p.grok_config.parent().unwrap()).unwrap();
+        let grok_before = "[ui]\nyolo = false\n\n[endpoints]\nweb_base_url = \"https://example.com\"\n";
+        std::fs::write(&p.grok_config, grok_before).unwrap();
 
         apply(&p, &conf, 8317).unwrap();
         let claude: Value = serde_json::from_str(&std::fs::read_to_string(&p.claude_settings).unwrap()).unwrap();
@@ -300,11 +427,37 @@ mod tests {
         assert!(codex.contains("[model_providers.conflux]"));
         assert!(codex.contains("supports_websockets = true"));
         assert!(codex.contains("trust_level = \"trusted\""));
+        let grok: toml::Value = toml::from_str(&std::fs::read_to_string(&p.grok_config).unwrap()).unwrap();
+        assert_eq!(
+            grok["endpoints"]["cli_chat_proxy_base_url"].as_str(),
+            Some("http://127.0.0.1:8317/grok/v1")
+        );
+        assert_eq!(grok["auth"]["auth_provider_command"].as_str(), Some(GROK_AUTH_COMMAND));
 
         apply(&p, &conf, 8317).unwrap();
         restore(&p, &conf, 8317).unwrap();
         assert_eq!(std::fs::read_to_string(&p.claude_settings).unwrap(), claude_before);
         assert_eq!(std::fs::read_to_string(&p.codex_config).unwrap(), CODEX);
+        assert_eq!(std::fs::read_to_string(&p.grok_config).unwrap(), grok_before);
+    }
+
+    #[test]
+    fn a_grok_login_keeps_its_own_auth() {
+        let d = tempfile::tempdir().unwrap();
+        let (p, conf) = paths(d.path());
+        let grok_dir = p.grok_config.parent().unwrap();
+        std::fs::create_dir_all(grok_dir).unwrap();
+        std::fs::write(
+            grok_dir.join("auth.json"),
+            r#"{"https://auth.x.ai::client":{"auth_mode":"oidc","key":"k"}}"#,
+        )
+        .unwrap();
+        apply(&p, &conf, 8317).unwrap();
+        let grok: toml::Value = toml::from_str(&std::fs::read_to_string(&p.grok_config).unwrap()).unwrap();
+        assert!(grok["endpoints"]["cli_chat_proxy_base_url"].is_str());
+        assert!(grok.get("auth").is_none());
+        restore(&p, &conf, 8317).unwrap();
+        assert_eq!(std::fs::read_to_string(&p.grok_config).unwrap().trim(), "");
     }
 
     #[test]

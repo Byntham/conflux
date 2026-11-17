@@ -222,6 +222,26 @@ pub fn parse_codex_usage(v: &Value, now: DateTime<Utc>) -> Snapshot {
     s
 }
 
+pub fn parse_grok_usage(v: &Value, now: DateTime<Utc>) -> Snapshot {
+    let mut s = Snapshot::default();
+    let c = &v["config"];
+    if let Some(u) = c["creditUsagePercent"].as_f64() {
+        let period = &c["currentPeriod"];
+        let start = period["start"].as_str().and_then(parse_reset);
+        let end = period["end"].as_str().and_then(parse_reset);
+        s.upsert(Window {
+            key: "credits".into(),
+            used_pct: u.clamp(0.0, 100.0),
+            resets_at: end,
+            duration_secs: start.zip(end).map(|(a, b)| (b - a).num_seconds()),
+            model_scope: None,
+        });
+    }
+    s.updated_at = Some(now);
+    s.polled_at = Some(now);
+    s
+}
+
 type History = HashMap<String, Vec<Sample>>;
 
 struct HistoryFile {
@@ -346,6 +366,7 @@ impl Usage {
         let touched = match provider {
             Provider::Claude => apply_claude_headers(s, h, now),
             Provider::Codex => apply_codex_headers(s, h, now),
+            Provider::Grok => false,
         };
         let s = s.clone();
         drop(snaps);
@@ -378,6 +399,10 @@ impl Usage {
                 }
                 r
             }
+            Provider::Grok => self
+                .http
+                .get(format!("{}/billing?format=credits", self.ep.grok_api))
+                .header("x-xai-token-auth", "xai-grok-cli"),
         };
         let resp = req.bearer_auth(&creds.grant.access_token).send().await?;
         let status = resp.status();
@@ -389,6 +414,7 @@ impl Usage {
         let mut snap = match e.provider {
             Provider::Claude => parse_claude_usage(&body, now),
             Provider::Codex => parse_codex_usage(&body, now),
+            Provider::Grok => parse_grok_usage(&body, now),
         };
         if let Some(old) = self.snaps.read().unwrap().get(&e.id) {
             snap.overage_in_use = old.overage_in_use && snap.exhausted(now);

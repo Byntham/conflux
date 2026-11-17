@@ -17,7 +17,7 @@ const NOT_SENT_RETRY: Duration = Duration::from_secs(120);
 
 pub fn refresh_lead(provider: Provider) -> chrono::Duration {
     match provider {
-        Provider::Claude => chrono::Duration::hours(1),
+        Provider::Claude | Provider::Grok => chrono::Duration::hours(1),
         Provider::Codex => chrono::Duration::hours(96),
     }
 }

@@ -40,13 +40,13 @@ On a machine that is waiting to be linked, `status` says so and tells you how to
 
 On the hub's owner's machines, `status` also lists machines that wait for your approval. See [`conflux guest`](#conflux-guest-approvedenyremove-machine). On a guest machine, it says whether the hub's owner has approved it yet.
 
-### `conflux login claude`, `conflux login codex`
+### `conflux login claude`, `conflux login codex`, `conflux login grok`
 
 Adds an account to the pool. If the account is already in the pool, this logs it in again and keeps its settings.
 
 For `claude`, conflux prints a link. Open it in a browser signed in to the Claude account and approve access. The browser then shows a connection error, which is expected. Paste the whole URL from the address bar into the terminal.
 
-For `codex`, conflux prints a link and a code. Open the link in a browser signed in to the ChatGPT account and enter the code. conflux waits and finishes on its own.
+For `codex` and `grok`, conflux prints a link and a code. Open the link in a browser signed in to the ChatGPT or xAI account and enter the code. conflux waits and finishes on its own.
 
 The browser does not have to be on the hub or on the machine where you run the command.
 
@@ -80,13 +80,14 @@ Makes this machine the hub, or a node of a hub.
 - `conflux join <hub>` makes this machine a node. `<hub>` is the hub's name in `tailscale status`, or its Tailscale address. conflux checks that it can reach the hub and warns you if it can't.
 - `conflux join` with no name finds the hub for you. It works on a machine that is waiting to be linked. conflux asks each online machine on your tailnet whether it is a hub. If it finds one hub, and that hub belongs to your Tailscale user, it links to it. Otherwise it lists the hubs it found, and you name one yourself. A hub that belongs to another Tailscale user shows as "join <owner>'s hub as a guest". The background service is already running, so `--no-service` and `--force` do not apply.
 
-`join` with a name then does three things:
+`join` with a name then does these things:
 
 1. It installs conflux as a background service and starts it. See [Logs and the background service](troubleshooting.md#logs-and-the-background-service) for what it installs on each system.
 2. It points Claude Code at conflux. It sets `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` under `env` in `~/.claude/settings.json`. It also sets `CLAUDE_CODE_PROMPT_CACHE_TTL` to `1h`, unless you already set it. Claude Code treats the token as an API key, so without it the main conversation caches for 5 minutes instead of a subscription's 1 hour.
 3. It points Codex at conflux. It sets `model_provider = "conflux"` and adds a `[model_providers.conflux]` table in `~/.codex/config.toml`.
+4. If `~/.grok` exists, it points Grok Build at conflux. It sets `cli_chat_proxy_base_url` under `[endpoints]` in `~/.grok/config.toml`. If Grok Build has no login of its own on this machine, it also sets `auth_provider_command` under `[auth]`, so Grok Build starts without one. A machine where you ran `grok login` keeps that login, and conflux replaces its token with a pooled account's.
 
-Before it changes either file, conflux saves the values it replaces. `conflux off` and `conflux leave` put them back. If `CLAUDE_CONFIG_DIR` or `CODEX_HOME` is set, conflux edits the files there instead.
+Before it changes these files, conflux saves the values it replaces. `conflux off` and `conflux leave` put them back. If `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, or `GROK_HOME` is set, conflux edits the files there instead. If you install Grok Build after `join`, run `conflux off` and then `conflux on`.
 
 conflux warns you if your shell sets a variable that can bypass these settings, such as `ANTHROPIC_API_KEY` or `OPENAI_BASE_URL`.
 
