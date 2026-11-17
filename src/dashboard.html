@@ -45,7 +45,7 @@
   .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .secret { border-radius: 3px; }
-  .secret:not(.shown) { filter: blur(5px); user-select: none; }
+  .secret { filter: blur(5px); user-select: none; }
   .secret[role="button"] { cursor: pointer; }
 
   .app { display: grid; grid-template-columns: 224px minmax(0, 1fr); min-height: 100vh; }
@@ -636,6 +636,7 @@
 </div>
 <div id="menu" role="menu" hidden></div>
 <div id="tip" hidden></div>
+<style id="revealed"></style>
 <div id="toast" role="status" hidden></div>
 <dialog id="modal"><div class="modal" id="modal-body"></div></dialog>
 <script>
@@ -644,24 +645,17 @@ const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const icon = (name) => `<svg class="i" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 const revealed = new Set();
 
-function secret(value, html = esc(value), inert = false) {
+function secret(value, html = esc(value), mode = "button") {
   if (!value) return html;
-  const shown = revealed.has(value);
-  const control = inert ? "" : ` tabindex="0" role="button" aria-pressed="${shown}" title="${shown ? "Click to hide" : "Click to show"}"`;
-  return `<span class="secret${shown ? " shown" : ""}" data-secret="${esc(value)}"${control}>${html}</span>`;
+  const control = { button: ' tabindex="0" role="button"', click: ' role="button"', inert: "" }[mode];
+  return `<span class="secret" data-secret="${esc(value)}"${control}${control ? ' title="Click to show or hide"' : ""}>${html}</span>`;
 }
 
 function toggleSecret(el) {
   const value = el.dataset.secret;
-  const shown = !revealed.has(value);
-  if (shown) revealed.add(value); else revealed.delete(value);
-  for (const s of document.querySelectorAll("[data-secret]")) {
-    if (s.dataset.secret !== value) continue;
-    s.classList.toggle("shown", shown);
-    if (!s.hasAttribute("role")) continue;
-    s.setAttribute("aria-pressed", String(shown));
-    s.title = shown ? "Click to hide" : "Click to show";
-  }
+  if (revealed.has(value)) revealed.delete(value); else revealed.add(value);
+  const shown = [...revealed].map((v) => `.secret[data-secret="${CSS.escape(v)}"]`);
+  $("revealed").textContent = shown.length ? `${shown.join(",")} { filter: none; user-select: auto; }` : "";
 }
 
 function withSecret(text, value, render = esc) {
@@ -887,7 +881,7 @@ function renderAlerts(d) {
   const rows = [];
   const moving = d.hub.state && d.hub.state.state === "moving";
   $("hub-alert").hidden = !moving;
-  setHtml("hub-alert", moving ? `<div class="alert-row warn" role="status">${icon("alert")}<div class="alert-text"><div class="alert-title">The hub is moving to ${esc(d.hub.state.hub)}</div><div class="alert-detail">Requests are paused until it finishes.</div></div><button class="btn" data-cancel-move>Cancel</button></div>` : "");
+  setHtml("hub-alert", moving ? `<div class="alert-row warn" role="status">${icon("alert")}<div class="alert-text"><div class="alert-title">The hub is moving to ${secret(d.hub.state.hub)}</div><div class="alert-detail">Requests are paused until it finishes.</div></div><button class="btn" data-cancel-move>Cancel</button></div>` : "");
   for (const a of d.accounts.filter((x) => x.needs_login)) {
     rows.push(`<div class="alert-row">${icon("alert")}<div class="alert-text"><div class="alert-title">${esc(accountKind(a))} account needs a new login</div><div class="alert-detail">${secret(a.email || a.id, breakableEmail(a.email || a.id))}</div></div>${loginButton(a, true)}</div>`);
   }
@@ -974,7 +968,7 @@ function requestTable(requests) {
     const hit = cachePercent(u.cache_read, prompt);
     const split = [[u.input, "uncached"], [u.cache_read, "cache read"], [u.cache_write, "cache write"]].filter(([n]) => n).map(([n, label]) => `${n.toLocaleString()} ${label}`).join(", ");
     const account = r.email || r.account;
-    return `<tr class="${r.status < 400 ? "" : "failed"}"><td class="when">${esc(ago(r.at))}</td><td class="hide-sm dim">${secret(r.machine)}</td><td class="acct">${secret(account)}<div class="cell-sub show-sm">${[secret(r.machine), esc(r.model || "")].filter(Boolean).join(" · ")}</div></td><td class="mono hide-sm dim">${esc(r.model || "")}</td>${via}<td class="num status"><span class="code ${r.status < 400 ? "ok" : "bad"}">${r.status}</span></td><td class="num lat">${seconds(r.latency_ms)}<div class="cell-sub show-sm">${esc(ago(r.at))}</div></td><td class="num hide-sm dim"${split ? ` data-tip="${esc(split)}"` : ""}>${tokens(prompt)}</td><td class="num hide-sm dim">${hit === null ? "–" : `${hit}%`}</td><td class="num hide-sm dim">${tokens(u.output)}</td></tr>`;
+    return `<tr class="${r.status < 400 ? "" : "failed"}"><td class="when">${esc(ago(r.at))}</td><td class="hide-sm dim">${secret(r.machine, esc(r.machine), "click")}</td><td class="acct">${secret(account, esc(account), "click")}<div class="cell-sub show-sm">${[secret(r.machine, esc(r.machine), "click"), esc(r.model || "")].filter(Boolean).join(" · ")}</div></td><td class="mono hide-sm dim">${esc(r.model || "")}</td>${via}<td class="num status"><span class="code ${r.status < 400 ? "ok" : "bad"}">${r.status}</span></td><td class="num lat">${seconds(r.latency_ms)}<div class="cell-sub show-sm">${esc(ago(r.at))}</div></td><td class="num hide-sm dim"${split ? ` data-tip="${esc(split)}"` : ""}>${tokens(prompt)}</td><td class="num hide-sm dim">${hit === null ? "–" : `${hit}%`}</td><td class="num hide-sm dim">${tokens(u.output)}</td></tr>`;
   }).join("") : `<tr><td colspan="${span}"><div class="empty"><strong>No requests yet</strong>Requests appear here once a machine sends one through the hub.</div></td></tr>`;
   return `${head}<tbody>${rows}</tbody>`;
 }
@@ -1428,7 +1422,7 @@ function showPoolTip(ev) {
     return `<div class="pool-${esc(p.provider)}"><i></i><span>${esc(providerName(p.provider))}</span><span>${show(poolValueAt(p, tt, "v"))}</span></div>${scoped}`;
   }).join("");
   const note = near
-    ? `${near.who.map((w) => secret(w, esc(w), true)).join(", ") || "An account"} ${near.past ? "reset" : "resets"}, +${pct(near.gain)} for ${esc(providerName(near.provider))}`
+    ? `${near.who.map((w) => secret(w, esc(w), "inert")).join(", ") || "An account"} ${near.past ? "reset" : "resets"}, +${pct(near.gain)} for ${esc(providerName(near.provider))}`
     : tt < 0 ? "Measured at a usage check" : { all: `At the last ${POOL_BURN_H}h burn rate`, some: `At the last ${POOL_BURN_H}h burn rate, where known`, none: "If you use nothing more" }[projected];
   const when = at(tt);
   const label = Math.abs(tt) < 0.6 ? "Now" : `${when.toLocaleDateString([], { weekday: "short" })} ${when.getDate()}, ${when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
@@ -1530,8 +1524,8 @@ function showView() {
 function threadRow(t) {
   const errors = t.errors ? `<span class="failed-count">${t.errors} ${t.errors === 1 ? "error" : "errors"}</span>` : "";
   return `<button class="thread ${t.id === selectedThread ? "selected" : ""}" data-thread="${esc(t.id)}">
-    <div class="thread-title">${esc(t.title || t.path)}</div>
-    <div class="thread-meta"><span>${secret(t.machine, esc(t.machine), true)}</span><span>·</span><span>${esc(providerName(t.tool))}</span><span>·</span><span>${t.turns} turns</span>${errors ? `<span>·</span>${errors}` : ""}<span class="ago">${t.last_active ? esc(ago(t.last_active)) : ""}</span></div>
+    <div class="thread-title">${t.title ? esc(t.title) : secret(t.path, esc(t.path), "inert")}</div>
+    <div class="thread-meta"><span>${secret(t.machine, esc(t.machine), "inert")}</span><span>·</span><span>${esc(providerName(t.tool))}</span><span>·</span><span>${t.turns} turns</span>${errors ? `<span>·</span>${errors}` : ""}<span class="ago">${t.last_active ? esc(ago(t.last_active)) : ""}</span></div>
   </button>`;
 }
 
@@ -1611,7 +1605,7 @@ async function openThread(id) {
     if (t.errors) metaParts.push(`<span class="failed-count">${t.errors} ${t.errors === 1 ? "error" : "errors"}</span>`);
     const meta = metaParts.join('<span class="sep">·</span>');
     const omitted = d.omitted ? `<div class="muted small">${d.omitted} earlier events are not shown.</div>` : "";
-    box.innerHTML = `<div class="viewer-head"><button class="icon-btn viewer-back" data-back aria-label="Back to threads">${icon("back")}</button><div><div class="viewer-title">${esc(t.title || t.path)}</div><div class="viewer-meta">${meta}</div></div></div><div class="events">${omitted}${eventsHtml(d.events, query)}</div>`;
+    box.innerHTML = `<div class="viewer-head"><button class="icon-btn viewer-back" data-back aria-label="Back to threads">${icon("back")}</button><div><div class="viewer-title">${t.title ? esc(t.title) : secret(t.path)}</div><div class="viewer-meta">${meta}</div></div></div><div class="events">${omitted}${eventsHtml(d.events, query)}</div>`;
     box.scrollTop = 0;
     const firstMatch = box.querySelector(".events mark");
     if (firstMatch) {
@@ -1639,7 +1633,7 @@ async function searchThreads() {
     if (token !== listToken) return;
     const head = `<div class="list-head"><span>${d.hits.length} ${d.hits.length === 1 ? "match" : "matches"}</span><button data-clear-search>Clear</button></div>`;
     setHtml("thread-pane", d.hits.length
-      ? head + d.hits.map((h) => `<button class="thread ${h.thread === selectedThread ? "selected" : ""}" data-thread="${esc(h.thread)}"><div class="thread-title">${esc(h.title || "Untitled thread")}</div><div class="snippet">${highlight(h.snippet, q)}</div><div class="thread-meta"><span>${esc(h.machine)}</span><span class="ago">${h.at ? esc(ago(h.at)) : ""}</span></div></button>`).join("")
+      ? head + d.hits.map((h) => `<button class="thread ${h.thread === selectedThread ? "selected" : ""}" data-thread="${esc(h.thread)}"><div class="thread-title">${esc(h.title || "Untitled thread")}</div><div class="snippet">${highlight(h.snippet, q)}</div><div class="thread-meta"><span>${secret(h.machine, esc(h.machine), "inert")}</span><span class="ago">${h.at ? esc(ago(h.at)) : ""}</span></div></button>`).join("")
       : head + '<div class="empty"><strong>No matches</strong>Try a different word.</div>');
   } catch (e) { showError(e); }
 }
@@ -1654,12 +1648,12 @@ function closeModal() {
 }
 
 function loginDone(account) {
-  openModal(`<h2>Account added</h2><p>${secret(account)} is ready to take requests.</p><div class="modal-actions"><button class="btn primary" data-close>Done</button></div>`);
+  openModal(`<h2>Account added</h2><p>${secret(account, esc(account), "inert")} is ready to take requests.</p><div class="modal-actions"><button class="btn primary" data-close>Done</button></div>`);
   refresh();
 }
 
 function loginHeading(provider, email) {
-  return email ? `<h2>Log in again</h2><p>Sign in as ${secret(email)}.</p>` : `<h2>Add a ${providerName(provider)} account</h2>`;
+  return email ? `<h2>Log in again</h2><p>Sign in as ${secret(email, esc(email), "inert")}.</p>` : `<h2>Add a ${providerName(provider)} account</h2>`;
 }
 
 async function loginClaude(email) {
@@ -1730,7 +1724,7 @@ function accountMenu(a) {
 function machineMenu(m) {
   const on = m.routing !== false;
   const item = `<button role="menuitem" data-routing="${esc(m.hostname)}" data-on="${!on}" ${m.routing === null ? "disabled" : ""}>${on ? "Turn routing off" : "Turn routing on"}</button>`;
-  const routing = m.routing === null ? `${item}<div class="menu-note">Update ${secret(m.hostname, esc(m.hostname), true)} to change its routing from here.</div>` : item;
+  const routing = m.routing === null ? `${item}<div class="menu-note">Update ${secret(m.hostname, esc(m.hostname), "inert")} to change its routing from here.</div>` : item;
   const makeHub = m.role === "hub" || m.guest ? "" : `<hr><button role="menuitem" data-make-hub="${esc(m.hostname)}">Make hub</button>`;
   return routing + makeHub;
 }
@@ -1739,8 +1733,8 @@ function confirmMakeHub(name) {
   closeMenu();
   const m = latest.machines.find((x) => x.hostname === name && !x.guest);
   if (!m) return;
-  const battery = m.has_battery ? `<p>${secret(name)} has a battery. If it leaves home or changes its IP address, your other machines lose the hub.</p>` : "";
-  openModal(`<h2>Make ${secret(name)} the hub?</h2><p>Your accounts move to ${secret(name)}, and this machine becomes its node. Requests pause for a few seconds. Codex sessions reconnect.</p>${battery}<div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn primary" id="confirm-make-hub">${m.has_battery ? "Make hub anyway" : "Make hub"}</button></div>`);
+  const battery = m.has_battery ? `<p>${secret(name, esc(name), "inert")} has a battery. If it leaves home or changes its IP address, your other machines lose the hub.</p>` : "";
+  openModal(`<h2>Make ${secret(name, esc(name), "inert")} the hub?</h2><p>Your accounts move to ${secret(name, esc(name), "inert")}, and this machine becomes its node. Requests pause for a few seconds. Codex sessions reconnect.</p>${battery}<div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn primary" id="confirm-make-hub">${m.has_battery ? "Make hub anyway" : "Make hub"}</button></div>`);
   $("confirm-make-hub").onclick = async (ev) => {
     ev.currentTarget.disabled = true;
     try {
@@ -1788,7 +1782,7 @@ function openMenu(button) {
 }
 
 function confirmRemove(id, name, kind) {
-  openModal(`<h2>Remove this ${esc(kind)} account?</h2><p>${secret(name)} stops taking requests. You will need to log in again to add it back.</p><div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn danger" id="confirm-remove">Remove account</button></div>`);
+  openModal(`<h2>Remove this ${esc(kind)} account?</h2><p>${secret(name, esc(name), "inert")} stops taking requests. You will need to log in again to add it back.</p><div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn danger" id="confirm-remove">Remove account</button></div>`);
   $("confirm-remove").onclick = async () => {
     closeModal();
     try { await api("DELETE", `/conflux/api/accounts/${encodeURIComponent(id)}`); refresh(); } catch (e) { showError(e); }
@@ -1853,7 +1847,7 @@ async function installOnMachine(button) {
     if (!row.isConnected) return showError(e);
     button.disabled = false;
     button.textContent = "Try again";
-    state.textContent = `${e.message.replace(/\.$/, "")}. Try again, or run this on ${button.dataset.name}:`;
+    state.innerHTML = `${withSecret(e.message.replace(/\.$/, ""), button.dataset.name)}. Try again, or run this on ${secret(button.dataset.name)}:`;
     row.querySelector(".code-block").hidden = false;
   }
 }
@@ -1963,6 +1957,7 @@ document.addEventListener("keydown", (ev) => {
   const hidden = ev.target.closest?.('[data-secret][role="button"]');
   if (hidden && (ev.key === "Enter" || ev.key === " ")) {
     ev.preventDefault();
+    if (ev.repeat) return;
     return toggleSecret(hidden);
   }
   if (ev.key !== "Escape" || !menuAnchor) return;
@@ -1986,7 +1981,10 @@ document.addEventListener("mouseover", (ev) => {
 
 document.addEventListener("click", (ev) => {
   const hidden = ev.target.closest('[data-secret][role="button"]');
-  if (hidden) return toggleSecret(hidden);
+  if (hidden) {
+    if (menuAnchor && !hidden.closest("#menu")) closeMenu();
+    return toggleSecret(hidden);
+  }
   const menuButton = ev.target.closest("[data-menu]");
   if (menuButton) {
     const reopen = menuAnchor !== menuButton;
