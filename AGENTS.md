@@ -69,3 +69,8 @@ Run `git config core.hooksPath .githooks` once per clone. The pre-commit hook th
 - Build in this worktree's own `target/`. Never point `CARGO_TARGET_DIR` at `/tmp` or a scratchpad, because a cold build is several GB.
 - Read-only review means no source edits. Building and running tests in the worktree is still fine.
 - Reviewers and subagents run focused tests, such as `cargo test --lib router::`. The main agent runs the full suite.
+
+## Releases
+
+- Release from the Release workflow in GitHub Actions. Pick `patch`, `minor`, or `major`. It tests, builds, commits the version bump to `main`, and publishes the release. Don't bump the version or push a tag by hand.
+- Run it from another branch to get test builds as workflow artifacts. It publishes nothing.
