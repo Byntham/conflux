@@ -367,10 +367,8 @@
   .pool-name i { width: 9px; height: 9px; border-radius: 2px; background: var(--series); }
   .pool-big { margin: 2px 0 6px; font-size: 46px; line-height: 1; font-weight: 600; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
   .pool-big span { margin-left: 5px; font-size: 13px; font-weight: 400; letter-spacing: 0; color: var(--muted); }
-  .pool-dots { display: flex; align-items: center; gap: 6px; }
-  .pool-dots i { width: 11px; height: 11px; border-radius: 50%; background: var(--series); }
-  .pool-dots i.paused { background: transparent; box-shadow: inset 0 0 0 2px var(--series); }
-  .pool-dots i.login { width: 9px; height: 9px; margin: 0 2px; border-radius: 2px; background: var(--warn-fill); transform: rotate(45deg); }
+  .pool-stats { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .pool-stats .warn { color: var(--warn); }
   .pool-tag { display: none; font-size: 12px; color: var(--muted); white-space: nowrap; }
   .pool-chip { display: inline-flex; align-items: center; gap: 6px; margin-top: 9px; padding: 3px 4px 3px 8px; border-radius: 8px; background: var(--warn-soft); font-size: 12.5px; white-space: nowrap; }
   .pool-chip svg { color: var(--warn); width: 14px; height: 14px; }
@@ -380,6 +378,9 @@
   .narrow .pool-big span, .narrow .pool-chip-text { display: none; }
   .narrow .pool-tag { display: block; }
   .narrow .pool-chip { margin: 0 0 0 auto; }
+  .narrow .pool-gut { flex-wrap: wrap; row-gap: 4px; }
+  .narrow .pool-stats { order: 1; flex-basis: 100%; flex-direction: row; flex-wrap: wrap; column-gap: 12px; }
+  .narrow .pool-stats .since { display: none; }
   .pool-chart text { font-size: 11.5px; fill: var(--muted); font-variant-numeric: tabular-nums; }
   .pool-chart text.strong { fill: var(--fg); font-weight: 500; }
   .pool-chart text.mark { fill: var(--fg-2); }
@@ -791,7 +792,7 @@ function renderMeters(a) {
     const timeLeft = windowTimeLeft(w);
     const name = windowName(w);
     const tick = timeLeft === null ? "" : `<b style="left:${timeLeft.toFixed(1)}%" title="${Math.round(timeLeft)}% of this window is left"></b>`;
-    return `<div class="meter"><span class="meter-name" title="${esc(name)}">${esc(name)}</span><div class="track" role="meter" aria-label="${esc(name)} quota left" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${left}"><i class="${cls}" style="width:${left}%"></i>${tick}</div><span class="meter-pct ${cls}">${left}%</span><span class="meter-reset">${w.resets_at ? `resets ${esc(until(w.resets_at))}` : ""}</span></div>`;
+    return `<div class="meter"><span class="meter-name" title="${esc(name)}">${esc(name)}</span><div class="track" role="meter" aria-label="${esc(name)} quota left" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${left}"><i class="${cls}" style="width:${left}%"></i>${tick}</div><span class="meter-pct ${cls}">${left}%</span><span class="meter-reset"${w.resets_at ? ` title="${esc(new Date(w.resets_at).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}"` : ""}>${w.resets_at ? `resets ${esc(until(w.resets_at))}` : ""}</span></div>`;
   }).join("")}</div>`;
 }
 
@@ -1052,9 +1053,14 @@ function renderAccounts(d) {
 const POOL_BACK_H = 168;
 const POOL_AHEAD_H = 168;
 const POOL_STEP_H = 0.001;
+const POOL_SIM_STEP_H = 0.25;
+const POOL_BURN_H = 3;
+const POOL_BURN_MIN_H = 1;
+const POOL_EMPTY = 1e-6;
 let poolGeom = null;
 
 const pct = (v) => `${Math.round(v)}%`;
+const pctLeft = (v) => (v > POOL_EMPTY && v < 0.5 ? "<1%" : pct(v));
 
 function hourSpan(hours) {
   const mins = Math.max(1, Math.round(hours * 60));
@@ -1094,12 +1100,17 @@ function buildPool(provider, d, now) {
       .filter((s) => win.key in s.used)
       .map((s) => ({ t: (new Date(s.at) - now) / HOUR_MS, v: s.used[win.key] }))
       .filter((p) => p.t < 0), { t: 0, v: usedNow(win) }];
-    const reset = (win) => (win && hoursAway(win.resets_at) > 0 ? hoursAway(win.resets_at) : Infinity);
+    const every = (win) => (win && win.duration_secs ? win.duration_secs / 3600 : Infinity);
+    const reset = (win) => {
+      const h = win ? hoursAway(win.resets_at) : Infinity;
+      return h > 0 ? h : h + Math.floor(1 - h / every(win)) * every(win) || Infinity;
+    };
     return {
+      id: a.id,
       name: a.email || a.id,
       all: points(w),
       scoped: sw ? points(sw) : null,
-      state: { allLeft: 100 - usedNow(w), allReset: reset(w), scopeLeft: sw ? 100 - usedNow(sw) : 100, scopeReset: reset(sw) },
+      state: { allLeft: 100 - usedNow(w), allReset: reset(w), allEvery: every(w), hasScope: Boolean(sw), scopeLeft: sw ? 100 - usedNow(sw) : 100, scopeReset: reset(sw), scopeEvery: every(sw) },
     };
   });
   const cap = members.length * 100;
@@ -1136,51 +1147,99 @@ function buildPool(provider, d, now) {
     const who = series.filter((s) => before.t >= s.all[0].t && usedAt(s.all, before.t) - usedAt(s.all, after.t) >= 2).map((s) => s.name);
     if (who.length) pool.refills.push({ t: after.t, gain: after.v - before.v, to: after.v, who, past: true });
   }
+  const burn = (k) => {
+    let rate = 0;
+    for (const s of series.filter((x) => x[k])) {
+      const pts = s[k].filter((p) => p.t >= -POOL_BURN_H);
+      if (pts.length < 2 || pts[0].t > -POOL_BURN_MIN_H) return null;
+      let used = 0;
+      for (let i = 1; i < pts.length; i++) used += Math.max(0, pts[i].v - pts[i - 1].v);
+      rate += used / -pts[0].t;
+    }
+    return rate;
+  };
+  const burnAll = burn("all");
+  const burnScope = burn("scoped");
+  pool.burn = burnAll === null ? null : burnAll / members.length;
+  pool.burnKnown = burnAll !== null && (!scope || burnScope !== null);
   const total = (t) => {
     let all = 0, scoped = 0;
     for (const { state } of series) { all += state.allLeft; scoped += Math.min(state.allLeft, state.scopeLeft); }
     return { t, v: (all / cap) * 100, s: (scoped / cap) * 100 };
   };
+  const byRouter = [...series].sort((p, q) => p.state.allReset - q.state.allReset || (p.id < q.id ? -1 : 1));
+  const drain = (hours) => {
+    let all = (burnAll || 0) * hours, scoped = (burnScope || 0) * hours;
+    for (const { state } of byRouter) {
+      if (state.allLeft <= 0) continue;
+      if (state.hasScope) {
+        const fromScope = Math.min(scoped, state.scopeLeft);
+        state.scopeLeft -= fromScope;
+        scoped -= fromScope;
+      } else {
+        scoped = 0;
+      }
+      const fromAll = Math.min(all, state.allLeft);
+      state.allLeft -= fromAll;
+      all -= fromAll;
+      if (all <= 0 && scoped <= 0) break;
+    }
+  };
   pool.future = [total(0)];
   pool.now = pool.future[0].v;
   pool.nowScoped = pool.future[0].s;
-  const events = [...new Set(series.flatMap((s) => [s.state.allReset, s.state.scopeReset]))].filter((t) => t <= POOL_AHEAD_H).sort((x, y) => x - y);
-  for (const t of events) {
+  let t = 0;
+  while (t < POOL_AHEAD_H) {
+    const next = Math.min(POOL_AHEAD_H, t + POOL_SIM_STEP_H, ...series.flatMap((s) => [s.state.allReset, s.state.scopeReset]));
+    drain(next - t);
+    t = next;
     const before = total(t);
+    if (pool.emptyAt === undefined && before.v <= POOL_EMPTY) pool.emptyAt = t;
     const who = [];
     for (const s of series) {
-      if (s.state.allReset === t) { s.state.allLeft = 100; who.push(s.name); }
-      if (s.state.scopeReset === t) s.state.scopeLeft = 100;
+      if (s.state.allReset <= t) { s.state.allLeft = 100; s.state.allReset += s.state.allEvery; who.push(s.name); }
+      if (s.state.scopeReset <= t) { s.state.scopeLeft = 100; s.state.scopeReset += s.state.scopeEvery; }
     }
+    byRouter.sort((p, q) => p.state.allReset - q.state.allReset || (p.id < q.id ? -1 : 1));
     const after = total(t);
-    pool.future.push(before, after);
+    pool.future.push(before);
+    if (after.v !== before.v || after.s !== before.s) pool.future.push(after);
     if (after.v - before.v > 0.5) pool.refills.push({ t, gain: after.v - before.v, to: after.v, who, past: false });
   }
-  pool.future.push(total(POOL_AHEAD_H));
   return pool;
 }
 
-function poolDot(a) {
-  const name = esc(a.email || a.id);
-  if (a.needs_login) return `<i class="login" data-tip="${name} needs login"></i>`;
-  if (!a.enabled) return `<i class="paused" data-tip="${name} is turned off"></i>`;
-  if (a.billing_blocked) return `<i class="paused" data-tip="${name} is billing blocked"></i>`;
-  if (isReady(a)) return `<i data-tip="${name} is taking requests"></i>`;
-  const cooling = accountCooldown(a);
-  const full = a.usage.windows.filter((w) => !w.model_scope && w.used_pct >= 100 && w.resets_at).map((w) => w.resets_at).sort();
-  const back = cooling ? cooling.until : full[full.length - 1];
-  return `<i class="paused" data-tip="${name} is paused${back ? `, back in ${esc(until(back))}` : ""}"></i>`;
+const POOL_DAYS = Math.round(POOL_AHEAD_H / 24);
+
+function poolOutlook(p) {
+  if (p.now <= POOL_EMPTY) {
+    const back = p.refills.find((r) => !r.past);
+    return { text: back ? `Back ${shortDate(back.t)}` : `Empty for ${POOL_DAYS}+ days`, warn: true };
+  }
+  if (p.burn === null) return null;
+  return p.emptyAt === undefined ? { text: `Lasts ${POOL_DAYS}+ days`, warn: false } : { text: `Runs out ${shortDate(p.emptyAt)}`, warn: true };
+}
+
+function poolForecast(p) {
+  const rate = p.burn === null ? "<span>No burn rate yet</span>" : `<span>Burn ${p.burn < 10 ? p.burn.toFixed(1) : Math.round(p.burn)}%/h<span class="since">, last ${POOL_BURN_H}h</span></span>`;
+  const outlook = poolOutlook(p);
+  return outlook ? `${rate}<span class="${outlook.warn ? "warn" : ""}">${esc(outlook.text)}</span>` : rate;
+}
+
+function shortDate(hours) {
+  const date = new Date(Date.now() + hours * HOUR_MS);
+  return `${date.toLocaleDateString([], { weekday: "short" })} ${date.getDate()}, ${date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
 }
 
 function poolGutter(l, narrow) {
   const p = l.pool;
   const chips = p.accounts.filter((a) => a.needs_login).map((a) => `<span class="pool-chip" data-tip="${esc(a.email || a.id)} needs login, so it is not in the pool">${icon("alert")}<span class="pool-chip-text">Needs login</span><button class="btn small" data-add="${esc(a.provider)}" data-email="${esc(a.email || "")}">Log in</button></span>`).join("");
-  const tag = p.scope && p.size ? `<span class="pool-tag">${esc(p.scope)} ${pct(p.nowScoped)}</span>` : "";
+  const tag = p.scope && p.size ? `<span class="pool-tag">${esc(p.scope)} ${esc(pctLeft(p.nowScoped))}</span>` : "";
   const ready = p.accounts.filter(isReady).length;
-  return `<div class="pool-gut pool-${esc(p.provider)}" style="top:${narrow ? l.top - 44 : l.top + 10}px">
+  return `<div class="pool-gut pool-${esc(p.provider)}" style="top:${narrow ? l.top - 62 : l.top + 4}px">
     <div class="pool-name"><i></i>${esc(providerName(p.provider))}</div>
-    <div class="pool-big">${p.size ? pct(p.now) : "–"}<span>left</span></div>
-    <div class="pool-dots" role="img" aria-label="${ready} of ${p.accounts.length} accounts taking requests now">${p.accounts.map(poolDot).join("")}</div>
+    <div class="pool-big">${p.size ? esc(pctLeft(p.now)) : "–"}<span>left</span></div>
+    <div class="pool-stats"><span>${ready} of ${p.accounts.length} ready</span>${p.size ? poolForecast(p) : ""}</div>
     ${tag}${chips}
   </div>`;
 }
@@ -1202,8 +1261,8 @@ function renderPools(d) {
   const plotW = width - padL - padR;
   let y = 22;
   for (const l of lanes) {
-    l.top = y + (narrow ? 72 : 30);
-    l.h = (narrow ? 80 : 146) + (narrow ? 24 : 72) * Math.min(3, l.pool.size);
+    l.top = y + (narrow ? 90 : 30);
+    l.h = narrow ? 120 : 200;
     y = l.top + l.h;
   }
   const bottom = y;
@@ -1218,39 +1277,47 @@ function renderPools(d) {
   first.setHours(24, 0, 0, 0);
   for (let m = first.getTime(); (m - now) / HOUR_MS <= POOL_AHEAD_H; m += 24 * HOUR_MS) midnights.push((m - now) / HOUR_MS);
   for (const t of midnights) parts.push(`<line class="grid" x1="${x(t)}" x2="${x(t)}" y1="${lanes[0].top}" y2="${bottom}"/>`);
-  parts.push(`<line class="nowline" x1="${x(0)}" x2="${x(0)}" y1="2" y2="${bottom + 6}"/>`);
+  const nowSpans = narrow ? [[2, 18], ...lanes.map((l) => [l.top, l.top + l.h + (l === lanes[lanes.length - 1] ? 6 : 0)])] : [[2, bottom + 6]];
+  for (const [y1, y2] of nowSpans) parts.push(`<line class="nowline" x1="${x(0)}" x2="${x(0)}" y1="${y1}" y2="${y2}"/>`);
   parts.push(`<text class="zone" x="${x(0) - 10}" y="13" text-anchor="end">Measured</text>`);
-  parts.push(`<text class="zone" x="${x(0) + 10}" y="13">Scheduled resets</text>`);
+  const drawn = lanes.filter((l) => l.pool.size);
+  const known = drawn.filter((l) => l.pool.burn !== null).length;
+  const full = drawn.filter((l) => l.pool.burnKnown).length;
+  const projected = !known ? "none" : full === drawn.length ? "all" : "some";
+  parts.push(`<text class="zone" x="${x(0) + 10}" y="13">${projected === "none" ? "Scheduled resets" : narrow || projected === "some" ? "Projected" : `Projected at the last ${POOL_BURN_H}h burn`}</text>`);
 
   for (const l of lanes) {
     const p = l.pool;
     const yv = (v) => l.top + l.h - (v / 100) * l.h;
     const base = l.top + l.h;
     const g = [];
-    const ticks = l.h >= 260 ? [25, 50, 75, 100] : l.h >= 130 ? [50, 100] : [100];
+    const ticks = l.h >= 180 ? [25, 50, 75, 100] : [50, 100];
     for (const v of ticks) g.push(`<line class="grid" x1="${padL}" x2="${padL + plotW}" y1="${yv(v)}" y2="${yv(v)}"/><text x="${padL - 8}" y="${yv(v) + 4}" text-anchor="end">${v}%</text>`);
     g.push(`<text x="${padL - 8}" y="${base + 4}" text-anchor="end">0</text>`);
     const path = (pts, k) => pts.map((pt, i) => `${i ? "L" : "M"}${x(pt.t).toFixed(1)} ${yv(pt[k]).toFixed(1)}`).join("");
     const area = (pts, k) => `${path(pts, k)}L${x(pts[pts.length - 1].t).toFixed(1)} ${base}L${x(pts[0].t).toFixed(1)} ${base}Z`;
-    const flats = (pts, k) => pts.map((pt, i) => (i % 2 === 0 && pts[i + 1] ? `M${x(pt.t).toFixed(1)} ${yv(pt[k]).toFixed(1)}L${x(pts[i + 1].t).toFixed(1)} ${yv(pts[i + 1][k]).toFixed(1)}` : "")).join("");
-    const risers = (pts, k, cls) => pts.map((pt, i) => (i % 2 === 1 && pts[i + 1] && pts[i + 1].t === pt.t && pts[i + 1][k] - pt[k] > 0.5 ? `<line class="riser${cls}" x1="${x(pt.t).toFixed(1)}" x2="${x(pt.t).toFixed(1)}" y1="${yv(pt[k]).toFixed(1)}" y2="${yv(pts[i + 1][k]).toFixed(1)}"/>` : "")).join("");
+    const level = (pts, k) => pts.map((pt, i) => (i && pts[i - 1].t !== pt.t ? `${i === 1 || pts[i - 2].t === pts[i - 1].t ? `M${x(pts[i - 1].t).toFixed(1)} ${yv(pts[i - 1][k]).toFixed(1)}` : ""}L${x(pt.t).toFixed(1)} ${yv(pt[k]).toFixed(1)}` : "")).join("");
+    const risers = (pts, k, cls) => pts.map((pt, i) => (pts[i + 1] && pts[i + 1].t === pt.t && pts[i + 1][k] - pt[k] > 0.5 ? `<line class="riser${cls}" x1="${x(pt.t).toFixed(1)}" x2="${x(pt.t).toFixed(1)}" y1="${yv(pt[k]).toFixed(1)}" y2="${yv(pts[i + 1][k]).toFixed(1)}"/>` : "")).join("");
     if (p.size) {
       if (p.past.length) g.push(`<path class="area" d="${area(p.past, "v")}"/>`);
       g.push(`<path class="area sched" d="${area(p.future, "v")}"/>`);
       if (p.scope && p.scopedPast.length > 1) g.push(`<path class="area scope" d="${area(p.scopedPast, "s")}"/>`);
       g.push(`<line class="base" x1="${padL}" x2="${padL + plotW}" y1="${base}" y2="${base}"/>`);
-      if (p.scope) g.push(`${p.scopedPast.length > 1 ? `<path class="trace scope" d="${path(p.scopedPast, "s")}"/>` : ""}<path class="level scope" d="${flats(p.future, "s")}"/>${risers(p.future, "s", " scope")}`);
-      g.push(`${p.past.length ? `<path class="trace" d="${path(p.past, "v")}"/>` : ""}<path class="level" d="${flats(p.future, "v")}"/>${risers(p.future, "v", "")}`);
-      for (const r of p.refills) {
+      if (p.scope) g.push(`${p.scopedPast.length > 1 ? `<path class="trace scope" d="${path(p.scopedPast, "s")}"/>` : ""}<path class="level scope" d="${level(p.future, "s")}"/>${risers(p.future, "s", " scope")}`);
+      g.push(`${p.past.length ? `<path class="trace" d="${path(p.past, "v")}"/>` : ""}<path class="level" d="${level(p.future, "v")}"/>${risers(p.future, "v", "")}`);
+      let lastRefill = -Infinity;
+      for (const r of p.refills.filter((r) => !r.past)) {
         const lx = Math.min(Math.max(x(r.t), padL + 16), padL + plotW - 16);
-        g.push(`<text class="strong" x="${lx}" y="${yv(r.to) - 8}" text-anchor="middle">+${pct(r.gain)}${r.past || narrow ? "" : ` in ${hourSpan(r.t)}`}</text>`);
+        if (lx - lastRefill < (narrow ? 40 : 90)) continue;
+        lastRefill = lx;
+        g.push(`<text class="strong" x="${lx}" y="${yv(r.to) - 8}" text-anchor="middle">+${pct(r.gain)}${narrow ? "" : ` in ${hourSpan(r.t)}`}</text>`);
       }
       if (p.scope) g.push(`<circle class="now scope" cx="${x(0)}" cy="${yv(p.nowScoped)}" r="4"/>`);
       g.push(`<circle class="now" cx="${x(0)}" cy="${yv(p.now)}" r="5"/>`);
       if (p.scope && !narrow) {
         const ya = yv(p.now) - 9, ys = Math.min(base - 6, yv(p.nowScoped) + 17);
         g.push(`<rect class="sw-all" x="${x(0) + 9}" y="${ya - 6}" width="8" height="3" rx="1.5"/><text class="mark" x="${x(0) + 21}" y="${ya}">All models</text>`);
-        g.push(`<rect class="sw-scope" x="${x(0) + 9}" y="${ys - 6}" width="8" height="3" rx="1.5"/><text class="mark" x="${x(0) + 21}" y="${ys}">${esc(p.scope)} models ${pct(p.nowScoped)}</text>`);
+        g.push(`<rect class="sw-scope" x="${x(0) + 9}" y="${ys - 6}" width="8" height="3" rx="1.5"/><text class="mark" x="${x(0) + 21}" y="${ys}">${esc(p.scope)} models ${esc(pctLeft(p.nowScoped))}</text>`);
       }
     } else {
       g.push(`<line class="base" x1="${padL}" x2="${padL + plotW}" y1="${base}" y2="${base}"/>`);
@@ -1271,8 +1338,11 @@ function renderPools(d) {
   }
   parts.push(`<line class="cross" x1="0" x2="0" y1="${lanes[0].top}" y2="${bottom}" visibility="hidden"/>`);
 
-  const summary = `Pooled quota left over the past 7 days, and the scheduled resets in the next 7 days. ${lanes.map((l) => `${providerName(l.pool.provider)} has ${l.pool.size ? pct(l.pool.now) : "no quota data"} left.`).join(" ")}`;
-  poolGeom = { lanes, padL, plotW, width, pad, height, x, at };
+  const summary = `Pooled quota left over the past 7 days, and a projection of the next 7 days. ${lanes.map((l) => {
+    const outlook = l.pool.size && poolOutlook(l.pool);
+    return `${providerName(l.pool.provider)} has ${l.pool.size ? pctLeft(l.pool.now) : "no quota data"} left${outlook ? `. ${outlook.text}` : ""}.`;
+  }).join(" ")}`;
+  poolGeom = { lanes, padL, plotW, width, pad, height, x, at, projected };
   setHtml("pool", `<div class="card pool-board"><div class="pool-chart${narrow ? " narrow" : ""}"><svg viewBox="0 0 ${width} ${height}" height="${height}" role="img" aria-label="${esc(summary)}">${parts.join("")}</svg>${lanes.map((l) => poolGutter(l, narrow)).join("")}<div class="pool-tip" hidden></div></div></div>`);
 }
 
@@ -1297,7 +1367,7 @@ function hidePoolTip() {
 function showPoolTip(ev) {
   const chart = ev.target.closest(".pool-chart");
   if (!chart || !poolGeom) return hidePoolTip();
-  const { lanes, padL, plotW, width, pad, height, x, at } = poolGeom;
+  const { lanes, padL, plotW, width, pad, height, x, at, projected } = poolGeom;
   const box = chart.getBoundingClientRect();
   const px = ev.clientX - box.left - pad;
   if (px < padL - 30) return hidePoolTip();
@@ -1311,7 +1381,7 @@ function showPoolTip(ev) {
   cross.setAttribute("x1", cx);
   cross.setAttribute("x2", cx);
   cross.setAttribute("visibility", "visible");
-  const show = (v) => (v === null ? "No data" : v < 0.5 ? "None left" : `${pct(v)} left`);
+  const show = (v) => (v === null ? "No data" : v <= POOL_EMPTY ? "None left" : `${esc(pctLeft(v))} left`);
   const rows = lanes.filter((l) => l.pool.size).map((l) => {
     const p = l.pool;
     const scoped = p.scope ? `<div class="pool-${esc(p.provider)}"><i class="scope"></i><span>${esc(p.scope)} models</span><span>${show(poolValueAt(p, tt, "s"))}</span></div>` : "";
@@ -1319,7 +1389,7 @@ function showPoolTip(ev) {
   }).join("");
   const note = near
     ? `${esc(near.who.join(", ") || "An account")} ${near.past ? "reset" : "resets"}, +${pct(near.gain)} for ${esc(providerName(near.provider))}`
-    : tt < 0 ? "Measured at a usage check" : "If you use nothing more";
+    : tt < 0 ? "Measured at a usage check" : { all: `At the last ${POOL_BURN_H}h burn rate`, some: `At the last ${POOL_BURN_H}h burn rate, where known`, none: "If you use nothing more" }[projected];
   const when = at(tt);
   const label = Math.abs(tt) < 0.6 ? "Now" : `${when.toLocaleDateString([], { weekday: "short" })} ${when.getDate()}, ${when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
   const tip = chart.querySelector(".pool-tip");
