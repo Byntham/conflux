@@ -473,16 +473,33 @@ pub fn muse_mint(http: &reqwest::Client, ep: &Endpoints, oauth_token: &str) -> r
         .json(&json!({ "onboard": false }))
 }
 
-pub async fn muse_tokens(http: &reqwest::Client, ep: &Endpoints, v: &Value) -> Result<LoginTokens> {
-    let oauth_token = v["access_token"].as_str().context("no access_token")?.to_string();
-    let resp = muse_mint(http, ep, &oauth_token).send().await?;
+async fn muse_key(http: &reqwest::Client, ep: &Endpoints, oauth_token: &str) -> Result<Value> {
+    let resp = muse_mint(http, ep, oauth_token).send().await?;
     let status = resp.status();
     let text = resp.text().await?;
     if !status.is_success() {
         bail!("Muse key request failed (HTTP {status}): {}", truncate(&text, 300));
     }
-    let key: Value = serde_json::from_str(&text).context("parse Muse key response")?;
-    let api_key = key["api_key"].as_str().context("no api_key")?.to_string();
+    serde_json::from_str(&text).context("parse Muse key response")
+}
+
+pub async fn muse_tokens(http: &reqwest::Client, ep: &Endpoints, v: &Value) -> Result<LoginTokens> {
+    let oauth_token = v["access_token"].as_str().context("no access_token")?.to_string();
+    let mut attempt = 0;
+    let key = loop {
+        attempt += 1;
+        match muse_key(http, ep, &oauth_token).await {
+            Ok(key) => break key,
+            Err(e) if attempt >= 3 => return Err(e),
+            Err(e) => tracing::warn!("Muse key request failed, trying again: {e:#}"),
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    };
+    let api_key = key["api_key"]
+        .as_str()
+        .filter(|k| !k.is_empty())
+        .context("no api_key")?
+        .to_string();
     let email = key["user_email"]
         .as_str()
         .filter(|e| !e.is_empty())

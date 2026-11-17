@@ -499,6 +499,7 @@ pub fn env_warnings() -> Vec<String> {
         "OPENAI_BASE_URL",
         "GROK_HOME",
         "GROK_CLI_CHAT_PROXY_BASE_URL",
+        "XDG_CONFIG_HOME",
     ]
     .iter()
     .filter(|k| std::env::var(k).is_ok_and(|v| !v.is_empty()))

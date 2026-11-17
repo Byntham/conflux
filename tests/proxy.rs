@@ -593,6 +593,74 @@ async fn muse_requests_route_report_quota_and_fail_over() {
             ("/meta/muse-code/models", second)
         ]
     );
+    for path in ["search", "browser_open", "feedback/v2"] {
+        let r = h
+            .http
+            .post(format!("{}/muse-code/{path}", h.base))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 200, "{path}");
+    }
+}
+
+#[tokio::test]
+async fn muse_device_login_mints_the_key_and_retries_a_failed_mint() {
+    let h = Harness::new().await;
+    let code = json!({"device_code": "dc", "user_code": "WXYZ-1234", "verification_uri": "https://auth.example/device", "interval": 1});
+    h.reply("", Reply::Json(200, vec![], code.to_string()));
+    h.reply(
+        "",
+        Reply::Json(400, vec![], json!({"error": "authorization_pending"}).to_string()),
+    );
+    h.reply(
+        "",
+        Reply::Json(200, vec![], json!({"access_token": "dca-oauth"}).to_string()),
+    );
+    h.reply("dca-oauth", Reply::Json(503, vec![], "busy".into()));
+    let key = json!({"api_key": "LLM|1|k", "user_email": "M@example.com", "subs_tier_name": "Power"});
+    h.reply("dca-oauth", Reply::Json(200, vec![], key.to_string()));
+
+    let start: serde_json::Value = h
+        .http
+        .post(format!("{}/conflux/api/login/muse/start", h.base))
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(start["status"]["user_code"], "WXYZ-1234");
+    let id = start["login_id"].as_str().unwrap();
+    let mut status = serde_json::Value::Null;
+    for _ in 0..100 {
+        status = h
+            .http
+            .get(format!("{}/conflux/api/login/{id}", h.base))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        if status["state"] != "pending" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(status["state"], "done", "{status}");
+    let account = h.app.store.get(status["account"].as_str().unwrap()).unwrap();
+    let c = account.credentials();
+    assert_eq!(account.provider, Provider::Muse);
+    assert_eq!(
+        (c.grant.access_token.as_str(), c.grant.refresh_token.as_str()),
+        ("LLM|1|k", "dca-oauth")
+    );
+    assert_eq!(
+        (c.identity.as_str(), c.plan.as_deref()),
+        ("m@example.com", Some("Power"))
+    );
 }
 
 #[tokio::test]
