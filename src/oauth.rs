@@ -432,6 +432,10 @@ pub async fn grok_tokens(http: &reqwest::Client, ep: &Endpoints, v: &Value) -> R
     if email.is_none() {
         email = grok_userinfo_email(http, ep, &access).await;
     }
+    let expires_in = v["expires_in"]
+        .as_i64()
+        .or_else(|| jwt_seconds_left(&access))
+        .unwrap_or(6 * 3600);
     Ok(LoginTokens {
         provider: Provider::Grok,
         identity: user,
@@ -440,7 +444,7 @@ pub async fn grok_tokens(http: &reqwest::Client, ep: &Endpoints, v: &Value) -> R
         chatgpt_account_id: None,
         access_token: access,
         refresh_token: refresh,
-        expires_at: Utc::now() + chrono::Duration::seconds(v["expires_in"].as_i64().unwrap_or(6 * 3600)),
+        expires_at: Utc::now() + chrono::Duration::seconds(expires_in),
         id_token: v["id_token"].as_str().map(str::to_string),
     })
 }

@@ -348,10 +348,10 @@ async fn grok_device_login_adds_the_account() {
     let code = json!({"device_code": "dc", "user_code": "ABCD-EFGH", "verification_uri": "https://accounts.example/device", "interval": 1});
     h.reply("", Reply::Json(200, vec![], code.to_string()));
     let pending = json!({"error": "authorization_pending"}).to_string();
+    let exp = (Utc::now() + chrono::Duration::hours(1)).timestamp();
     let tokens = json!({
-        "access_token": jwt(json!({"sub": "user-1"})),
+        "access_token": jwt(json!({"sub": "user-1", "exp": exp})),
         "refresh_token": "rt-new",
-        "expires_in": 21600,
         "id_token": jwt(json!({"email": "g@example.com"})),
     });
     {
@@ -393,6 +393,7 @@ async fn grok_device_login_adds_the_account() {
     let account = h.app.store.get(status["account"].as_str().unwrap()).unwrap();
     assert_eq!(account.provider, Provider::Grok);
     assert_eq!(account.credentials().grant.refresh_token, "rt-new");
+    assert!((account.credentials().grant.expires_at.timestamp() - exp).abs() < 5);
 }
 
 #[tokio::test]
