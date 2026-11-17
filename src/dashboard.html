@@ -1060,6 +1060,7 @@ const POOL_EMPTY = 1e-6;
 let poolGeom = null;
 
 const pct = (v) => `${Math.round(v)}%`;
+const pctLeft = (v) => (v > POOL_EMPTY && v < 0.5 ? "<1%" : pct(v));
 
 function hourSpan(hours) {
   const mins = Math.max(1, Math.round(hours * 60));
@@ -1233,11 +1234,11 @@ function shortDate(hours) {
 function poolGutter(l, narrow) {
   const p = l.pool;
   const chips = p.accounts.filter((a) => a.needs_login).map((a) => `<span class="pool-chip" data-tip="${esc(a.email || a.id)} needs login, so it is not in the pool">${icon("alert")}<span class="pool-chip-text">Needs login</span><button class="btn small" data-add="${esc(a.provider)}" data-email="${esc(a.email || "")}">Log in</button></span>`).join("");
-  const tag = p.scope && p.size ? `<span class="pool-tag">${esc(p.scope)} ${pct(p.nowScoped)}</span>` : "";
+  const tag = p.scope && p.size ? `<span class="pool-tag">${esc(p.scope)} ${esc(pctLeft(p.nowScoped))}</span>` : "";
   const ready = p.accounts.filter(isReady).length;
   return `<div class="pool-gut pool-${esc(p.provider)}" style="top:${narrow ? l.top - 62 : l.top + 4}px">
     <div class="pool-name"><i></i>${esc(providerName(p.provider))}</div>
-    <div class="pool-big">${!p.size ? "–" : p.now > POOL_EMPTY && p.now < 0.5 ? "&lt;1%" : pct(p.now)}<span>left</span></div>
+    <div class="pool-big">${p.size ? esc(pctLeft(p.now)) : "–"}<span>left</span></div>
     <div class="pool-stats"><span>${ready} of ${p.accounts.length} ready</span>${p.size ? poolForecast(p) : ""}</div>
     ${tag}${chips}
   </div>`;
@@ -1316,7 +1317,7 @@ function renderPools(d) {
       if (p.scope && !narrow) {
         const ya = yv(p.now) - 9, ys = Math.min(base - 6, yv(p.nowScoped) + 17);
         g.push(`<rect class="sw-all" x="${x(0) + 9}" y="${ya - 6}" width="8" height="3" rx="1.5"/><text class="mark" x="${x(0) + 21}" y="${ya}">All models</text>`);
-        g.push(`<rect class="sw-scope" x="${x(0) + 9}" y="${ys - 6}" width="8" height="3" rx="1.5"/><text class="mark" x="${x(0) + 21}" y="${ys}">${esc(p.scope)} models ${pct(p.nowScoped)}</text>`);
+        g.push(`<rect class="sw-scope" x="${x(0) + 9}" y="${ys - 6}" width="8" height="3" rx="1.5"/><text class="mark" x="${x(0) + 21}" y="${ys}">${esc(p.scope)} models ${esc(pctLeft(p.nowScoped))}</text>`);
       }
     } else {
       g.push(`<line class="base" x1="${padL}" x2="${padL + plotW}" y1="${base}" y2="${base}"/>`);
@@ -1339,7 +1340,7 @@ function renderPools(d) {
 
   const summary = `Pooled quota left over the past 7 days, and a projection of the next 7 days. ${lanes.map((l) => {
     const outlook = l.pool.size && poolOutlook(l.pool);
-    return `${providerName(l.pool.provider)} has ${l.pool.size ? pct(l.pool.now) : "no quota data"} left${outlook ? `. ${outlook.text}` : ""}.`;
+    return `${providerName(l.pool.provider)} has ${l.pool.size ? pctLeft(l.pool.now) : "no quota data"} left${outlook ? `. ${outlook.text}` : ""}.`;
   }).join(" ")}`;
   poolGeom = { lanes, padL, plotW, width, pad, height, x, at, projected };
   setHtml("pool", `<div class="card pool-board"><div class="pool-chart${narrow ? " narrow" : ""}"><svg viewBox="0 0 ${width} ${height}" height="${height}" role="img" aria-label="${esc(summary)}">${parts.join("")}</svg>${lanes.map((l) => poolGutter(l, narrow)).join("")}<div class="pool-tip" hidden></div></div></div>`);
@@ -1380,7 +1381,7 @@ function showPoolTip(ev) {
   cross.setAttribute("x1", cx);
   cross.setAttribute("x2", cx);
   cross.setAttribute("visibility", "visible");
-  const show = (v) => (v === null ? "No data" : v < 0.5 ? "None left" : `${pct(v)} left`);
+  const show = (v) => (v === null ? "No data" : v <= POOL_EMPTY ? "None left" : `${esc(pctLeft(v))} left`);
   const rows = lanes.filter((l) => l.pool.size).map((l) => {
     const p = l.pool;
     const scoped = p.scope ? `<div class="pool-${esc(p.provider)}"><i class="scope"></i><span>${esc(p.scope)} models</span><span>${show(poolValueAt(p, tt, "s"))}</span></div>` : "";
