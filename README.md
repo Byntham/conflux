@@ -109,7 +109,7 @@ Either way, the machine then shows on the dashboard's Machines page, and its cod
 
 ### 4. Restart and check
 
-Restart Claude Code and Codex on every machine that runs them, including the hub. Send a message. It shows up on the dashboard's Requests page. If it doesn't, see [Troubleshooting](docs/troubleshooting.md) or [open an issue](https://github.com/Byntham/conflux/issues).
+Restart your coding tools on every machine that runs them, including the hub. Send a message. It shows up on the dashboard's Requests page. If it doesn't, see [Troubleshooting](docs/troubleshooting.md) or [open an issue](https://github.com/Byntham/conflux/issues).
 
 The [install guide](docs/install.md) covers guests, linking from the hub, the Mac menu bar app, updates, and uninstalling.
 
