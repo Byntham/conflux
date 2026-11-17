@@ -944,6 +944,7 @@ fn print_status(v: &Value) -> Result<()> {
             .iter()
             .min_by_key(|w| w["duration_secs"].as_i64().unwrap_or(i64::MAX));
         let long = shared.iter().max_by_key(|w| w["duration_secs"].as_i64().unwrap_or(0));
+        let short = short.filter(|_| shared.len() > 1);
         let mut status = Vec::new();
         if a["enabled"] == false {
             status.push("disabled".to_string());

@@ -44,6 +44,7 @@ async fn auth_files_match_what_t3_decodes() {
     let h = Harness::new().await;
     let claude = h.add(Provider::Claude, "a").await;
     let codex = h.add(Provider::Codex, "c").await;
+    h.add(Provider::Grok, "g").await;
     h.app
         .store
         .get(&claude)
@@ -61,7 +62,7 @@ async fn auth_files_match_what_t3_decodes() {
         .await
         .unwrap();
     let files = v["files"].as_array().unwrap();
-    assert_eq!(files.len(), 2);
+    assert_eq!(files.len(), 2, "T3 only knows Claude and Codex accounts");
     let c = files.iter().find(|f| f["id"] == codex.as_str()).unwrap();
     assert_eq!(c["auth_index"], codex.as_str());
     assert_eq!(c["provider"], "codex");

@@ -93,6 +93,7 @@ pub async fn auth_files(State(app): State<Arc<App>>) -> Json<Value> {
         .all()
         .iter()
         .filter(|e| e.credentials().generation > 0)
+        .filter(|e| matches!(e.provider, Provider::Claude | Provider::Codex))
         .map(|e| {
             let c = e.credentials();
             let mut file = json!({
