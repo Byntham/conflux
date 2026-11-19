@@ -87,15 +87,19 @@ struct Pool: Identifiable {
             $0.enabled && $0.needsLogin == nil && $0.billingBlocked == nil && !$0.sharedWindows.isEmpty
         }
         let shared = members.flatMap(\.sharedWindows).sorted { ($0.durationSecs ?? .max) < ($1.durationSecs ?? .max) }
-        return [false, true].compactMap { long -> UsageWindow? in
-            let group = shared.filter { (($0.durationSecs ?? 0) >= 2 * 86400) == long }
-            guard !group.isEmpty else { return nil }
+        let bucket = { (window: UsageWindow) in
+            window.durationSecs.map { $0 >= 2 * 86400 ? "long" : "short" } ?? window.key
+        }
+        var buckets: [String] = []
+        for window in shared where !buckets.contains(bucket(window)) { buckets.append(bucket(window)) }
+        return buckets.map { name in
+            let group = shared.filter { bucket($0) == name }
             let used = group.map { window in
                 window.resetsAt.map { $0 <= now } == true ? 0 : min(100, max(0, window.usedPct))
             }
             let refill = zip(group, used).filter { $1 > 0 }.compactMap { $0.0.resetsAt }.filter { $0 > now }.min()
             return UsageWindow(
-                key: group[0].key,
+                key: name,
                 usedPct: used.reduce(0, +) / Double(members.count),
                 resetsAt: refill,
                 durationSecs: group[0].durationSecs,
@@ -212,7 +216,7 @@ final class Model: ObservableObject {
             }
         case let .answered(status, body):
             dashboard = nil
-            if let node, !node.hubLink.connected {
+            if let node, !node.hubLink.connected || status == 503 {
                 phase = .hubUnreachable
             } else {
                 let error = (try? JSONSerialization.jsonObject(with: body) as? [String: Any])?["error"] as? String
