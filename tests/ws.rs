@@ -57,7 +57,7 @@ async fn relays_frames_with_account_auth_and_beta() {
     ws.send(create("gpt-6.2-sol")).await.unwrap();
     assert_eq!(next_json(&mut ws).await.unwrap()["response"]["id"], "resp_at-c_2");
     while next_json(&mut ws).await.unwrap()["type"] != "response.completed" {}
-    let nested = json!({"type": "response.create", "response": {"model": "gpt-6.2-astra"}});
+    let nested = json!({"type": "response.create", "model": 5, "response": {"model": "gpt-6.2-astra"}});
     ws.send(Message::Binary(nested.to_string().into_bytes().into()))
         .await
         .unwrap();

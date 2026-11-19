@@ -52,10 +52,18 @@ struct FrameKind<'a> {
     kind: Option<Cow<'a, str>>,
 }
 
-fn frame_model(v: &Value) -> Option<String> {
-    v["model"]
-        .as_str()
-        .or_else(|| v["response"]["model"].as_str())
+#[derive(Default, Deserialize)]
+struct FrameModel {
+    model: Option<Value>,
+    response: Option<Value>,
+}
+
+fn frame_model(frame: &[u8]) -> Option<String> {
+    let f: FrameModel = serde_json::from_slice(frame).unwrap_or_default();
+    f.model
+        .as_ref()
+        .and_then(Value::as_str)
+        .or_else(|| f.response.as_ref().and_then(|r| r["model"].as_str()))
         .map(str::to_string)
 }
 
@@ -124,7 +132,7 @@ pub fn first_frame_route(headers: &HeaderMap, first: &str) -> RouteRequest {
     let v: Value = serde_json::from_str(first).unwrap_or(Value::Null);
     RouteRequest {
         provider: Provider::Codex,
-        model: frame_model(&v),
+        model: frame_model(first.as_bytes()),
         session: proxy::codex_session(headers, &v),
     }
 }
@@ -344,8 +352,7 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, upstrea
                 };
                 if let Some(frame) = frame {
                     turn.started.set(Instant::now());
-                    let v: Value = serde_json::from_slice(frame).unwrap_or(Value::Null);
-                    if let Some(model) = frame_model(&v) {
+                    if let Some(model) = frame_model(frame) {
                         route.model = Some(model);
                     }
                 }

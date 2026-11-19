@@ -482,7 +482,7 @@ mod tests {
         apply_event(
             Provider::Codex,
             &mut u,
-            &json!({"type": "response.failed", "response": {"usage": null, "service_tier": "priority"}}),
+            &json!({"type": "response.cancelled", "response": {"usage": null, "service_tier": "priority"}}),
         );
         assert_eq!((u.input, u.cache_read, u.output, u.speed), (20, 80, 5, Speed::Fast));
     }
