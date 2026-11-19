@@ -13,7 +13,7 @@ enum Phase: Equatable {
     case ready
 }
 
-enum AccountState {
+enum AccountState: Equatable {
     case ready
     case needsLogin
     case billingBlocked
@@ -34,6 +34,11 @@ enum AccountState {
         case .needsLogin, .billingBlocked: return true
         default: return false
         }
+    }
+
+    var coolingUntil: Date? {
+        if case let .cooling(until) = self { return until }
+        return nil
     }
 }
 
@@ -66,12 +71,45 @@ extension Account {
         if !cooldowns.isEmpty { return .modelsCooling(cooldowns.count) }
         return .ready
     }
+}
 
-    var providerName: String {
+struct Pool: Identifiable {
+    let provider: String
+    let accounts: [Account]
+
+    var id: String { provider }
+
+    var name: String {
         switch provider {
         case "claude": return "Claude"
         case "codex": return "Codex"
         default: return provider.capitalized
+        }
+    }
+
+    func windows(now: Date) -> [UsageWindow] {
+        let members = accounts.filter {
+            $0.enabled && $0.needsLogin == nil && $0.billingBlocked == nil && !$0.sharedWindows.isEmpty
+        }
+        let shared = members.flatMap(\.sharedWindows).sorted { ($0.durationSecs ?? .max) < ($1.durationSecs ?? .max) }
+        let bucket = { (window: UsageWindow) in
+            window.durationSecs.map { $0 >= 2 * 86400 ? "long" : "short" } ?? window.key
+        }
+        var buckets: [String] = []
+        for window in shared where !buckets.contains(bucket(window)) { buckets.append(bucket(window)) }
+        return buckets.map { name in
+            let group = shared.filter { bucket($0) == name }
+            let used = group.map { window in
+                window.resetsAt.map { $0 <= now } == true ? 0 : min(100, max(0, window.usedPct))
+            }
+            let refill = zip(group, used).filter { $1 > 0 }.compactMap { $0.0.resetsAt }.filter { $0 > now }.min()
+            return UsageWindow(
+                key: name,
+                usedPct: used.reduce(0, +) / Double(members.count),
+                resetsAt: refill,
+                durationSecs: group[0].durationSecs,
+                modelScope: nil
+            )
         }
     }
 }
@@ -187,9 +225,13 @@ final class Model: ObservableObject {
                 phase = .hubUnreachable
             } else {
                 let error = (try? JSONSerialization.jsonObject(with: body) as? [String: Any])?["error"] as? String
-                phase = .problem(error ?? "conflux answered HTTP \(status).")
+                phase = .problem(withoutHubAddress(error ?? "conflux answered HTTP \(status)."))
             }
         }
+    }
+
+    private func withoutHubAddress(_ text: String) -> String {
+        node.map { text.replacingOccurrences(of: " (\($0.hub))", with: "") } ?? text
     }
 
     private func fetch(_ url: URL) async -> Fetched {
@@ -216,6 +258,12 @@ final class Model: ObservableObject {
 
     var accounts: [Account] {
         dashboard?.accounts ?? []
+    }
+
+    var pools: [Pool] {
+        Dictionary(grouping: accounts, by: \.provider)
+            .map { Pool(provider: $0.key, accounts: $0.value) }
+            .sorted { $0.provider < $1.provider }
     }
 
     var readyCount: Int {
@@ -319,17 +367,17 @@ final class Model: ObservableObject {
     var roleLine: String {
         switch phase {
         case .ready:
-            let version = latestVersion == nil ? dashboard.map { " · v\($0.hub.version)" } ?? "" : ""
-            if let node { return "Linked to \(node.hub)\(version)" }
-            return "This Mac is the hub\(version)"
+            let version = latestVersion == nil ? dashboard.map { "v\($0.hub.version)" } : nil
+            if node != nil { return version ?? "" }
+            return ["This Mac is the hub", version].compactMap { $0 }.joined(separator: " · ")
         case .hubUnreachable, .notApproved:
-            return node.map { "Linked to \($0.hub)" } ?? "Linked to a hub"
+            return "Linked to a hub"
         case .waiting:
             return "Waiting to be linked"
         case .notRunning:
             switch local.config("role") {
             case "hub": return "This Mac is the hub"
-            case "node": return local.config("hub").map { "Linked to \($0)" } ?? "Linked to a hub"
+            case "node": return "Linked to a hub"
             case "waiting": return "Waiting to be linked"
             default: return runningVersion.map { "v\($0)" } ?? ""
             }
@@ -350,7 +398,7 @@ final class Model: ObservableObject {
             do {
                 try await work()
             } catch {
-                failure = error.localizedDescription
+                failure = withoutHubAddress(error.localizedDescription)
             }
             busy = nil
             await refresh()

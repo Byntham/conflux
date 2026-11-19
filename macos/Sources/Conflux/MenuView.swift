@@ -78,7 +78,7 @@ struct MenuView: View {
         case .hubUnreachable:
             Notice(
                 title: "Can't reach the hub",
-                detail: "\(model.node?.hub ?? "The hub") isn't answering. To keep working, turn off routing below, then restart your coding tools."
+                detail: "The hub isn't answering. To keep working, turn off routing below, then restart your coding tools."
             )
         case .notApproved:
             if model.node?.access?.state == "pending" {
@@ -129,11 +129,13 @@ struct Header: View {
                 .overlay(iconShape.strokeBorder(Color.primary.opacity(0.15), lineWidth: 0.5))
             VStack(alignment: .leading, spacing: 1) {
                 Text("conflux").font(.system(size: 13, weight: .semibold))
-                Text(model.roleLine)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Palette.muted)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                if !model.roleLine.isEmpty {
+                    Text(model.roleLine)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Palette.muted)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
             }
             Spacer(minLength: 8)
             if let busy = model.busy {
@@ -222,74 +224,76 @@ struct Accounts: View {
                 Button("Add account…") { model.openDashboard() }.glassButton(prominent: true)
             }
         } else {
-            let rows = VStack(alignment: .leading, spacing: 16) {
-                ForEach(model.accounts) { account in
-                    AccountRow(account: account, now: model.now, openDashboard: model.openDashboard)
-                }
-            }
-            .padding(.horizontal, 14)
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 8) {
-                    Text("Accounts")
+                    Text("Pools")
                     Spacer()
                     Text("Left").frame(width: 34, alignment: .trailing)
                     Text("Resets in").frame(width: 52, alignment: .trailing)
                 }
                 .font(.system(size: 11))
                 .foregroundStyle(Palette.muted)
-                .padding(.horizontal, 14)
-                if model.accounts.count > 4 {
-                    ScrollView { rows }.frame(height: 330)
-                } else {
-                    rows
+                VStack(alignment: .leading, spacing: 16) {
+                    ForEach(model.pools) { pool in
+                        PoolRow(pool: pool, now: model.now, openDashboard: model.openDashboard)
+                    }
                 }
             }
+            .padding(.horizontal, 14)
             .padding(.vertical, 4)
         }
     }
 }
 
-struct AccountRow: View {
-    let account: Account
+struct PoolRow: View {
+    let pool: Pool
     let now: Date
     let openDashboard: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(account.email ?? account.id)
-                    .font(.system(size: 13, weight: .medium))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(kind)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Palette.muted)
-                    .lineLimit(1)
+                Text(pool.name).font(.system(size: 13, weight: .medium))
                 Spacer(minLength: 6)
-                StatePill(state: account.state(now: now), now: now)
+                status
             }
-            let windows = account.sharedWindows
-            if account.needsLogin != nil {
+            let windows = pool.windows(now: now)
+            ForEach(windows) { window in
+                Meter(window: window, now: now)
+            }
+            if pool.accounts.contains(where: { $0.needsLogin != nil }) {
                 Button("Log in again in the dashboard", action: openDashboard)
                     .buttonStyle(LinkButton())
                     .font(.system(size: 13))
-            } else if windows.isEmpty {
+            } else if windows.isEmpty && pool.accounts.contains(where: { $0.enabled && $0.billingBlocked == nil }) {
                 Text("No usage data yet")
                     .font(.system(size: 11))
                     .foregroundStyle(Palette.muted)
-            } else {
-                ForEach(windows) { window in
-                    Meter(window: window, now: now)
-                }
             }
         }
-        .opacity(account.enabled ? 1 : 0.55)
+        .opacity(pool.accounts.contains(where: \.enabled) ? 1 : 0.55)
     }
 
-    private var kind: String {
-        [account.providerName, account.plan.map { $0.replacingOccurrences(of: "_", with: " ").capitalized }]
-            .compactMap { $0 }
-            .joined(separator: " ")
+    @ViewBuilder private var status: some View {
+        let states = pool.accounts.map { $0.state(now: now) }.filter { $0 != .disabled }
+        let cooling = states.compactMap(\.coolingUntil)
+        if states.isEmpty {
+            StatePill(state: .disabled, now: now)
+        } else if states.allSatisfy({ $0 == states[0] }) {
+            StatePill(state: states[0], now: now)
+        } else if !cooling.isEmpty && cooling.count == states.count {
+            StatePill(state: .cooling(until: cooling.min() ?? now), now: now)
+        } else if states.allSatisfy(\.canServe) {
+            StatePill(state: states.first { $0 != .ready } ?? .ready, now: now)
+        } else {
+            let ready = states.filter(\.canServe).count
+            let problem = states.contains(where: \.isProblem)
+            Pill(
+                text: "\(ready) of \(states.count) ready",
+                color: problem ? Palette.bad : Palette.warn,
+                tint: problem ? Palette.badFill : Palette.warnFill
+            )
+        }
     }
 }
 
@@ -308,15 +312,7 @@ struct StatePill: View {
             Text("Disabled").font(.system(size: 11)).foregroundStyle(Palette.muted)
         default:
             let (text, color, tint) = problem
-            Text(text)
-                .font(.system(size: 10.5, weight: .semibold))
-                .foregroundStyle(color)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2)
-                .background(tint.opacity(0.2), in: Capsule())
-                .background(Palette.pillBase, in: Capsule())
-                .lineLimit(1)
-                .fixedSize()
+            Pill(text: text, color: color, tint: tint)
         }
     }
 
@@ -329,6 +325,24 @@ struct StatePill: View {
         case let .modelsCooling(n): return ("\(n) \(n == 1 ? "model" : "models") cooling", Palette.warn, Palette.warnFill)
         case .ready, .disabled: return ("", .clear, .clear)
         }
+    }
+}
+
+struct Pill: View {
+    let text: String
+    let color: Color
+    let tint: Color
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 10.5, weight: .semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(tint.opacity(0.2), in: Capsule())
+            .background(Palette.pillBase, in: Capsule())
+            .lineLimit(1)
+            .fixedSize()
     }
 }
 
@@ -362,7 +376,7 @@ struct Meter: View {
                 .frame(width: 52, alignment: .trailing)
                 .lineLimit(1)
         }
-        .help("\(Int(left))% of the \(name) limit left" + (window.resetsAt.map { ", resets in \(Countdown.text($0, now: now))" } ?? ""))
+        .help("\(Int(left))% of the \(name) limit left, averaged across accounts" + (window.resetsAt.map { ". The next account resets in \(Countdown.text($0, now: now))" } ?? ""))
     }
 
     private func color(_ left: Double) -> Color {

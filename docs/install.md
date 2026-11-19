@@ -54,7 +54,7 @@ Then run `conflux join self` on the hub, or `conflux wait` on other machines, an
 
 ## The Mac menu bar app
 
-Conflux.app adds an icon to the menu bar. It shows every account's limits, and lets you update machines, turn routing on or off for this Mac, and open the dashboard. A dot on the icon means something needs you, such as an account that needs a new login.
+Conflux.app adds an icon to the menu bar. It shows each provider's limits, pooled across its accounts, and lets you update machines, turn routing on or off for this Mac, and open the dashboard. A dot on the icon means something needs you, such as an account that needs a new login.
 
 Quitting the app doesn't stop conflux. The app opens again at your next login.
 
