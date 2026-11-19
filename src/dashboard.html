@@ -1652,7 +1652,8 @@ function usageStarts(range) {
     return [floor, ...tops];
   }
   const days = USAGE_DAYS[range];
-  return Array.from({ length: days }, (_, i) => new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1 - i)).getTime());
+  const starts = Array.from({ length: days }, (_, i) => new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1 - i)).getTime());
+  return starts.filter((ms, i) => !i || ms > starts[i - 1]);
 }
 
 async function loadUsage() {
@@ -1733,7 +1734,7 @@ function axisText(v, step) {
   if (!byCost()) return compactAxis.format(v);
   if (step >= 1 && Number.isInteger(step)) return `$${Math.round(v).toLocaleString("en-US")}`;
   let digits = 2;
-  while (digits < 6 && Math.abs(step * 10 ** digits - Math.round(step * 10 ** digits)) > 1e-6) digits++;
+  while (digits < 10 && Math.abs(step * 10 ** digits - Math.round(step * 10 ** digits)) > 1e-6) digits++;
   return `$${v.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
 }
 
@@ -1756,7 +1757,8 @@ function controls(values) {
 function usageChart(u, width) {
   if (byCost() && !u.total.cost) {
     usageGeom = null;
-    return `<div class="usage-chart"><h2>${u.hourly ? "Hourly" : "Daily"} cost</h2><div class="chart-empty">None of these tokens has a public price. Switch to Tokens to see them over time.</div></div>`;
+    const why = u.prices_fetched_at ? "None of these tokens has a public price." : "Prices haven't loaded yet.";
+    return `<div class="usage-chart"><h2>${u.hourly ? "Hourly" : "Daily"} cost</h2><div class="chart-empty">${why} Switch to Tokens to see them over time.</div></div>`;
   }
   const s = usageSeries(u);
   const narrow = width < 520;
@@ -1868,7 +1870,7 @@ function usageProvider(g, total, pricedOnly) {
   return `<div class="usage-provider">
     <div class="usage-provider-name"><span class="dot ${esc(g.provider)}"></span><span class="truncate">${esc(providerName(g.provider))}</span><small>${g.sessions.toLocaleString()} ${g.sessions === 1 ? "session" : "sessions"}</small></div>
     <div class="usage-provider-value">${esc(metricText(v))}${partial(g)}</div>
-    <div class="usage-provider-sub">${share(v, total)} of ${byCost() ? (pricedOnly ? "priced cost" : "cost") : "tokens"} · ${other}</div>
+    <div class="usage-provider-sub">${v === null ? "" : `${share(v, total)} of ${byCost() ? (pricedOnly ? "priced cost" : "cost") : "tokens"} · `}${other}</div>
   </div>`;
 }
 
@@ -2477,6 +2479,7 @@ window.addEventListener("hashchange", showView);
 window.addEventListener("resize", () => { closeMenu(); if (latest) { renderChart(latest); renderPools(latest); renderUsage(); } });
 $("usage-body").addEventListener("pointermove", showUsageTip);
 $("usage-body").addEventListener("pointerdown", showUsageTip);
+document.addEventListener("pointerdown", (ev) => { if (!ev.target.closest(".usage-chart")) hideUsageTip(); });
 $("usage-body").addEventListener("pointerleave", (ev) => { if (ev.pointerType !== "touch") hideUsageTip(); });
 $("usage-machine").onchange = loadUsage;
 $("usage-provider").onchange = loadUsage;

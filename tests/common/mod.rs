@@ -171,7 +171,7 @@ async fn fake_ws(fake: Arc<Fake>, req: Request) -> Response {
                     json!({"type": "response.created", "response": {"id": format!("resp_{token}_{n}"), "model": "resolved-by-upstream"}}),
                     json!({"type": "codex.rate_limits", "rate_limits": {
                         "primary": {"used_percent": 33.0, "window_minutes": 300, "reset_after_seconds": 100}}}),
-                    json!({"type": "response.completed", "response": {"id": format!("resp_{token}_{n}"), "token": token}}),
+                    json!({"type": "response.completed", "response": {"id": format!("resp_{token}_{n}"), "token": token, "usage": {"output_tokens": 1}}}),
                 ],
             };
             for f in frames {

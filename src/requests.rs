@@ -287,17 +287,22 @@ impl BodyScanner {
                 }
                 continue;
             }
-            if let Some(data) = self.line.strip_prefix(b"data:")
-                && is_interesting(data)
-                && let Ok(v) = serde_json::from_slice::<Value>(data.trim_ascii())
-            {
-                sink(v);
-            }
-            self.line.clear();
+            self.take_line(sink);
         }
     }
 
+    fn take_line(&mut self, sink: &mut impl FnMut(Value)) {
+        if let Some(data) = self.line.strip_prefix(b"data:")
+            && is_interesting(data)
+            && let Ok(v) = serde_json::from_slice::<Value>(data.trim_ascii())
+        {
+            sink(v);
+        }
+        self.line.clear();
+    }
+
     pub fn finish(&mut self, sink: &mut impl FnMut(Value)) {
+        self.take_line(sink);
         if !self.whole.is_empty()
             && let Ok(v) = serde_json::from_slice::<Value>(&self.whole)
         {
@@ -437,6 +442,13 @@ mod tests {
         let (a, b) = line.split_at(20);
         assert!(collect(&mut s, a).is_empty());
         assert_eq!(collect(&mut s, b)[0]["usage"]["output_tokens"], 7);
+        assert!(collect(&mut s, b"data: {\"usage\":{\"output_tokens\":8}}").is_empty());
+        let mut last = Vec::new();
+        s.finish(&mut |v| last.push(v));
+        assert_eq!(
+            last[0]["usage"]["output_tokens"], 8,
+            "a stream that ends without a newline keeps its last event"
+        );
     }
 
     #[test]

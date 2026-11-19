@@ -62,6 +62,22 @@ async fn relays_frames_with_account_auth_and_beta() {
         .await
         .unwrap();
     assert_eq!(next_json(&mut ws).await.unwrap()["response"]["id"], "resp_at-c_3");
+    while next_json(&mut ws).await.unwrap()["type"] != "response.completed" {}
+    let now = chrono::Utc::now();
+    let kept: Vec<_> = h
+        .app
+        .requests
+        .ledger()
+        .read(now - chrono::Duration::hours(1), now)
+        .unwrap()
+        .into_iter()
+        .map(|r| r.model.unwrap_or_default())
+        .collect();
+    assert_eq!(
+        kept,
+        ["gpt-6.1-sol", "gpt-6.2-sol", "gpt-6.2-astra"],
+        "every turn on one socket is recorded"
+    );
     let models: Vec<_> = h.app.requests.recent().into_iter().map(|r| r.model).collect();
     assert_eq!(
         models,
