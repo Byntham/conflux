@@ -1657,6 +1657,10 @@ function usageStarts(range) {
 }
 
 let usageInFlight = false;
+let pressing = false;
+document.addEventListener("pointerdown", () => { pressing = true; }, true);
+document.addEventListener("pointerup", () => { pressing = false; }, true);
+document.addEventListener("pointercancel", () => { pressing = false; }, true);
 let usagePending = null;
 
 async function loadUsage(background = false) {
@@ -1727,12 +1731,19 @@ function usageSeries(u) {
   return { providers, listed, series, unpricedBy, tokensAt, costAt, unpricedAt };
 }
 
+const hourKey = (ms) => `${shortDay(ms)} ${shortHour(ms)}`;
+
 function bucketLabel(u, i) {
   const ms = u.starts[i];
-  const repeated = u.hourly && u.starts.some((other, k) => k !== i && shortDay(other) === shortDay(ms) && shortHour(other) === shortHour(ms));
+  if (u.hourly && !u.hourCounts) {
+    u.hourCounts = new Map();
+    for (const start of u.starts) u.hourCounts.set(hourKey(start), (u.hourCounts.get(hourKey(start)) || 0) + 1);
+  }
+  const repeated = u.hourly && u.hourCounts.get(hourKey(ms)) > 1;
+  const minutes = new Date(ms).getMinutes() ? { minute: "2-digit" } : {};
   const hour = i === 0 && u.hourly
     ? `from ${new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
-    : repeated ? new Date(ms).toLocaleTimeString([], { hour: "numeric", timeZoneName: "short" }) : shortHour(ms);
+    : repeated ? new Date(ms).toLocaleTimeString([], { hour: "numeric", ...minutes, timeZoneName: "short" }) : shortHour(ms);
   const label = u.hourly ? `${shortDay(ms)}, ${hour}` : shortDay(ms);
   if (i < u.starts.length - 1) return label;
   return u.hourly ? `${label} (so far)` : "Today (so far)";
@@ -1842,11 +1853,12 @@ function hideUsageTip() {
   if (!tip) return;
   tip.hidden = true;
   document.querySelector(".usage-chart .cross").setAttribute("visibility", "hidden");
-  if (usagePending) {
-    usage = usagePending;
-    usagePending = null;
-    requestAnimationFrame(renderUsage);
-  }
+  if (!usagePending) return;
+  const flush = () => setTimeout(() => { if (usagePending) renderUsage(); }, 0);
+  if (pressing) {
+    document.addEventListener("pointerup", flush, { once: true });
+    document.addEventListener("pointercancel", flush, { once: true });
+  } else flush();
 }
 
 function showUsageTip(ev) {
@@ -1958,6 +1970,10 @@ function usageTable(u) {
 }
 
 function renderUsage() {
+  if (usagePending) {
+    usage = usagePending;
+    usagePending = null;
+  }
   const u = usage;
   if (!u || $("view-usage").hidden) return;
   fillSelect("usage-machine", "All machines", u.machines, (m, i) => (showAll ? m : `Machine ${i + 1}`));
