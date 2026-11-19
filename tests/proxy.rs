@@ -1130,6 +1130,13 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         all["prices_fetched_at"].is_string(),
         "prices apply even when saving them fails"
     );
+    *h.fake.prices.lock().unwrap() = Some(json!({
+        "gpt-6.2-sol": {"litellm_provider": "openai", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0}
+    }));
+    assert!(
+        h.app.prices.refresh(&reqwest::Client::new()).await.is_err(),
+        "a much shorter price list does not replace a good one"
+    );
     let now = chrono::Utc::now().timestamp();
     let many = (0..401).map(|i| (since + i).to_string()).collect::<Vec<_>>().join(",");
     for bad in [

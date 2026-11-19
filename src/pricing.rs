@@ -205,13 +205,16 @@ pub fn parse_litellm(doc: &Value) -> HashMap<String, ModelRate> {
             continue;
         };
         let key = name.trim().to_lowercase();
-        let bare = match key.split_once('/') {
-            None => key.as_str(),
-            Some((prefix, rest)) if prefix == owner && !rest.contains('/') => rest,
+        let (bare, prefixed) = match key.split_once('/') {
+            None => (key.as_str(), false),
+            Some((prefix, rest)) if prefix == owner && !rest.contains('/') => (rest, true),
             Some(_) => continue,
         };
-        if let Some(rate) = read_model(entry) {
-            models.insert(format!("{owner}/{bare}"), rate);
+        let id = format!("{owner}/{bare}");
+        if (prefixed || !models.contains_key(&id))
+            && let Some(rate) = read_model(entry)
+        {
+            models.insert(id, rate);
         }
     }
     models
@@ -250,8 +253,10 @@ pub fn candidates(provider: Provider, model: &str) -> Vec<String> {
     if let Some(undated) = without_date(&name) {
         names.push(undated.to_string());
     }
-    if let Some(base) = name.strip_suffix("-build") {
-        names.push(base.to_string());
+    for n in names.clone() {
+        if let Some(base) = n.strip_suffix("-build") {
+            names.push(base.to_string());
+        }
     }
     names.into_iter().map(|n| format!("{vendor}/{n}")).collect()
 }
@@ -297,7 +302,12 @@ impl Prices {
             anyhow::ensure!(bytes.len() <= MAX_DOCUMENT, "the price list is larger than expected");
         }
         let models = parse_litellm(&serde_json::from_slice(&bytes)?);
-        anyhow::ensure!(!models.is_empty(), "the price list has no models");
+        let known = self.table().models.len();
+        anyhow::ensure!(
+            !models.is_empty() && models.len() * 2 >= known,
+            "the price list has {} models, against {known} before",
+            models.len()
+        );
         let table = Table {
             fetched_at: Some(Utc::now()),
             models,

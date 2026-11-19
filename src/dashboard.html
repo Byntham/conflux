@@ -453,7 +453,7 @@
   .usage-tip div { display: flex; align-items: center; gap: 7px; color: var(--fg-2); }
   .usage-tip div > span:last-child { margin-left: auto; padding-left: 14px; color: var(--fg); font-weight: 500; }
   .usage-tip .sum { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--line); }
-  .usage-type-bar { display: flex; gap: 3px; height: 10px; max-width: 640px; margin-top: 4px; }
+  .usage-type-bar { display: flex; gap: 3px; height: 10px; margin-top: 4px; }
   .usage-type-bar i { min-width: 3px; border-radius: 3px; }
   .usage-type-key { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 10px; font-size: 13px; color: var(--fg-2); }
   .usage-type-key span { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
@@ -1733,6 +1733,7 @@ function axisText(v, step) {
   if (!v) return "0";
   if (!byCost()) return compactAxis.format(v);
   if (step >= 1 && Number.isInteger(step)) return `$${Math.round(v).toLocaleString("en-US")}`;
+  if (step < 0.0001) return `$${v.toExponential(1)}`;
   let digits = 2;
   while (digits < 10 && Math.abs(step * 10 ** digits - Math.round(step * 10 ** digits)) > 1e-6) digits++;
   return `$${v.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
@@ -1803,7 +1804,7 @@ function usageChart(u, width) {
   }
   const labelEvery = u.hourly ? (narrow ? 8 : 6) : Math.max(1, Math.ceil(n / (narrow ? 3 : 5)));
   const tick = (i) => (u.hourly ? (i ? shortHour(u.starts[i]) : shortDay(u.starts[i])) : i === n - 1 ? "Today" : shortDay(u.starts[i]));
-  for (let i = 0; i < n; i += labelEvery) parts.push(`<text x="${x(i)}" y="${height - 5}" text-anchor="${i ? "middle" : "start"}">${esc(tick(i))}</text>`);
+  for (let i = 0; i < n; i += labelEvery) parts.push(`<text x="${x(i)}" y="${height - 5}" text-anchor="${i === 0 ? "start" : i === n - 1 ? "end" : "middle"}">${esc(tick(i))}</text>`);
   if ((n - 1) % labelEvery >= labelEvery / 2) parts.push(`<text x="${x(n - 1)}" y="${height - 5}" text-anchor="end">${esc(tick(n - 1))}</text>`);
   parts.push(`<line class="cross" x1="0" x2="0" y1="${padT}" y2="${padT + plotH}" visibility="hidden"/>`);
   usageGeom = { s, x, n, padL, plotW };
@@ -1855,7 +1856,7 @@ function showUsageTip(ev) {
 function usageNotes(u) {
   const notes = [];
   const fetched = u.prices_fetched_at && new Date(u.prices_fetched_at).getTime();
-  if (!fetched) notes.push("Prices haven't loaded yet, so costs show as unpriced.");
+  if (!fetched && (!byCost() || u.total.cost)) notes.push("Prices haven't loaded yet, so costs show as unpriced.");
   else if (new Date(u.now).getTime() - fetched > 2 * 24 * HOUR_MS) notes.push(`Prices are from ${esc(shortDay(fetched))}. The hub couldn't refresh them since.`);
   if (fetched && u.unpriced_models.length) notes.push(`No public price for ${u.unpriced_models.map(esc).join(", ")}. Costs marked + leave these out.`);
   return notes.length ? `<div class="usage-notes">${notes.map((n) => `<span>${n}</span>`).join("")}</div>` : "";
@@ -1961,7 +1962,7 @@ function renderUsage() {
       ${stat("Cached input", amount(t.cache_read), "")}
       ${stat("Uncached input", amount(t.input), "")}
       ${stat("Output", amount(t.output), "")}
-      ${stat("Cache savings", t.cost ? `${money(t.cost.savings)}${plus(t.unpriced_tokens)}` : "–", "Versus paying the input price for cache reads")}
+      ${stat("Cache savings", t.cost ? `${esc(money(t.cost.savings))}${plus(t.unpriced_tokens)}` : "–", "Versus paying the input price for cache reads")}
     </div></div>
     ${usageTypes(t)}
     <div class="section">
@@ -2271,7 +2272,7 @@ function confirmMakeHub(name) {
   const m = latest.machines.find((x) => x.hostname === name && !x.guest);
   if (!m) return;
   const battery = m.has_battery ? `<p>${secret(name, esc(name), "click")} has a battery. If it leaves home or changes its IP address, your other machines lose the hub.</p>` : "";
-  openModal(`<h2>Make ${secret(name, esc(name), "click")} the hub?</h2><p>Your accounts move to ${secret(name, esc(name), "click")}, and this machine becomes its node. Requests pause for a few seconds. Codex sessions reconnect. Usage history stays on this machine.</p>${battery}<div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn primary" id="confirm-make-hub">${m.has_battery ? "Make hub anyway" : "Make hub"}</button></div>`);
+  openModal(`<h2>Make ${secret(name, esc(name), "click")} the hub?</h2><p>Your accounts move to ${secret(name, esc(name), "click")}, and this machine becomes its node. Requests pause for a few seconds. Codex sessions reconnect. Usage history stays in this machine's data folder, and the new hub's Usage page starts fresh.</p>${battery}<div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn primary" id="confirm-make-hub">${m.has_battery ? "Make hub anyway" : "Make hub"}</button></div>`);
   $("confirm-make-hub").onclick = async (ev) => {
     ev.currentTarget.disabled = true;
     try {
