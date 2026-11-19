@@ -1729,7 +1729,7 @@ function usageSeries(u) {
 
 function bucketLabel(u, i) {
   const ms = u.starts[i];
-  const repeated = u.hourly && [u.starts[i - 1], u.starts[i + 1]].some((other) => other && shortHour(other) === shortHour(ms));
+  const repeated = u.hourly && u.starts.some((other, k) => k !== i && shortDay(other) === shortDay(ms) && shortHour(other) === shortHour(ms));
   const hour = i === 0 && u.hourly
     ? `from ${new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
     : repeated ? new Date(ms).toLocaleTimeString([], { hour: "numeric", timeZoneName: "short" }) : shortHour(ms);
@@ -1845,7 +1845,7 @@ function hideUsageTip() {
   if (usagePending) {
     usage = usagePending;
     usagePending = null;
-    renderUsage();
+    requestAnimationFrame(renderUsage);
   }
 }
 
