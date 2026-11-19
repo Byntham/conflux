@@ -525,7 +525,6 @@
     .usage-controls .select select { width: 100%; }
     .usage-table .rank { display: none; }
     .usage-table td.name { white-space: normal; overflow-wrap: anywhere; }
-    .usage-table th { white-space: normal; }
     .usage-name > span:last-child { overflow: visible; }
     .account-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "email pill" "sub actions"; align-items: center; gap: 4px 8px; }
     .account-title { display: contents; }
@@ -1907,7 +1906,7 @@ function usageTable(u) {
   const whole = rows.reduce((s, r) => s + (r.value || 0), 0);
   const shareOf = byCost() ? (u.total.unpriced_tokens ? "Share of priced cost" : "Share of cost") : "Share of tokens";
   const heading = { model: "Model", account: "Account", machine: "Machine", time: u.hourly ? "Hour" : "Day" }[usageBreakdown];
-  const head = `<thead><tr>${ranked ? '<th class="rank">#</th>' : ""}<th>${heading}</th>${time ? "" : `<th class="num">${byCost() ? "Tokens" : "Cost"}</th>`}<th class="num">${shareOf}</th><th class="num">${byCost() ? "Cost" : "Tokens"}</th></tr></thead>`;
+  const head = `<thead><tr>${ranked ? '<th class="rank">#</th>' : ""}<th>${heading}</th>${time ? "" : `<th class="num">${byCost() ? "Tokens" : "Cost"}</th>`}<th class="num"><span class="hide-sm">${shareOf}</span><span class="show-sm-inline">Share</span></th><th class="num">${byCost() ? "Cost" : "Tokens"}</th></tr></thead>`;
   const body = rows.length ? rows.map((r, i) => {
     const g = r.group;
     const other = !g ? "" : byCost() ? esc(amount(g.tokens)) : moneyOf(g);
