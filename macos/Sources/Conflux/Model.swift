@@ -13,7 +13,7 @@ enum Phase: Equatable {
     case ready
 }
 
-enum AccountState {
+enum AccountState: Equatable {
     case ready
     case needsLogin
     case billingBlocked
@@ -66,12 +66,39 @@ extension Account {
         if !cooldowns.isEmpty { return .modelsCooling(cooldowns.count) }
         return .ready
     }
+}
 
-    var providerName: String {
+struct Pool: Identifiable {
+    let provider: String
+    let accounts: [Account]
+
+    var id: String { provider }
+
+    var name: String {
         switch provider {
         case "claude": return "Claude"
         case "codex": return "Codex"
         default: return provider.capitalized
+        }
+    }
+
+    func windows(now: Date) -> [UsageWindow] {
+        let shared = accounts.filter { $0.enabled && $0.needsLogin == nil }.flatMap(\.sharedWindows)
+        var keys: [String] = []
+        for window in shared where !keys.contains(window.key) { keys.append(window.key) }
+        return keys.map { key in
+            let group = shared.filter { $0.key == key }
+            let used = group.map { window in
+                window.resetsAt.map { $0 <= now } == true ? 0 : min(100, max(0, window.usedPct))
+            }
+            let refill = zip(group, used).filter { $1 > 0 }.compactMap { $0.0.resetsAt }.filter { $0 > now }.min()
+            return UsageWindow(
+                key: key,
+                usedPct: used.reduce(0, +) / Double(used.count),
+                resetsAt: refill,
+                durationSecs: group[0].durationSecs,
+                modelScope: nil
+            )
         }
     }
 }
@@ -218,6 +245,12 @@ final class Model: ObservableObject {
         dashboard?.accounts ?? []
     }
 
+    var pools: [Pool] {
+        Dictionary(grouping: accounts, by: \.provider)
+            .map { Pool(provider: $0.key, accounts: $0.value) }
+            .sorted { $0.provider < $1.provider }
+    }
+
     var readyCount: Int {
         accounts.filter { $0.state(now: now).canServe }.count
     }
@@ -319,17 +352,17 @@ final class Model: ObservableObject {
     var roleLine: String {
         switch phase {
         case .ready:
-            let version = latestVersion == nil ? dashboard.map { " · v\($0.hub.version)" } ?? "" : ""
-            if let node { return "Linked to \(node.hub)\(version)" }
-            return "This Mac is the hub\(version)"
+            let version = latestVersion == nil ? dashboard.map { "v\($0.hub.version)" } : nil
+            if node != nil { return version ?? "" }
+            return ["This Mac is the hub", version].compactMap { $0 }.joined(separator: " · ")
         case .hubUnreachable, .notApproved:
-            return node.map { "Linked to \($0.hub)" } ?? "Linked to a hub"
+            return "Linked to a hub"
         case .waiting:
             return "Waiting to be linked"
         case .notRunning:
             switch local.config("role") {
             case "hub": return "This Mac is the hub"
-            case "node": return local.config("hub").map { "Linked to \($0)" } ?? "Linked to a hub"
+            case "node": return "Linked to a hub"
             case "waiting": return "Waiting to be linked"
             default: return runningVersion.map { "v\($0)" } ?? ""
             }
