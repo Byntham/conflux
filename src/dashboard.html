@@ -1767,7 +1767,7 @@ function usageChart(u, width) {
   }
   if (stacked.length) {
     parts.push(`<circle class="so-far" cx="${x(done)}" cy="${y(below[done])}" r="4"/>`);
-    parts.push(`<text class="so-far-label" x="${x(done) - 8}" y="${y(below[done]) - 9}" text-anchor="end">${esc(metricText(below[done]))} so far</text>`);
+    if (!u.hourly && below[done] > 0) parts.push(`<text class="so-far-label" x="${x(done) - 8}" y="${y(below[done]) - 9}" text-anchor="end">${esc(metricText(below[done]))} so far</text>`);
   }
   const labelEvery = u.hourly ? 6 : Math.max(1, Math.ceil(n / (narrow ? 3 : 5)));
   const tick = (i) => (u.hourly ? shortHour(u.starts[i]) : i === n - 1 ? "Today" : shortDay(u.starts[i]));
