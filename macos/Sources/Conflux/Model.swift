@@ -87,7 +87,7 @@ struct Pool: Identifiable {
         }
     }
 
-    func windows(now: Date) -> [UsageWindow] {
+    func windows(now: Date) -> [PoolWindow] {
         let members = accounts.filter {
             $0.enabled && $0.needsLogin == nil && $0.billingBlocked == nil && !$0.sharedWindows.isEmpty
         }
@@ -102,16 +102,34 @@ struct Pool: Identifiable {
             let used = group.map { window in
                 window.resetsAt.map { $0 <= now } == true ? 0 : min(100, max(0, window.usedPct))
             }
-            let refill = zip(group, used).filter { $1 > 0 }.compactMap { $0.0.resetsAt }.filter { $0 > now }.min()
-            return UsageWindow(
-                key: name,
-                usedPct: used.reduce(0, +) / Double(members.count),
-                resetsAt: refill,
-                durationSecs: group[0].durationSecs,
-                modelScope: nil
+            let refills = Dictionary(
+                zip(group, used).compactMap { window, amount -> (Date, Double)? in
+                    amount > 0 ? window.resetsAt.map { ($0, amount) } : nil
+                },
+                uniquingKeysWith: +
+            )
+            let refill = refills.sorted { $0.key < $1.key }
+                .map { ($0.key, $0.value / Double(members.count)) }
+                .first { $0.1 >= 0.5 }
+            return PoolWindow(
+                window: UsageWindow(
+                    key: name,
+                    usedPct: used.reduce(0, +) / Double(members.count),
+                    resetsAt: refill?.0,
+                    durationSecs: group[0].durationSecs,
+                    modelScope: nil
+                ),
+                refillPct: refill?.1 ?? 0
             )
         }
     }
+}
+
+struct PoolWindow: Identifiable {
+    let window: UsageWindow
+    let refillPct: Double
+
+    var id: String { window.key }
 }
 
 @MainActor
