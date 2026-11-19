@@ -100,25 +100,36 @@ impl Ledger {
         }
     }
 
-    pub fn read(&self, since: DateTime<Utc>, until: DateTime<Utc>) -> Vec<Row> {
+    pub fn read(&self, since: DateTime<Utc>, until: DateTime<Utc>) -> std::io::Result<Vec<Row>> {
+        let missing = |e: &std::io::Error| e.kind() == std::io::ErrorKind::NotFound;
+        match std::fs::metadata(&self.dir) {
+            Err(e) if missing(&e) => return Ok(Vec::new()),
+            Err(e) => return Err(e),
+            Ok(m) if !m.is_dir() => {
+                return Err(std::io::Error::other(format!("{} is not a folder", self.dir.display())));
+            }
+            Ok(_) => {}
+        }
         let mut rows = Vec::new();
         let mut day = since.date_naive();
         while day <= until.date_naive() {
-            if let Ok(file) = std::fs::File::open(day_file(&self.dir, day)) {
-                rows.extend(
+            match std::fs::File::open(day_file(&self.dir, day)) {
+                Ok(file) => rows.extend(
                     BufReader::new(file)
                         .split(b'\n')
                         .map_while(Result::ok)
                         .filter_map(|line| serde_json::from_slice::<Row>(&line).ok())
                         .filter(|r| r.at >= since && r.at <= until),
-                );
+                ),
+                Err(e) if missing(&e) => {}
+                Err(e) => return Err(e),
             }
             day = day.succ_opt().unwrap_or(day);
             if day == NaiveDate::MAX {
                 break;
             }
         }
-        rows
+        Ok(rows)
     }
 }
 
@@ -303,9 +314,9 @@ fn bucket_starts(raw: &str, now: DateTime<Utc>) -> Option<Vec<DateTime<Utc>>> {
         })
         .collect::<Option<_>>()?;
     let ordered = starts.windows(2).all(|w| w[0] < w[1]);
-    let first = *starts.first()?;
-    (ordered && starts.len() <= MAX_BUCKETS && first >= now - Duration::days(KEEP_DAYS) && first <= now)
-        .then_some(starts)
+    let (first, last) = (*starts.first()?, *starts.last()?);
+    let recent = first >= now - Duration::days(KEEP_DAYS) && last <= now + Duration::hours(1);
+    (ordered && starts.len() <= MAX_BUCKETS && recent).then_some(starts)
 }
 
 pub async fn usage(State(app): State<Arc<App>>, Query(q): Query<UsageQuery>) -> Response {
@@ -336,17 +347,24 @@ pub async fn usage(State(app): State<Arc<App>>, Query(q): Query<UsageQuery>) -> 
         .collect();
     let machine = q.machine.filter(|m| !m.is_empty());
     let summary = tokio::task::spawn_blocking(move || {
-        let rows = ledger.read(since, now);
+        let rows = ledger.read(since, now)?;
         let filter = Filter {
             machine: machine.as_deref(),
             provider,
             starts: &starts,
         };
-        summarize(&rows, &prices, &filter, |id| emails.get(id).cloned().flatten())
+        Ok::<_, std::io::Error>(summarize(&rows, &prices, &filter, |id| {
+            emails.get(id).cloned().flatten()
+        }))
     })
     .await;
     match summary {
-        Ok(mut v) => {
+        Ok(Err(e)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("the hub could not read its usage history: {e}")})),
+        )
+            .into_response(),
+        Ok(Ok(mut v)) => {
             v["now"] = json!(now);
             v["prices_fetched_at"] = json!(fetched_at);
             Json(v).into_response()

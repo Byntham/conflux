@@ -993,7 +993,14 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
     assert_eq!(record["usage"]["output"], 44);
     assert!(h.fake.http_headers.lock().unwrap()[0].get("x-conflux-node").is_none());
     let since_three_days = chrono::Utc::now() - chrono::Duration::days(3);
-    let recorded = || h.app.requests.ledger().read(since_three_days, chrono::Utc::now()).len();
+    let recorded = || {
+        h.app
+            .requests
+            .ledger()
+            .read(since_three_days, chrono::Utc::now())
+            .unwrap()
+            .len()
+    };
     for _ in 0..40 {
         if recorded() == 2 {
             break;
@@ -1127,8 +1134,24 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
     );
     let grok_only = usage_page("&provider=grok").await;
     assert!(close(&grok_only["total"]["cost"]["total"], grok_cost), "{grok_only}");
+    let whole = json!({"type": "message", "usage": {"input_tokens": 7, "output_tokens": 3}});
+    h.reply("at-a", Reply::Json(200, vec![], whole.to_string()));
+    let r = h.claude(json!({"model": "claude-sonnet-5-5"})).send().await.unwrap();
+    r.bytes().await.unwrap();
+    let mut claude_only = serde_json::Value::Null;
+    for _ in 0..40 {
+        claude_only = usage_page("&provider=claude").await;
+        if claude_only["total"]["requests"] == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(
+        claude_only["total"]["output"], 47,
+        "a non-streaming reply is recorded: {claude_only}"
+    );
     let earlier = chrono::Utc::now() - chrono::Duration::minutes(90);
-    let mut old = h.app.requests.ledger().read(earlier, chrono::Utc::now())[0].clone();
+    let mut old = h.app.requests.ledger().read(earlier, chrono::Utc::now()).unwrap()[0].clone();
     old.at = earlier;
     old.provider = Provider::Muse;
     h.app.requests.ledger().append(&old);

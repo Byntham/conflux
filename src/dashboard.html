@@ -444,6 +444,7 @@
   .usage-chart .layer { fill: color-mix(in srgb, var(--series) 16%, transparent); }
   .usage-chart .edge { fill: none; stroke: var(--series); stroke-width: 1.75; stroke-linejoin: round; }
   .usage-chart .so-far { fill: var(--surface); stroke: var(--fg-2); stroke-width: 1.75; }
+  .usage-chart text.so-far-label { fill: var(--fg-2); }
   .partial { margin-left: 2px; color: var(--muted); font-weight: 400; }
   .series-claude { --series: var(--claude); } .series-codex { --series: var(--codex); } .series-grok { --series: var(--grok); } .series-muse { --series: var(--muse); }
   .usage-tip { position: absolute; top: 0; z-index: 5; min-width: 180px; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--popover); box-shadow: var(--shadow-pop); font-size: 12.5px; pointer-events: none; font-variant-numeric: tabular-nums; }
@@ -458,15 +459,15 @@
   .usage-type-key b { font-weight: 500; color: var(--fg); }
   .usage-type-key i, .usage-type-bar i { display: inline-block; }
   .usage-type-key i { width: 9px; height: 9px; border-radius: 2px; }
-  .type-cache_read { background: color-mix(in srgb, var(--fg) 32%, var(--bg)); }
-  .type-input { background: color-mix(in srgb, var(--fg) 50%, var(--bg)); }
-  .type-cache_write { background: color-mix(in srgb, var(--fg) 70%, var(--bg)); }
+  .type-input { background: color-mix(in srgb, var(--fg) 25%, var(--bg)); }
+  .type-cache_read { background: color-mix(in srgb, var(--fg) 45%, var(--bg)); }
+  .type-cache_write { background: color-mix(in srgb, var(--fg) 65%, var(--bg)); }
   .type-output { background: var(--fg); }
   .type-fast { background: var(--warn-fill); }
   .usage-table td.name { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .usage-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .usage-name > span:last-child { overflow: hidden; text-overflow: ellipsis; }
-  .usage-share { height: 3px; margin-top: 5px; border-radius: 2px; background: var(--series, var(--accent)); }
+  .usage-share { height: 3px; margin-top: 5px; border-radius: 2px; background: var(--series, color-mix(in srgb, var(--accent) 60%, transparent)); }
   .usage-table td.rank { width: 1%; color: var(--muted); font-variant-numeric: tabular-nums; }
   .usage-table .unpriced { color: var(--muted); }
 
@@ -1631,7 +1632,7 @@ function usageStarts(range) {
   const now = new Date();
   if (range === "24h") {
     const top = now.getTime() - (now.getMinutes() * 60000 + now.getSeconds() * 1000 + now.getMilliseconds());
-    return Array.from({ length: 24 }, (_, i) => top - (23 - i) * HOUR_MS);
+    return [now.getTime() - 24 * HOUR_MS, ...Array.from({ length: 24 }, (_, i) => top - (23 - i) * HOUR_MS)];
   }
   const days = USAGE_DAYS[range];
   return Array.from({ length: days }, (_, i) => new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1 - i)).getTime());
@@ -1708,18 +1709,15 @@ function niceStep(max) {
 function axisText(v, step) {
   if (!v) return "0";
   if (!byCost()) return amount(v);
-  if (step >= 1) return `$${Math.round(v).toLocaleString("en-US")}`;
+  if (step >= 1 && Number.isInteger(step)) return `$${Math.round(v).toLocaleString("en-US")}`;
+  if (step >= 0.01) return money(v);
   return `$${v.toFixed(Math.max(2, Math.ceil(-Math.log10(step))))}`;
 }
 
-function curveSegments(pts) {
-  const n = pts.length;
+function controls(values) {
+  const n = values.length;
   if (n < 2) return [];
-  const dx = [], m = [];
-  for (let i = 0; i < n - 1; i++) {
-    dx.push(pts[i + 1][0] - pts[i][0]);
-    m.push((pts[i + 1][1] - pts[i][1]) / dx[i]);
-  }
+  const m = values.slice(1).map((v, i) => v - values[i]);
   const t = [m[0]];
   for (let i = 1; i < n - 1; i++) t.push(m[i - 1] * m[i] <= 0 ? 0 : (m[i - 1] + m[i]) / 2);
   t.push(m[n - 2]);
@@ -1728,14 +1726,9 @@ function curveSegments(pts) {
     const a = t[i] / m[i], b = t[i + 1] / m[i], s = a * a + b * b;
     if (s > 9) { const k = 3 / Math.sqrt(s); t[i] = k * a * m[i]; t[i + 1] = k * b * m[i]; }
   }
-  return pts.slice(0, -1).map(([x0, y0], i) => {
-    const [x1, y1] = pts[i + 1], h = dx[i] / 3;
-    return `C${(x0 + h).toFixed(1)} ${(y0 + t[i] * h).toFixed(1)} ${(x1 - h).toFixed(1)} ${(y1 - t[i + 1] * h).toFixed(1)} ${x1.toFixed(1)} ${y1.toFixed(1)}`;
-  });
+  return m.map((_, i) => [values[i] + t[i] / 3, values[i + 1] - t[i + 1] / 3]);
 }
 
-const moveTo = ([x, y]) => `M${x.toFixed(1)} ${y.toFixed(1)}`;
-const lineTo = ([x, y]) => `L${x.toFixed(1)} ${y.toFixed(1)}`;
 
 function usageChart(u, width) {
   const s = usageSeries(u);
@@ -1745,12 +1738,16 @@ function usageChart(u, width) {
   const plotW = Math.max(40, width - padL - padR), plotH = height - padT - padB;
   const n = u.starts.length;
   const x = (i) => padL + (i / (n - 1)) * plotW;
+  const done = n - 1;
   const stacked = [];
   let below = u.starts.map(() => 0);
+  let belowCtl = controls(below.slice(0, done)).map(() => [0, 0]);
   for (const p of s.providers) {
     const top = below.map((v, i) => v + s.series[p][i]);
-    stacked.push({ p, below, top });
+    const topCtl = controls(s.series[p].slice(0, done)).map(([a, b], i) => [belowCtl[i][0] + a, belowCtl[i][1] + b]);
+    stacked.push({ p, below, top, belowCtl, topCtl });
     below = top;
+    belowCtl = topCtl;
   }
   const max = Math.max(0, ...below);
   const step = niceStep(max);
@@ -1760,15 +1757,18 @@ function usageChart(u, width) {
   for (let v = 0; v <= yMax + step / 2; v += step) {
     parts.push(`<line class="${v ? "grid" : "base"}" x1="${padL}" x2="${padL + plotW}" y1="${y(v)}" y2="${y(v)}"/><text x="${padL - 8}" y="${y(v) + 4}" text-anchor="end">${esc(axisText(v, step))}</text>`);
   }
-  const done = n - 1;
+  const h = done > 0 ? (x(1) - x(0)) / 3 : 0;
+  const c = (px, v) => `${px.toFixed(1)} ${y(v).toFixed(1)}`;
   for (const layer of [...stacked].reverse()) {
-    const top = layer.top.slice(0, done).map((v, i) => [x(i), y(v)]);
-    const bottom = layer.below.slice(0, done).map((v, i) => [x(i), y(v)]).reverse();
-    const edge = `${moveTo(top[0])}${curveSegments(top).join("")}`;
-    const area = `${edge}${lineTo(bottom[0])}${curveSegments(bottom).join("")}Z`;
-    parts.push(`<g class="series-${esc(layer.p)}"><path class="layer" d="${area}"/><path class="edge" d="${edge}"/></g>`);
+    const forward = layer.topCtl.map(([a, b], i) => `C${c(x(i) + h, a)} ${c(x(i + 1) - h, b)} ${c(x(i + 1), layer.top[i + 1])}`).join("");
+    const back = layer.belowCtl.map(([a, b], i) => `C${c(x(i + 1) - h, b)} ${c(x(i) + h, a)} ${c(x(i), layer.below[i])}`).reverse().join("");
+    const edge = `M${c(x(0), layer.top[0])}${forward}`;
+    parts.push(`<g class="series-${esc(layer.p)}"><path class="layer" d="${edge}L${c(x(done - 1), layer.below[done - 1])}${back}Z"/><path class="edge" d="${edge}"/></g>`);
   }
-  if (stacked.length) parts.push(`<circle class="so-far" cx="${x(done)}" cy="${y(below[done])}" r="4"/>`);
+  if (stacked.length) {
+    parts.push(`<circle class="so-far" cx="${x(done)}" cy="${y(below[done])}" r="4"/>`);
+    parts.push(`<text class="so-far-label" x="${x(done) - 8}" y="${y(below[done]) - 9}" text-anchor="end">${esc(metricText(below[done]))} so far</text>`);
+  }
   const labelEvery = u.hourly ? 6 : Math.max(1, Math.ceil(n / (narrow ? 3 : 5)));
   const tick = (i) => (u.hourly ? shortHour(u.starts[i]) : i === n - 1 ? "Today" : shortDay(u.starts[i]));
   for (let i = 0; i < n; i += labelEvery) parts.push(`<text x="${x(i)}" y="${height - 5}" text-anchor="${i ? "middle" : "start"}">${esc(tick(i))}</text>`);
@@ -1878,7 +1878,6 @@ function usageTable(u) {
   const rows = usageRows(u);
   const time = usageBreakdown === "time";
   const whole = rows.reduce((s, r) => s + (r.value || 0), 0);
-  const top = Math.max(0, ...rows.map((r) => r.value || 0));
   const heading = { model: "Model", account: "Account", machine: "Machine", time: u.hourly ? "Hour" : "Day" }[usageBreakdown];
   const head = `<thead><tr>${time ? "" : '<th class="rank">#</th>'}<th>${heading}</th>${time ? "" : `<th class="num">${byCost() ? "Tokens" : "Cost"}</th>`}<th class="num">Share</th><th class="num">${byCost() ? "Cost" : "Tokens"}</th></tr></thead>`;
   const body = rows.length ? rows.map((r, i) => {
@@ -1886,7 +1885,7 @@ function usageTable(u) {
     const other = !g ? "" : byCost() ? esc(amount(g.tokens)) : moneyOf(g);
     const marked = g ? partial(g) : byCost() ? plus(r.unpriced) : "";
     const value = r.value === null ? `<span class="unpriced">Unpriced</span>` : `${esc(metricText(r.value))}${marked}`;
-    const bar = `<div class="usage-share ${r.series || ""}" style="width: ${top && r.value ? Math.max(1, (r.value / top) * 100) : 0}%"></div>`;
+    const bar = `<div class="usage-share ${r.series || ""}" style="width: ${whole && r.value ? `max(2px, ${(r.value / whole) * 100}%)` : "0"}"></div>`;
     return `<tr>${time ? "" : `<td class="rank">${i + 1}</td>`}<td class="name"><div class="usage-name">${r.label}</div>${bar}</td>${time ? "" : `<td class="num dim">${other}</td>`}<td class="num dim">${share(r.value, whole)}</td><td class="num">${value}</td></tr>`;
   }).join("") : `<tr><td colspan="5"><div class="empty">Nothing in this range.</div></td></tr>`;
   return `<table class="usage-table">${head}<tbody>${body}</tbody></table>`;

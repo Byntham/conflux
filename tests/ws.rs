@@ -256,6 +256,7 @@ async fn the_row_is_logged_when_the_upstream_starts_answering() {
         .requests
         .ledger()
         .read(now - chrono::Duration::hours(1), now)
+        .unwrap()
         .into_iter()
         .map(|r| (r.usage.output, r.usage.speed))
         .collect();
@@ -268,7 +269,12 @@ async fn the_row_is_logged_when_the_upstream_starts_answering() {
     assert!(next_json(&mut ws).await.is_none(), "the upstream hangs up mid-turn");
     tokio::time::sleep(Duration::from_millis(100)).await;
     let now = chrono::Utc::now();
-    let rows = h.app.requests.ledger().read(now - chrono::Duration::hours(1), now);
+    let rows = h
+        .app
+        .requests
+        .ledger()
+        .read(now - chrono::Duration::hours(1), now)
+        .unwrap();
     assert_eq!(rows.len(), 2, "a turn cut off before it ends records nothing");
 }
 
