@@ -194,9 +194,11 @@ pub fn decompressed<'a>(encoding: Option<&str>, body: &'a [u8], limit: usize) ->
         _ => return Cow::Borrowed(body),
     };
     let mut plain = Vec::new();
-    match reader.take(limit as u64).read_to_end(&mut plain) {
-        Ok(_) if !plain.is_empty() => Cow::Owned(plain),
-        _ => Cow::Borrowed(body),
+    let _ = reader.take(limit as u64).read_to_end(&mut plain);
+    if plain.is_empty() {
+        Cow::Borrowed(body)
+    } else {
+        Cow::Owned(plain)
     }
 }
 
@@ -402,6 +404,7 @@ mod tests {
         enc.write_all(b"{\"a\":1}").unwrap();
         let gz = enc.finish().unwrap();
         assert_eq!(&*decompressed(Some("gzip"), &gz, 1024), b"{\"a\":1}");
+        assert_eq!(&*decompressed(Some("gzip"), &gz, 3), b"{\"a");
         assert_eq!(&*decompressed(None, b"plain", 1024), b"plain");
         assert_eq!(&*decompressed(Some("gzip"), b"not gzip", 1024), b"not gzip");
     }

@@ -313,10 +313,10 @@ async fn grok_requests_use_grok_accounts_and_fail_over_on_quota() {
     h.add(Provider::Codex, "c").await;
     let g1 = h.add(Provider::Grok, "g1").await;
     let g2 = h.add(Provider::Grok, "g2").await;
-    let (first, first_id, second) = if g1 < g2 {
-        ("at-g1", g1, "at-g2")
+    let (first, first_id, second, second_id) = if g1 < g2 {
+        ("at-g1", g1, "at-g2", g2)
     } else {
-        ("at-g2", g2, "at-g1")
+        ("at-g2", g2, "at-g1", g1)
     };
     let limit = json!({"error": {"code": "usage_pool_exhausted", "message": "limit", "resets_at": (Utc::now() + chrono::Duration::days(2)).timestamp()}});
     h.reply(first, Reply::Json(429, vec![], limit.to_string()));
@@ -358,6 +358,16 @@ async fn grok_requests_use_grok_accounts_and_fail_over_on_quota() {
             .unwrap();
         assert_eq!(r.status(), 200, "{path}");
     }
+    h.reply(second, Reply::Json(429, vec![], limit.to_string()));
+    let r = h
+        .http
+        .post(format!("{}/grok/v1/traces", h.base))
+        .body("telemetry")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 429);
+    assert!(h.app.router.cooldowns(&second_id).is_empty());
     let log = h.app.requests.recent();
     let rows: Vec<_> = log.iter().map(|r| (r.model.as_deref(), r.session.as_deref())).collect();
     assert_eq!(

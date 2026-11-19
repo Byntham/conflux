@@ -27,8 +27,7 @@ pub const HUB_NOT_ACTIVE: &str = "conflux: the hub is moving to another machine.
 pub const GROK_PREFIX: &str = "/grok/v1/";
 pub const MUSE_PREFIX: &str = "/muse/v1/";
 pub const MUSE_CODE_PREFIX: &str = "/muse-code/";
-const MUSE_PATHS: &[&str] = &["responses"];
-const GROK_INFERENCE_PATHS: &[&str] = &["responses", "chat"];
+const INFERENCE_PATHS: &[&str] = &["responses"];
 const MUSE_CODE_PATHS: &[&str] = &["models", "search", "browser_open", "feedback"];
 
 fn first_segment_in(path: &str, prefix: &str, allowed: &[&str]) -> bool {
@@ -40,7 +39,7 @@ fn first_segment_in(path: &str, prefix: &str, allowed: &[&str]) -> bool {
 pub fn provider_for(path: &str, user_agent: &str) -> Option<Provider> {
     if path.starts_with(GROK_PREFIX) {
         Some(Provider::Grok)
-    } else if first_segment_in(path, MUSE_PREFIX, MUSE_PATHS)
+    } else if first_segment_in(path, MUSE_PREFIX, INFERENCE_PATHS)
         || first_segment_in(path, MUSE_CODE_PREFIX, MUSE_CODE_PATHS)
     {
         Some(Provider::Muse)
@@ -61,8 +60,8 @@ pub fn provider_for(path: &str, user_agent: &str) -> Option<Provider> {
 
 fn is_inference(provider: Provider, path: &str) -> bool {
     match provider {
-        Provider::Grok => first_segment_in(path, GROK_PREFIX, GROK_INFERENCE_PATHS),
-        Provider::Muse => path.starts_with(MUSE_PREFIX),
+        Provider::Grok => first_segment_in(path, GROK_PREFIX, INFERENCE_PATHS),
+        Provider::Muse => first_segment_in(path, MUSE_PREFIX, INFERENCE_PATHS),
         Provider::Claude | Provider::Codex => true,
     }
 }
@@ -587,7 +586,8 @@ pub async fn handle(State(app): State<Arc<App>>, req: Request) -> Response {
     let route = route_request(provider, &parts.headers, &body);
     let machine = machine_name(&app, &parts.headers);
     let started = Instant::now();
-    let logged = parts.method == http::Method::POST && is_inference(provider, &path);
+    let inference = is_inference(provider, &path);
+    let logged = inference && parts.method == http::Method::POST;
     let log = |account: &AccountEntry, status: u16| {
         logged.then(|| log_attempt(&app, provider, account, &route, &machine, status, started))
     };
@@ -671,7 +671,7 @@ pub async fn handle(State(app): State<Arc<App>>, req: Request) -> Response {
 
         app.usage.observe_headers(&account.id, provider, resp.headers());
 
-        if resp.status() == StatusCode::TOO_MANY_REQUESTS {
+        if inference && resp.status() == StatusCode::TOO_MANY_REQUESTS {
             let headers = resp.headers().clone();
             let bytes = read_limited(resp, MAX_REJECTION_BODY).await;
             let now = Utc::now();
