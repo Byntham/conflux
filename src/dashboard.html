@@ -1661,7 +1661,8 @@ let pressing = false;
 const usageTipOpen = () => Boolean(document.querySelector(".usage-chart .usage-tip:not([hidden])"));
 const flushUsage = () => setTimeout(() => { if (usagePending && !pressing && !usageTipOpen()) renderUsage(); }, 0);
 const endPress = () => { pressing = false; flushUsage(); };
-document.addEventListener("pointerdown", () => { pressing = true; }, true);
+document.addEventListener("pointerdown", (ev) => { if (ev.button === 0) pressing = true; }, true);
+document.addEventListener("contextmenu", endPress, true);
 document.addEventListener("pointerup", endPress, true);
 document.addEventListener("pointercancel", endPress, true);
 window.addEventListener("blur", endPress);
@@ -1986,11 +1987,12 @@ function renderUsage() {
   }
   const total = metricOf(t);
   const providers = [...u.by_provider].sort((a, b) => (metricOf(b) ?? -1) - (metricOf(a) ?? -1));
-  const estimate = `${byCost() ? "" : " · processed tokens"} · <span class="estimate" tabindex="0" data-tip="Dollar figures use public API rates. Subscriptions bill differently.">API estimate${icon("info")}</span>`;
+  const estimate = `${byCost() ? "" : " · processed tokens"} · <span class="estimate" tabindex="0" data-tip="Dollar figures apply today's public API rates to every day shown. Subscriptions bill differently.">API estimate${icon("info")}</span>`;
   const narrow = window.innerWidth <= 760;
   const stackedBoard = window.innerWidth <= 1200;
   const width = Math.max(240, $("usage-body").clientWidth - (narrow ? 30 : 44) - (stackedBoard ? 0 : 348));
   const focused = document.activeElement?.dataset?.usageBreak;
+  const estimateFocused = document.activeElement?.classList?.contains("estimate");
   setHtml("usage-body", `
     <div class="card usage-board">
       <div>
@@ -2014,6 +2016,7 @@ function renderUsage() {
       <div class="card table-wrap">${usageTable(u)}</div>
     </div>`);
   if (focused) document.querySelector(`[data-usage-break="${focused}"]`)?.focus();
+  if (estimateFocused) document.querySelector("#usage-body .estimate")?.focus();
 }
 
 function setConnection(ok, message, refused = false) {

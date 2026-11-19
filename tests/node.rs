@@ -167,6 +167,22 @@ async fn websocket_flows_through_node_and_hub() {
         .unwrap();
     let v: Value = serde_json::from_str(first.to_text().unwrap()).unwrap();
     assert_eq!(v["type"], "response.created");
+    let now = chrono::Utc::now();
+    let machines = eventually(|| {
+        let rows = hub
+            .app
+            .requests
+            .ledger()
+            .read(now - chrono::Duration::hours(1), now + chrono::Duration::minutes(1))
+            .unwrap();
+        (!rows.is_empty()).then(|| rows.into_iter().map(|r| r.machine).collect::<Vec<_>>())
+    })
+    .await;
+    assert_eq!(
+        machines,
+        ["node-one"],
+        "a Codex turn through a node is recorded under the node"
+    );
 }
 
 #[tokio::test]
