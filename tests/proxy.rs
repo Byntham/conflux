@@ -937,7 +937,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         ),
     );
     let r = h
-        .claude(json!({"model": "claude-sonnet-5-5"}))
+        .claude(json!({"model": "claude-sonnet-5-5-20261101"}))
         .header("x-conflux-node", "node-one")
         .header("x-claude-code-session-id", "c1")
         .send()
@@ -983,7 +983,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
     assert!(h.fake.http_headers.lock().unwrap()[0].get("x-conflux-node").is_none());
 
     h.add(Provider::Grok, "g").await;
-    let incomplete = json!({"type": "response.incomplete", "response": {"service_tier": "ultrafast", "usage": {
+    let incomplete = json!({"type": "response.incomplete", "response": {"service_tier": "priority", "usage": {
         "input_tokens": 120_000, "input_tokens_details": {"cached_tokens": 100_000}, "output_tokens": 9
     }}});
     h.reply(
@@ -1010,7 +1010,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
     assert_eq!((usage.input, usage.cache_read, usage.output), (20_000, 100_000, 9));
-    assert_eq!(usage.speed, conflux::requests::Speed::Ultrafast);
+    assert_eq!(usage.speed, conflux::requests::Speed::Fast);
 
     h.reply(
         "at-a",
@@ -1040,7 +1040,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         "xai/grok-4.7": {
             "input_cost_per_token": 2e-6, "output_cost_per_token": 6e-6, "cache_read_input_token_cost": 5e-7,
             "input_cost_per_token_above_100k_tokens": 4e-6, "output_cost_per_token_above_100k_tokens": 1.2e-5,
-            "input_cost_per_token_ultrafast": 6e-6, "output_cost_per_token_ultrafast": 1.8e-5
+            "input_cost_per_token_priority": 6e-6, "output_cost_per_token_priority": 1.8e-5
         },
         "openrouter/xai/grok-4.7": {"input_cost_per_token": 1.0, "output_cost_per_token": 1.0}
     }));
@@ -1087,7 +1087,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         .iter()
         .map(|m| m["model"].clone())
         .collect();
-    assert_eq!(models, [json!("grok-4.7-build"), json!("claude-sonnet-5-5")]);
+    assert_eq!(models, [json!("grok-4.7-build"), json!("claude-sonnet-5-5-20261101")]);
     let node = usage_page("&machine=node-one").await;
     assert_eq!(
         (node["total"]["requests"].clone(), node["total"]["output"].clone()),
@@ -1095,6 +1095,11 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
     );
     let grok_only = usage_page("&provider=grok").await;
     assert!(close(&grok_only["total"]["cost"]["total"], grok_cost), "{grok_only}");
+    let earlier = chrono::Utc::now() - chrono::Duration::minutes(90);
+    let mut old = h.app.requests.ledger().read(earlier, chrono::Utc::now())[0].clone();
+    old.at = earlier;
+    old.provider = Provider::Muse;
+    h.app.requests.ledger().append(&old);
     let split: serde_json::Value = h
         .http
         .get(format!("{}/conflux/api/usage?buckets={},{since}", h.base, since - 3600))
@@ -1108,9 +1113,17 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         .as_array()
         .unwrap()
         .iter()
-        .map(|b| b["i"].clone())
+        .map(|b| (b["i"].clone(), b["provider"].clone()))
         .collect();
-    assert_eq!(slots, [json!(1), json!(1)], "{split}");
+    assert_eq!(
+        slots,
+        [
+            (json!(0), json!("muse")),
+            (json!(1), json!("claude")),
+            (json!(1), json!("grok"))
+        ],
+        "{split}"
+    );
 }
 
 #[tokio::test]

@@ -1649,7 +1649,7 @@ async function loadUsage() {
   try {
     const u = await api("GET", `/conflux/api/usage?${query}`);
     if (token !== usageToken) return;
-    usage = { ...u, starts, range, hourly: range === "24h" };
+    usage = { ...u, starts, range, hourly: range === "24h", machine: $("usage-machine").value, provider: $("usage-provider").value };
     renderUsage();
   } catch (e) {
     if (token !== usageToken) return;
@@ -1657,6 +1657,8 @@ async function loadUsage() {
       showError(e);
       usageRange = usage.range;
       document.querySelectorAll("[data-usage-range]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.usageRange === usageRange)));
+      $("usage-machine").value = usage.machine;
+      $("usage-provider").value = usage.provider;
     } else setHtml("usage-body", `<div class="card empty"><strong>Couldn't load usage</strong>${esc(e.message)}</div>`);
   }
 }
@@ -1673,20 +1675,27 @@ function usageSeries(u) {
   const totals = {};
   for (const b of u.buckets) totals[b.provider] = (totals[b.provider] || 0) + (byCost() ? b.cost : b.tokens);
   const providers = Object.keys(totals).filter((p) => totals[p] > 0).sort((a, b) => totals[b] - totals[a]);
-  const series = Object.fromEntries(providers.map((p) => [p, u.starts.map(() => 0)]));
-  const tokensAt = u.starts.map(() => 0);
-  const unpricedAt = u.starts.map(() => 0);
+  const zeros = () => u.starts.map(() => 0);
+  const used = [...new Set(u.buckets.map((b) => b.provider))];
+  const series = Object.fromEntries(used.map((p) => [p, zeros()]));
+  const unpricedBy = Object.fromEntries(used.map((p) => [p, zeros()]));
+  const tokensAt = zeros();
+  const unpricedAt = zeros();
   for (const b of u.buckets) {
-    if (series[b.provider]) series[b.provider][b.i] += byCost() ? b.cost : b.tokens;
+    series[b.provider][b.i] += byCost() ? b.cost : b.tokens;
+    unpricedBy[b.provider][b.i] += b.unpriced_tokens;
     tokensAt[b.i] += b.tokens;
     unpricedAt[b.i] += b.unpriced_tokens;
   }
-  return { providers, series, tokensAt, unpricedAt };
+  const listed = [...providers, ...used.filter((p) => !providers.includes(p))];
+  return { providers, listed, series, unpricedBy, tokensAt, unpricedAt };
 }
 
 function bucketLabel(u, i) {
   const ms = u.starts[i];
-  const label = u.hourly ? `${shortDay(ms)}, ${shortHour(ms)}` : shortDay(ms);
+  const repeated = u.hourly && [u.starts[i - 1], u.starts[i + 1]].some((other) => other && shortHour(other) === shortHour(ms));
+  const hour = repeated ? new Date(ms).toLocaleTimeString([], { hour: "numeric", timeZoneName: "short" }) : shortHour(ms);
+  const label = u.hourly ? `${shortDay(ms)}, ${hour}` : shortDay(ms);
   return i === u.starts.length - 1 ? `${label} (so far)` : label;
 }
 
@@ -1763,13 +1772,19 @@ function usageChart(u, width) {
     parts.push(`<g class="series-${esc(layer.p)}"><path class="layer" d="${area}"/><path class="edge" d="${solid}"/><path class="edge so-far" d="${today}"/></g>`);
   }
   const labelEvery = u.hourly ? 6 : Math.max(1, Math.ceil(n / (narrow ? 3 : 5)));
-  const tick = (i) => (u.hourly ? shortHour(u.starts[i]) : shortDay(u.starts[i]));
+  const tick = (i) => (u.hourly ? shortHour(u.starts[i]) : i === n - 1 ? "Today" : shortDay(u.starts[i]));
   for (let i = 0; i < n; i += labelEvery) parts.push(`<text x="${x(i)}" y="${height - 5}" text-anchor="${i ? "middle" : "start"}">${esc(tick(i))}</text>`);
   if ((n - 1) % labelEvery >= labelEvery / 2) parts.push(`<text x="${x(n - 1)}" y="${height - 5}" text-anchor="end">${esc(tick(n - 1))}</text>`);
   parts.push(`<line class="cross" x1="0" x2="0" y1="${padT}" y2="${padT + plotH}" visibility="hidden"/>`);
   usageGeom = { s, x, n, padL, plotW };
   const title = `${u.hourly ? "Hourly" : "Daily"} ${byCost() ? "cost" : "processed tokens"}`;
   return `<div class="usage-chart"><h2>${title}</h2><svg viewBox="0 0 ${width} ${height}" height="${height}" role="img" aria-label="${esc(title)}">${parts.join("")}</svg><div class="usage-tip" hidden></div></div>`;
+}
+
+function bucketValue(value, unpriced) {
+  if (!byCost()) return esc(amount(value));
+  if (!value && unpriced) return "Unpriced";
+  return `${esc(money(value))}${plus(unpriced)}`;
 }
 
 function hideUsageTip() {
@@ -1794,9 +1809,11 @@ function showUsageTip(ev) {
   cross.setAttribute("x2", x(i));
   cross.setAttribute("visibility", "visible");
   const tip = chart.querySelector(".usage-tip");
-  const rows = s.providers.map((p) => `<div><span class="dot ${esc(p)}"></span><span>${esc(providerName(p))}</span><span>${esc(metricText(s.series[p][i]))}</span></div>`);
-  const total = s.providers.reduce((sum, p) => sum + s.series[p][i], 0);
-  tip.innerHTML = `<b>${esc(bucketLabel(usage, i))}</b>${rows.join("")}<div class="sum"><span>Total</span><span>${esc(metricText(total))}${byCost() ? plus(s.unpricedAt[i]) : ""}</span></div>`;
+  const rows = s.listed
+    .filter((p) => s.series[p][i] > 0 || s.unpricedBy[p][i] > 0)
+    .map((p) => `<div><span class="dot ${esc(p)}"></span><span>${esc(providerName(p))}</span><span>${bucketValue(s.series[p][i], s.unpricedBy[p][i])}</span></div>`);
+  const total = s.listed.reduce((sum, p) => sum + s.series[p][i], 0);
+  tip.innerHTML = `<b>${esc(bucketLabel(usage, i))}</b>${rows.join("")}<div class="sum"><span>Total</span><span>${bucketValue(total, s.unpricedAt[i])}</span></div>`;
   tip.hidden = false;
   const cx = x(i) * scale + (box.left - chart.getBoundingClientRect().left);
   const tw = tip.offsetWidth;
@@ -1811,7 +1828,6 @@ function usageNotes(u) {
   if (!fetched) notes.push("Prices haven't loaded yet, so costs show as unpriced.");
   else if (Date.now() - fetched > 2 * 24 * HOUR_MS) notes.push(`Prices are from ${esc(shortDay(fetched))}. The hub couldn't refresh them since.`);
   if (u.unpriced_models.length) notes.push(`No public price for ${u.unpriced_models.map(esc).join(", ")}. Costs marked + leave these out.`);
-  if (u.total.no_usage) notes.push(`${u.total.no_usage.toLocaleString()} ${u.total.no_usage === 1 ? "request" : "requests"} reported no token counts.`);
   return notes.length ? `<div class="usage-notes">${notes.map((n) => `<span>${n}</span>`).join("")}</div>` : "";
 }
 
@@ -1841,12 +1857,15 @@ function usageTypes(t) {
 function usageRows(u) {
   if (usageBreakdown === "time") {
     const s = usageSeries(u);
-    return u.starts.map((_, i) => ({
-      label: esc(bucketLabel(u, i)),
-      value: s.providers.reduce((sum, p) => sum + s.series[p][i], 0),
-      unpriced: s.unpricedAt[i],
-      used: s.tokensAt[i],
-    })).reverse().filter((r) => r.used > 0);
+    return u.starts.map((_, i) => {
+      const value = s.listed.reduce((sum, p) => sum + s.series[p][i], 0);
+      return {
+        label: esc(bucketLabel(u, i)),
+        value: byCost() && !value && s.unpricedAt[i] ? null : value,
+        unpriced: s.unpricedAt[i],
+        used: s.tokensAt[i],
+      };
+    }).reverse().filter((r) => r.used > 0);
   }
   const groups = { model: u.by_model, account: u.by_account, machine: u.by_machine }[usageBreakdown];
   return groups.map((g) => {
@@ -1883,7 +1902,7 @@ function renderUsage() {
   $("usage-sub").textContent = t.requests ? `${t.requests.toLocaleString()} ${t.requests === 1 ? "request" : "requests"}` : "";
   if (!t.requests) {
     usageGeom = null;
-    return setHtml("usage-body", `<div class="card empty"><strong>No requests in this range</strong>conflux records each request the hub serves, and keeps 90 days.</div>`);
+    return setHtml("usage-body", `<div class="card empty"><strong>No requests in this range</strong>conflux records each request the hub serves, and keeps at least 90 days.</div>`);
   }
   const total = metricOf(t);
   const providers = [...u.by_provider].sort((a, b) => (metricOf(b) ?? -1) - (metricOf(a) ?? -1));
@@ -1906,7 +1925,7 @@ function renderUsage() {
       ${stat("Cached input", amount(t.cache_read), "")}
       ${stat("Uncached input", amount(t.input), "")}
       ${stat("Output", amount(t.output), "")}
-      ${stat("Cache savings", t.cost ? money(t.cost.savings) : "–", "Cache reads against the input price")}
+      ${stat("Cache savings", t.cost ? `${money(t.cost.savings)}${plus(t.unpriced_tokens)}` : "–", "Versus paying the input price for cache reads")}
     </div></div>
     ${usageTypes(t)}
     <div class="section">

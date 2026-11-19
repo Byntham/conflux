@@ -144,7 +144,7 @@ impl App {
             ws_shutdown: tokio::sync::watch::channel(moving).0,
             management_key: management::load_or_create_key(&paths.management_key_file())?,
             api_call_http: management::api_call_client(),
-            requests: Arc::new(RequestLog::with_ledger(Ledger::open(paths.analytics_dir())?)),
+            requests: Arc::new(RequestLog::new(Ledger::open(paths.analytics_dir())?)),
             prices,
             transcripts: Transcripts::open(&paths.transcripts_dir()?)?,
             lifecycle,

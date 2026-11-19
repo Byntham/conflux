@@ -102,21 +102,20 @@ impl LogState {
     }
 }
 
-#[derive(Default)]
 pub struct RequestLog {
     state: Mutex<LogState>,
-    ledger: Option<Arc<Ledger>>,
+    ledger: Arc<Ledger>,
 }
 
 impl RequestLog {
-    pub fn with_ledger(ledger: Arc<Ledger>) -> Self {
+    pub fn new(ledger: Arc<Ledger>) -> Self {
         Self {
             state: Mutex::default(),
-            ledger: Some(ledger),
+            ledger,
         }
     }
 
-    pub fn ledger(&self) -> Option<Arc<Ledger>> {
+    pub fn ledger(&self) -> Arc<Ledger> {
         self.ledger.clone()
     }
 
@@ -138,10 +137,9 @@ impl RequestLog {
 
     pub fn finish(&self, record: &RequestRecord) {
         self.set_usage(record.id, record.usage);
-        if record.status < 400
-            && let Some(ledger) = &self.ledger
-        {
-            ledger.append(&Row::from(record));
+        let u = &record.usage;
+        if record.status < 400 && u.input + u.cache_read + u.cache_write + u.output > 0 {
+            self.ledger.append(&Row::from(record));
         }
     }
 
@@ -525,7 +523,8 @@ mod tests {
 
     #[test]
     fn log_is_bounded_and_newest_first() {
-        let log = RequestLog::default();
+        let dir = tempfile::tempdir().unwrap();
+        let log = RequestLog::new(Ledger::open(dir.path().to_path_buf()).unwrap());
         let rec = |account: &str| RequestRecord {
             id: 0,
             at: Utc::now(),

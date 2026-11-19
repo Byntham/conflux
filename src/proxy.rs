@@ -690,7 +690,7 @@ pub async fn handle(State(app): State<Arc<App>>, req: Request) -> Response {
             continue;
         }
 
-        let record = log(&account, resp.status().as_u16()).filter(|_| !path.ends_with("/count_tokens"));
+        let record = log(&account, resp.status().as_u16());
         let scanner = BodyScanner::new(
             header_str(resp.headers(), "content-encoding"),
             header_str(resp.headers(), "content-type"),

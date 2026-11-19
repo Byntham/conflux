@@ -125,7 +125,6 @@ impl Ledger {
 #[derive(Default)]
 struct Group {
     requests: u64,
-    no_usage: u64,
     sessions: HashSet<u64>,
     input: u64,
     cache_read: u64,
@@ -145,9 +144,6 @@ impl Group {
         let u = &row.usage;
         let n = tokens(u);
         self.requests += 1;
-        if n == 0 {
-            self.no_usage += 1;
-        }
         if let Some(s) = session {
             self.sessions.insert(s);
         }
@@ -178,7 +174,6 @@ impl Group {
         });
         json!({
             "requests": self.requests,
-            "no_usage": self.no_usage,
             "sessions": self.sessions.len(),
             "input": self.input,
             "cache_read": self.cache_read,
@@ -329,15 +324,10 @@ pub async fn usage(State(app): State<Arc<App>>, Query(q): Query<UsageQuery>) -> 
             Err(_) => return (StatusCode::BAD_REQUEST, Json(json!({"error": "unknown provider"}))).into_response(),
         },
     };
-    let Some(ledger) = app.requests.ledger() else {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "usage history is off"})),
-        )
-            .into_response();
-    };
+    let ledger = app.requests.ledger();
     let since = starts[0];
     let prices = app.prices.table();
+    let fetched_at = prices.fetched_at;
     let emails: HashMap<String, Option<String>> = app
         .store
         .all()
@@ -358,7 +348,7 @@ pub async fn usage(State(app): State<Arc<App>>, Query(q): Query<UsageQuery>) -> 
     match summary {
         Ok(mut v) => {
             v["now"] = json!(now);
-            v["prices_fetched_at"] = json!(app.prices.table().fetched_at);
+            v["prices_fetched_at"] = json!(fetched_at);
             Json(v).into_response()
         }
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),

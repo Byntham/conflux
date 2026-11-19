@@ -255,7 +255,6 @@ async fn the_row_is_logged_when_the_upstream_starts_answering() {
         .app
         .requests
         .ledger()
-        .unwrap()
         .read(now - chrono::Duration::hours(1), now)
         .into_iter()
         .map(|r| (r.usage.output, r.usage.speed))
