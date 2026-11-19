@@ -1598,6 +1598,7 @@ const USAGE_REFRESH_MS = 60000;
 const USAGE_DAYS = { "7d": 7, "30d": 30, "90d": 90 };
 const USAGE_TYPES = [["input", "Input"], ["cache_read", "Cache read"], ["cache_write", "Cache write"], ["output", "Output"], ["fast", "Fast mode"]];
 const compact = new Intl.NumberFormat("en", { notation: "compact", minimumSignificantDigits: 3, maximumSignificantDigits: 3 });
+const compactAxis = new Intl.NumberFormat("en", { notation: "compact", maximumSignificantDigits: 3 });
 let usage = null;
 let usageRange = "7d";
 let usageMetric = "cost";
@@ -1723,7 +1724,7 @@ function niceStep(max) {
 
 function axisText(v, step) {
   if (!v) return "0";
-  if (!byCost()) return amount(v);
+  if (!byCost()) return compactAxis.format(v);
   if (step >= 1 && Number.isInteger(step)) return `$${Math.round(v).toLocaleString("en-US")}`;
   let digits = 2;
   while (digits < 6 && Math.abs(step * 10 ** digits - Math.round(step * 10 ** digits)) > 1e-6) digits++;
