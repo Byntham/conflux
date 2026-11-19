@@ -427,6 +427,7 @@
   .usage-big { font-size: 40px; line-height: 1.05; font-weight: 600; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
   .usage-big-sub { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 13px; color: var(--muted); }
   .usage-big-sub .i { width: 14px; height: 14px; }
+  .estimate { display: inline-flex; align-items: center; gap: 6px; cursor: default; }
   .usage-providers { display: grid; gap: 14px; margin-top: 22px; }
   .usage-provider { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px 12px; align-items: baseline; }
   .usage-provider-name { display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 500; }
@@ -1633,8 +1634,15 @@ const moneyOf = (g) => (g.cost ? `${esc(money(g.cost.total))}${plus(g.unpriced_t
 function usageStarts(range) {
   const now = new Date();
   if (range === "24h") {
-    const top = now.getTime() - (now.getMinutes() * 60000 + now.getSeconds() * 1000 + now.getMilliseconds());
-    return [now.getTime() - 24 * HOUR_MS, ...Array.from({ length: 24 }, (_, i) => top - (23 - i) * HOUR_MS)];
+    const floor = now.getTime() - 24 * HOUR_MS;
+    const tops = [];
+    let t = now.getTime() - (now.getMinutes() * 60000 + now.getSeconds() * 1000 + now.getMilliseconds());
+    while (t > floor) {
+      tops.unshift(t);
+      const prev = t - HOUR_MS;
+      t = prev - new Date(prev).getMinutes() * 60000;
+    }
+    return [floor, ...tops];
   }
   const days = USAGE_DAYS[range];
   return Array.from({ length: days }, (_, i) => new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1 - i)).getTime());
@@ -1717,8 +1725,9 @@ function axisText(v, step) {
   if (!v) return "0";
   if (!byCost()) return amount(v);
   if (step >= 1 && Number.isInteger(step)) return `$${Math.round(v).toLocaleString("en-US")}`;
-  if (step >= 0.01) return money(v);
-  return `$${v.toFixed(Math.max(2, Math.ceil(-Math.log10(step))))}`;
+  let digits = 2;
+  while (digits < 6 && Math.abs(step * 10 ** digits - Math.round(step * 10 ** digits)) > 1e-6) digits++;
+  return `$${v.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
 }
 
 function controls(values) {
@@ -1744,7 +1753,7 @@ function usageChart(u, width) {
   const padL = byCost() ? 54 : 44, padR = 8, padT = 8, padB = 24;
   const plotW = Math.max(40, width - padL - padR), plotH = height - padT - padB;
   const n = u.starts.length;
-  const x = (i) => padL + (i / (n - 1)) * plotW;
+  const x = (i) => padL + ((u.starts[i] - u.starts[0]) / (u.starts[n - 1] - u.starts[0])) * plotW;
   const first = u.hourly ? 1 : 0;
   const done = n - 1;
   const span = (values) => values.slice(first, done);
@@ -1766,18 +1775,18 @@ function usageChart(u, width) {
   for (let v = 0; v <= yMax + step / 2; v += step) {
     parts.push(`<line class="${v ? "grid" : "base"}" x1="${padL}" x2="${padL + plotW}" y1="${y(v)}" y2="${y(v)}"/><text x="${padL - 12}" y="${y(v) + 4}" text-anchor="end">${esc(axisText(v, step))}</text>`);
   }
-  const h = (x(1) - x(0)) / 3;
   const at = (j) => x(first + j);
+  const h = (j) => (at(j + 1) - at(j)) / 3;
   const c = (px, v) => `${px.toFixed(1)} ${y(v).toFixed(1)}`;
   for (const layer of [...stacked].reverse()) {
     const top = span(layer.top), bottom = span(layer.below);
-    const forward = layer.topCtl.map(([a, b], j) => `C${c(at(j) + h, a)} ${c(at(j + 1) - h, b)} ${c(at(j + 1), top[j + 1])}`).join("");
-    const back = layer.belowCtl.map(([a, b], j) => `C${c(at(j + 1) - h, b)} ${c(at(j) + h, a)} ${c(at(j), bottom[j])}`).reverse().join("");
+    const forward = layer.topCtl.map(([a, b], j) => `C${c(at(j) + h(j), a)} ${c(at(j + 1) - h(j), b)} ${c(at(j + 1), top[j + 1])}`).join("");
+    const back = layer.belowCtl.map(([a, b], j) => `C${c(at(j + 1) - h(j), b)} ${c(at(j) + h(j), a)} ${c(at(j), bottom[j])}`).reverse().join("");
     const edge = `M${c(at(0), top[0])}${forward}`;
     parts.push(`<g class="series-${esc(layer.p)}"><path class="layer" d="${edge}L${c(at(top.length - 1), bottom[bottom.length - 1])}${back}Z"/><path class="edge" d="${edge}"/></g>`);
   }
   if (stacked.length) {
-    for (const i of first ? [0, done] : [done]) parts.push(`<circle class="so-far" cx="${x(i)}" cy="${y(below[i])}" r="4"/>`);
+    for (const i of first && below[0] > 0 ? [0, done] : [done]) parts.push(`<circle class="so-far" cx="${x(i)}" cy="${y(below[i])}" r="4"/>`);
     const room = x(done) - x(done - 1) >= 90;
     const marked = byCost() && s.unpricedAt[done] ? "+" : "";
     if (!u.hourly && room && below[done] > 0) parts.push(`<text class="so-far-label" x="${x(done) - 8}" y="${y(below[done]) - 9}" text-anchor="end">${esc(metricText(below[done]))}${marked} so far</text>`);
@@ -1814,7 +1823,7 @@ function showUsageTip(ev) {
   const scale = box.width / svg.viewBox.baseVal.width;
   const px = (ev.clientX - box.left) / scale;
   if (px < padL - 6 || px > padL + plotW + 6) return hideUsageTip();
-  const i = Math.max(0, Math.min(n - 1, Math.round(((px - padL) / plotW) * (n - 1))));
+  const i = Array.from({ length: n }, (_, k) => k).reduce((best, k) => (Math.abs(x(k) - px) < Math.abs(x(best) - px) ? k : best), 0);
   const cross = chart.querySelector(".cross");
   cross.setAttribute("x1", x(i));
   cross.setAttribute("x2", x(i));
@@ -1842,21 +1851,21 @@ function usageNotes(u) {
   return notes.length ? `<div class="usage-notes">${notes.map((n) => `<span>${n}</span>`).join("")}</div>` : "";
 }
 
-function usageProvider(g, total) {
+function usageProvider(g, total, pricedOnly) {
   const v = metricOf(g);
   const unpriced = byCost() && g.unpriced_tokens ? `, ${amount(g.unpriced_tokens)} unpriced` : "";
   const other = byCost() ? esc(`${amount(g.tokens)} tokens${unpriced}`) : moneyOf(g);
   return `<div class="usage-provider">
     <div class="usage-provider-name"><span class="dot ${esc(g.provider)}"></span><span class="truncate">${esc(providerName(g.provider))}</span><small>${g.sessions.toLocaleString()} ${g.sessions === 1 ? "session" : "sessions"}</small></div>
     <div class="usage-provider-value">${esc(metricText(v))}${partial(g)}</div>
-    <div class="usage-provider-sub">${share(v, total)} of ${byCost() ? "cost" : "tokens"} · ${other}</div>
+    <div class="usage-provider-sub">${share(v, total)} of ${byCost() ? (pricedOnly ? "priced cost" : "cost") : "tokens"} · ${other}</div>
   </div>`;
 }
 
 function usageTypes(t) {
   const values = byCost() ? t.cost : t;
   if (!values) return "";
-  const kinds = USAGE_TYPES.filter(([k]) => values[k] !== undefined && (k !== "fast" || values[k] > 0));
+  const kinds = USAGE_TYPES.filter(([k]) => values[k] > 0);
   const sum = kinds.reduce((s, [k]) => s + values[k], 0);
   if (!sum) return "";
   const text = (v) => (byCost() ? money(v) : amount(v));
@@ -1918,7 +1927,7 @@ function renderUsage() {
   }
   const total = metricOf(t);
   const providers = [...u.by_provider].sort((a, b) => (metricOf(b) ?? -1) - (metricOf(a) ?? -1));
-  const estimate = `${byCost() ? "" : " · processed tokens"} · <span data-tip="Dollar figures use public API rates. Subscriptions bill differently.">API estimate</span>${icon("info")}`;
+  const estimate = `${byCost() ? "" : " · processed tokens"} · <span class="estimate" tabindex="0" data-tip="Dollar figures use public API rates. Subscriptions bill differently.">API estimate${icon("info")}</span>`;
   const narrow = window.innerWidth <= 760;
   const stackedBoard = window.innerWidth <= 1080;
   const width = Math.max(240, $("usage-body").clientWidth - (narrow ? 30 : 44) - (stackedBoard ? 0 : 348));
@@ -1928,7 +1937,7 @@ function renderUsage() {
       <div>
         <div class="usage-big">${esc(metricText(total))}${partial(t)}</div>
         <div class="usage-big-sub">${t.sessions.toLocaleString()} ${t.sessions === 1 ? "session" : "sessions"}${estimate}</div>
-        <div class="usage-providers">${providers.map((g) => usageProvider(g, total || 0)).join("")}</div>
+        <div class="usage-providers">${providers.map((g) => usageProvider(g, total || 0, t.unpriced_tokens > 0)).join("")}</div>
         ${usageNotes(u)}
       </div>
       ${usageChart(u, width)}
@@ -2485,7 +2494,7 @@ document.addEventListener("keydown", (ev) => {
   anchor.focus();
 });
 
-document.addEventListener("mouseover", (ev) => {
+function showTip(ev) {
   const col = ev.target.closest("[data-tip]");
   const tip = $("tip");
   if (!col) { tip.hidden = true; return; }
@@ -2496,7 +2505,11 @@ document.addEventListener("mouseover", (ev) => {
   tip.style.left = `${left}px`;
   const above = rect.top - tip.offsetHeight + (col.classList.contains("col") ? 8 : -6);
   tip.style.top = `${above < 0 ? rect.bottom + 6 : above}px`;
-});
+}
+
+document.addEventListener("mouseover", showTip);
+document.addEventListener("focusin", showTip);
+document.addEventListener("focusout", () => { $("tip").hidden = true; });
 
 document.addEventListener("click", (ev) => {
   if (ev.target.closest("[data-secrets-toggle]")) {

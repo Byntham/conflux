@@ -1083,7 +1083,8 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         },
         "openrouter/xai/grok-4.7": {"litellm_provider": "openrouter", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0},
         "claude-sonnet-5-5-20261101": {"litellm_provider": "bedrock", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0},
-        "xai/grok-4.7-build": {"litellm_provider": "openai", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0}
+        "xai/grok-4.7-build": {"litellm_provider": "openai", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0},
+        "openai/grok-4.7-build": {"litellm_provider": "openai", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0}
     }));
     h.app.prices.refresh(&reqwest::Client::new()).await.unwrap();
     let since = (chrono::Utc::now() - chrono::Duration::hours(1)).timestamp();

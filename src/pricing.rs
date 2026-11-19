@@ -302,10 +302,13 @@ impl Prices {
             fetched_at: Some(Utc::now()),
             models,
         };
-        if let Some(file) = &self.file {
-            fsutil::write_json_durable(file, &table)?;
+        let table = Arc::new(table);
+        *self.table.write().unwrap() = table.clone();
+        if let Some(file) = &self.file
+            && let Err(e) = fsutil::write_json_durable(file, &*table)
+        {
+            tracing::warn!("could not save API prices: {e:#}");
         }
-        *self.table.write().unwrap() = Arc::new(table);
         Ok(())
     }
 

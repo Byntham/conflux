@@ -299,18 +299,13 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
     .await;
     let since = (chrono::Utc::now() - chrono::Duration::hours(1)).timestamp();
     let usage_url = format!("{base}/conflux/api/usage?buckets={since}&provider=codex");
-    let codex_usage = eventually("the request to reach the usage history", async || {
+    eventually("the request to reach the usage history", async || {
         let v: Value = reqwest::get(&usage_url).await.ok()?.json().await.ok()?;
-        (v["total"]["requests"] != 0).then_some(v)
+        (v["total"]["requests"] != 0).then_some(())
     })
     .await;
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    let codex_usage: Value = reqwest::get(&usage_url)
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap_or(codex_usage);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let codex_usage: Value = reqwest::get(&usage_url).await.unwrap().json().await.unwrap();
     assert_eq!(
         (&codex_usage["total"]["requests"], &codex_usage["total"]["output"]),
         (&json!(1), &json!(77)),
