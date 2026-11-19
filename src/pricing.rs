@@ -201,14 +201,17 @@ pub fn parse_litellm(doc: &Value) -> HashMap<String, ModelRate> {
         return models;
     };
     for (name, entry) in entries {
-        let key = name.trim().to_lowercase();
-        let named = match key.split_once('/') {
-            None => true,
-            Some((vendor, rest)) => VENDORS.contains(&vendor) && !rest.contains('/'),
+        let Some(owner) = entry["litellm_provider"].as_str().filter(|p| VENDORS.contains(p)) else {
+            continue;
         };
-        let first_party = named && entry["litellm_provider"].as_str().is_some_and(|p| VENDORS.contains(&p));
-        if first_party && let Some(rate) = read_model(entry) {
-            models.insert(key, rate);
+        let key = name.trim().to_lowercase();
+        let bare = match key.split_once('/') {
+            None => key.as_str(),
+            Some((prefix, rest)) if prefix == owner && !rest.contains('/') => rest,
+            Some(_) => continue,
+        };
+        if let Some(rate) = read_model(entry) {
+            models.insert(format!("{owner}/{bare}"), rate);
         }
     }
     models
@@ -235,9 +238,13 @@ fn without_date(name: &str) -> Option<&str> {
 }
 
 pub fn candidates(provider: Provider, model: &str) -> Vec<String> {
+    let vendor = vendor(provider);
     let mut name = model.trim().to_lowercase();
     if let Some(open) = name.find('[') {
         name.truncate(open);
+    }
+    if let Some(rest) = name.strip_prefix(&format!("{vendor}/")) {
+        name = rest.to_string();
     }
     let mut names = vec![name.clone()];
     if let Some(undated) = without_date(&name) {
@@ -246,10 +253,7 @@ pub fn candidates(provider: Provider, model: &str) -> Vec<String> {
     if let Some(base) = name.strip_suffix("-build") {
         names.push(base.to_string());
     }
-    names
-        .into_iter()
-        .flat_map(|n| [n.clone(), format!("{}/{n}", vendor(provider))])
-        .collect()
+    names.into_iter().map(|n| format!("{vendor}/{n}")).collect()
 }
 
 impl Table {

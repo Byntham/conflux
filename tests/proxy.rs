@@ -1082,7 +1082,8 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
             "input_cost_per_token_priority": 6e-6, "output_cost_per_token_priority": 1.8e-5
         },
         "openrouter/xai/grok-4.7": {"litellm_provider": "openrouter", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0},
-        "claude-sonnet-5-5-20261101": {"litellm_provider": "bedrock", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0}
+        "claude-sonnet-5-5-20261101": {"litellm_provider": "bedrock", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0},
+        "xai/grok-4.7-build": {"litellm_provider": "openai", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0}
     }));
     h.app.prices.refresh(&reqwest::Client::new()).await.unwrap();
     let since = (chrono::Utc::now() - chrono::Duration::hours(1)).timestamp();
@@ -1181,16 +1182,18 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         "{split}"
     );
 
+    let status = async || {
+        let url = format!("{}/conflux/api/usage?buckets={since}", h.base);
+        h.http.get(url).send().await.unwrap().status()
+    };
+    let today = analytics.join(format!("{}.jsonl", chrono::Utc::now().format("%Y-%m-%d")));
+    std::fs::remove_file(&today).unwrap();
+    std::fs::create_dir(&today).unwrap();
+    assert_eq!(status().await, 500, "a day file that cannot be read is an error");
     std::fs::remove_dir_all(&analytics).unwrap();
     std::fs::write(&analytics, "").unwrap();
-    let broken = h
-        .http
-        .get(format!("{}/conflux/api/usage?buckets={since}", h.base))
-        .send()
-        .await
-        .unwrap();
     assert_eq!(
-        broken.status(),
+        status().await,
         500,
         "unreadable history is an error, not an empty range"
     );

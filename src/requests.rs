@@ -509,6 +509,12 @@ mod tests {
             &json!({"type": "response.cancelled", "response": {"usage": null, "service_tier": "priority"}}),
         );
         assert_eq!((u.input, u.cache_read, u.output, u.speed), (5, 80, 5, Speed::Fast));
+        apply_event(
+            Provider::Codex,
+            &mut u,
+            &json!({"type": "response.completed", "response": {"usage": null, "service_tier": "ultrafast"}}),
+        );
+        assert_eq!(u.speed, Speed::Ultrafast);
     }
 
     #[test]

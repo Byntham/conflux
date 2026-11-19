@@ -460,9 +460,10 @@
   .usage-type-key b { font-weight: 500; color: var(--fg); }
   .usage-type-key i, .usage-type-bar i { display: inline-block; }
   .usage-type-key i { width: 9px; height: 9px; border-radius: 2px; }
-  .type-input { background: color-mix(in srgb, var(--fg) 32%, var(--bg)); }
-  .type-cache_read { background: color-mix(in srgb, var(--fg) 48%, var(--bg)); }
-  .type-cache_write { background: color-mix(in srgb, var(--fg) 65%, var(--bg)); }
+  .type-input { background: color-mix(in srgb, var(--fg) 36%, var(--bg)); }
+  .type-cache_read { background: color-mix(in srgb, var(--fg) 54%, var(--bg)); }
+  .type-cache_write { background: color-mix(in srgb, var(--fg) 72%, var(--bg)); }
+  .usage-type-head { justify-content: flex-start; }
   .type-output { background: var(--fg); }
   .type-fast { background: var(--warn-fill); }
   .usage-table td.name { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -1595,7 +1596,7 @@ function showPoolTip(ev) {
 const USAGE_REFRESH_MS = 60000;
 const USAGE_DAYS = { "7d": 7, "30d": 30, "90d": 90 };
 const USAGE_TYPES = [["input", "Input"], ["cache_read", "Cache read"], ["cache_write", "Cache write"], ["output", "Output"], ["fast", "Fast mode"]];
-const compact = new Intl.NumberFormat("en", { notation: "compact", maximumSignificantDigits: 3 });
+const compact = new Intl.NumberFormat("en", { notation: "compact", minimumSignificantDigits: 3, maximumSignificantDigits: 3 });
 let usage = null;
 let usageRange = "7d";
 let usageMetric = "cost";
@@ -1604,9 +1605,9 @@ let usageToken = 0;
 let usageLoadedAt = 0;
 let usageGeom = null;
 
-const amount = (n) => compact.format(n);
+const amount = (n) => (n < 1000 ? String(Math.round(n)) : compact.format(n));
 const shortDay = (ms) => new Date(ms).toLocaleDateString([], { month: "short", day: "numeric" });
-const shortHour = (ms) => new Date(ms).toLocaleTimeString([], { hour: "numeric" });
+const shortHour = (ms) => new Date(ms).toLocaleTimeString([], new Date(ms).getMinutes() ? { hour: "numeric", minute: "2-digit" } : { hour: "numeric" });
 
 function money(v) {
   if (v > 0 && v < 0.01) return "<$0.01";
@@ -1757,13 +1758,13 @@ function usageChart(u, width) {
     below = top;
     belowCtl = topCtl;
   }
-  const max = Math.max(0, ...below);
+  const max = Math.max(0, ...below, ...belowCtl.flat());
   const step = niceStep(max);
   const yMax = Math.max(step, Math.ceil(max / step) * step);
   const y = (v) => padT + plotH - (v / yMax) * plotH;
   const parts = [];
   for (let v = 0; v <= yMax + step / 2; v += step) {
-    parts.push(`<line class="${v ? "grid" : "base"}" x1="${padL}" x2="${padL + plotW}" y1="${y(v)}" y2="${y(v)}"/><text x="${padL - 8}" y="${y(v) + 4}" text-anchor="end">${esc(axisText(v, step))}</text>`);
+    parts.push(`<line class="${v ? "grid" : "base"}" x1="${padL}" x2="${padL + plotW}" y1="${y(v)}" y2="${y(v)}"/><text x="${padL - 12}" y="${y(v) + 4}" text-anchor="end">${esc(axisText(v, step))}</text>`);
   }
   const h = (x(1) - x(0)) / 3;
   const at = (j) => x(first + j);
@@ -1862,7 +1863,7 @@ function usageTypes(t) {
   const bar = kinds.filter(([k]) => values[k] > 0).map(([k, label]) => `<i class="type-${k}" style="flex: ${values[k] / sum} 1 0" data-tip="${esc(label)} ${esc(text(values[k]))}"></i>`).join("");
   const key = kinds.map(([k, label]) => `<span><i class="type-${k}"></i>${esc(label)} <b>${esc(text(values[k]))}</b></span>`).join("");
   const note = byCost() && t.unpriced_tokens ? `<div class="section-note">Leaves out ${esc(amount(t.unpriced_tokens))} unpriced tokens</div>` : "";
-  return `<div class="section"><div class="section-head"><h2>${byCost() ? "Cost" : "Tokens"} by type</h2>${note}</div><div class="usage-type-bar">${bar}</div><div class="usage-type-key">${key}</div></div>`;
+  return `<div class="section"><div class="section-head usage-type-head"><h2>${byCost() ? "Cost" : "Tokens"} by type</h2>${note}</div><div class="usage-type-bar">${bar}</div><div class="usage-type-key">${key}</div></div>`;
 }
 
 function usageRows(u) {
@@ -1880,7 +1881,8 @@ function usageRows(u) {
   }
   const groups = { model: u.by_model, account: u.by_account, machine: u.by_machine }[usageBreakdown];
   return groups.map((g) => {
-    const name = usageBreakdown === "model" ? `<span title="${esc(g.model)}">${esc(g.model)}</span>` : `<span>${secret(usageBreakdown === "account" ? g.email || g.account : g.machine)}</span>`;
+    const machine = () => (showAll ? esc(g.machine) : `Machine ${u.machines.indexOf(g.machine) + 1}`);
+    const name = usageBreakdown === "model" ? `<span title="${esc(g.model)}">${esc(g.model)}</span>` : usageBreakdown === "account" ? `<span>${secret(g.email || g.account)}</span>` : `<span>${machine()}</span>`;
     const dot = g.provider ? `<span class="dot ${esc(g.provider)}"></span>` : "";
     return { label: `${dot}${name}`, value: metricOf(g), group: g, series: g.provider ? `series-${esc(g.provider)}` : "" };
   }).sort((a, b) => (b.value ?? -1) - (a.value ?? -1));
@@ -1916,7 +1918,7 @@ function renderUsage() {
   }
   const total = metricOf(t);
   const providers = [...u.by_provider].sort((a, b) => (metricOf(b) ?? -1) - (metricOf(a) ?? -1));
-  const estimate = byCost() ? ` · <span data-tip="Priced at public API rates. Subscriptions bill differently.">API estimate</span>${icon("info")}` : " · processed tokens";
+  const estimate = `${byCost() ? "" : " · processed tokens"} · <span data-tip="Dollar figures use public API rates. Subscriptions bill differently.">API estimate</span>${icon("info")}`;
   const narrow = window.innerWidth <= 760;
   const stackedBoard = window.innerWidth <= 1080;
   const width = Math.max(240, $("usage-body").clientWidth - (narrow ? 30 : 44) - (stackedBoard ? 0 : 348));

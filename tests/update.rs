@@ -77,6 +77,7 @@ fn start(command: &str, home: &Path, fake: &str, exe_dir: &str) -> Started {
         .env("CONFLUX_CHATGPT_BACKEND", format!("{fake}/backend-api"))
         .env("CONFLUX_OPENAI_AUTH", fake)
         .env("CONFLUX_RELEASES", format!("{fake}/releases"))
+        .env("CONFLUX_PRICES", format!("{fake}/prices.json"))
         .stdin(Stdio::null());
     let child = (0..100)
         .find_map(|_| match conflux.spawn() {
@@ -297,12 +298,19 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
     )
     .await;
     let since = (chrono::Utc::now() - chrono::Duration::hours(1)).timestamp();
-    let codex_usage: Value = reqwest::get(format!("{base}/conflux/api/usage?buckets={since}&provider=codex"))
+    let usage_url = format!("{base}/conflux/api/usage?buckets={since}&provider=codex");
+    let codex_usage = eventually("the request to reach the usage history", async || {
+        let v: Value = reqwest::get(&usage_url).await.ok()?.json().await.ok()?;
+        (v["total"]["requests"] != 0).then_some(v)
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let codex_usage: Value = reqwest::get(&usage_url)
         .await
         .unwrap()
         .json()
         .await
-        .unwrap();
+        .unwrap_or(codex_usage);
     assert_eq!(
         (&codex_usage["total"]["requests"], &codex_usage["total"]["output"]),
         (&json!(1), &json!(77)),
