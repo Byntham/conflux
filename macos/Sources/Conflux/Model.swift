@@ -102,19 +102,20 @@ struct Pool: Identifiable {
             let used = group.map { window in
                 window.resetsAt.map { $0 <= now } == true ? 0 : min(100, max(0, window.usedPct))
             }
-            let refillAt = zip(group, used).filter { $1 > 0 }.compactMap { $0.0.resetsAt }.filter { $0 > now }.min()
-            let refill = refillAt.map { at in
-                zip(group, used).filter { $0.0.resetsAt == at }.map { $0.1 }.reduce(0, +)
-            } ?? 0
+            let resets = Set(zip(group, used).filter { $1 > 0 }.compactMap { $0.0.resetsAt }).sorted()
+            let refills = resets.map { at in
+                (at, zip(group, used).filter { $0.0.resetsAt == at }.map { $0.1 }.reduce(0, +) / Double(members.count))
+            }
+            let refill = refills.first { $0.1 >= 0.5 }
             return PoolWindow(
                 window: UsageWindow(
                     key: name,
                     usedPct: used.reduce(0, +) / Double(members.count),
-                    resetsAt: refillAt,
+                    resetsAt: refill?.0,
                     durationSecs: group[0].durationSecs,
                     modelScope: nil
                 ),
-                refillPct: refill / Double(members.count)
+                refillPct: refill?.1 ?? 0
             )
         }
     }

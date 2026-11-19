@@ -381,9 +381,8 @@ struct Meter: View {
     }
 
     private var refill: (gain: Int, wait: String)? {
-        let gain = Int(refillPct.rounded())
-        guard let at = window.resetsAt, gain > 0 else { return nil }
-        return (gain, Countdown.text(at, now: now))
+        guard let at = window.resetsAt else { return nil }
+        return (Int(refillPct.rounded()), Countdown.text(at, now: now))
     }
 
     private func color(_ left: Double) -> Color {
