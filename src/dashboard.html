@@ -1657,7 +1657,7 @@ function usageStarts(range) {
 }
 
 let usageInFlight = false;
-let usagePending = false;
+let usagePending = null;
 
 async function loadUsage(background = false) {
   if (background && usageInFlight) return;
@@ -1674,10 +1674,15 @@ async function loadUsage(background = false) {
     if (token !== usageToken) return;
     usageInFlight = false;
     $("usage-body").classList.remove("loading");
-    usage = { ...u, starts, range, hourly: range === "24h", machine: $("usage-machine").value, provider: $("usage-provider").value };
+    const next = { ...u, starts, range, hourly: range === "24h", machine: $("usage-machine").value, provider: $("usage-provider").value };
     const tipOpen = document.querySelector(".usage-chart .usage-tip:not([hidden])");
-    if (background && tipOpen) usagePending = true;
-    else renderUsage();
+    if (background && tipOpen) {
+      usagePending = next;
+    } else {
+      usagePending = null;
+      usage = next;
+      renderUsage();
+    }
   } catch (e) {
     if (token !== usageToken) return;
     usageInFlight = false;
@@ -1838,7 +1843,8 @@ function hideUsageTip() {
   tip.hidden = true;
   document.querySelector(".usage-chart .cross").setAttribute("visibility", "hidden");
   if (usagePending) {
-    usagePending = false;
+    usage = usagePending;
+    usagePending = null;
     renderUsage();
   }
 }
@@ -1877,7 +1883,7 @@ function usageNotes(u) {
   const fetched = u.prices_fetched_at && new Date(u.prices_fetched_at).getTime();
   if (!fetched && (!byCost() || u.total.cost)) notes.push("Prices haven't loaded yet, so costs show as unpriced.");
   else if (fetched && new Date(u.now).getTime() - fetched > 2 * 24 * HOUR_MS) notes.push(`Prices are from ${esc(shortDay(fetched))}. The hub couldn't refresh them since.`);
-  if (fetched && u.unpriced_models.length) notes.push(`No public price for ${u.unpriced_models.map(esc).join(", ")}. Costs marked + leave these out.`);
+  if (fetched && u.unpriced_models.length) notes.push(`No public price for ${u.unpriced_models.map(esc).join(", ")}.${u.total.cost ? " Costs marked + leave these out." : ""}`);
   return notes.length ? `<div class="usage-notes">${notes.map((n) => `<span>${n}</span>`).join("")}</div>` : "";
 }
 

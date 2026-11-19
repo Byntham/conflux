@@ -268,6 +268,14 @@ impl Table {
     }
 }
 
+pub fn download_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(300))
+        .build()
+        .expect("build price client")
+}
+
 pub struct Prices {
     table: RwLock<Arc<Table>>,
     file: Option<PathBuf>,

@@ -395,7 +395,7 @@ impl App {
             tokio::spawn(self.usage.clone().run_poller(self.store.clone())),
             tokio::spawn(self.transcripts.clone().run_maintenance()),
             tokio::spawn(self.clone().route_accounts()),
-            tokio::spawn(self.prices.clone().run(self.control_http.clone())),
+            tokio::spawn(self.prices.clone().run(crate::pricing::download_client())),
         ]
     }
 

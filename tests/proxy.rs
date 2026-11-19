@@ -1185,7 +1185,12 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
     assert!(close(&grok_only["total"]["cost"]["total"], grok_cost), "{grok_only}");
     let whole = json!({"type": "message", "usage": {"input_tokens": 7, "output_tokens": 3}});
     h.reply("at-a", Reply::Json(200, vec![], whole.to_string()));
-    let r = h.claude(json!({"model": "claude-sonnet-5-5"})).send().await.unwrap();
+    let r = h
+        .claude(json!({"model": "claude-sonnet-5-5"}))
+        .header("x-claude-code-session-id", "c1")
+        .send()
+        .await
+        .unwrap();
     r.bytes().await.unwrap();
     let mut claude_only = serde_json::Value::Null;
     for _ in 0..40 {
@@ -1196,7 +1201,11 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
     assert_eq!(
-        claude_only["total"]["output"], 47,
+        (
+            claude_only["total"]["output"].clone(),
+            claude_only["total"]["sessions"].clone()
+        ),
+        (json!(47), json!(1)),
         "a non-streaming reply is recorded: {claude_only}"
     );
     let earlier = chrono::Utc::now() - chrono::Duration::minutes(90);
