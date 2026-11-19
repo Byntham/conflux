@@ -923,6 +923,17 @@ async fn no_accounts_message() {
 async fn dashboard_shows_accounts_requests_and_tokens() {
     let h = Harness::new().await;
     h.add(Provider::Claude, "a").await;
+    let analytics = h.dir.path().join("data/analytics");
+    std::fs::create_dir_all(&analytics).unwrap();
+    let day_file = |days: i64| {
+        let at = chrono::Utc::now() - chrono::Duration::days(days);
+        let row = json!({"at": at, "machine": "m", "provider": "claude", "account": "a", "model": "claude-sonnet-5-5",
+            "session": null, "usage": {"input": 1, "cache_read": 0, "cache_write": 0, "output": 1}});
+        let path = analytics.join(format!("{}.jsonl", at.format("%Y-%m-%d")));
+        std::fs::write(&path, format!("{row}\n")).unwrap();
+        path
+    };
+    let (expired, kept) = (day_file(100), day_file(2));
     let sse = concat!(
         "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3,",
         "\"cache_read_input_tokens\":900,\"cache_creation_input_tokens\":20,\"cache_creation\":",
@@ -981,6 +992,20 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
     assert_eq!(record["usage"]["speed"], "fast");
     assert_eq!(record["usage"]["output"], 44);
     assert!(h.fake.http_headers.lock().unwrap()[0].get("x-conflux-node").is_none());
+    let since_three_days = chrono::Utc::now() - chrono::Duration::days(3);
+    let recorded = || h.app.requests.ledger().read(since_three_days, chrono::Utc::now()).len();
+    for _ in 0..40 {
+        if recorded() == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(recorded(), 2);
+    assert!(
+        !expired.exists(),
+        "the first write of a day deletes files past retention"
+    );
+    assert!(kept.exists());
 
     h.add(Provider::Grok, "g").await;
     let incomplete = json!({"type": "response.incomplete", "response": {"service_tier": "priority", "usage": {
@@ -1026,7 +1051,14 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         .await
         .unwrap();
     assert_eq!(counted.status(), 200);
-    h.reply("at-a", Reply::Json(500, vec![], json!({"type": "error"}).to_string()));
+    h.reply(
+        "at-a",
+        Reply::Json(
+            500,
+            vec![],
+            json!({"type": "error", "usage": {"input_tokens": 5, "output_tokens": 5}}).to_string(),
+        ),
+    );
     let failed = h.claude(json!({"model": "claude-sonnet-5-5"})).send().await.unwrap();
     assert_eq!(failed.status(), 500);
     failed.bytes().await.unwrap();

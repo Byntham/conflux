@@ -260,6 +260,16 @@ async fn the_row_is_logged_when_the_upstream_starts_answering() {
         .map(|r| (r.usage.output, r.usage.speed))
         .collect();
     assert_eq!(kept, [(7, Speed::Standard), (3, Speed::Fast)]);
+
+    h.ws_script("at-c", WsScript::CutTurn);
+    let mut ws = open(&h, &[]).await.unwrap();
+    ws.send(create("m")).await.unwrap();
+    assert_eq!(next_json(&mut ws).await.unwrap()["type"], "response.created");
+    assert!(next_json(&mut ws).await.is_none(), "the upstream hangs up mid-turn");
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let now = chrono::Utc::now();
+    let rows = h.app.requests.ledger().read(now - chrono::Duration::hours(1), now);
+    assert_eq!(rows.len(), 2, "a turn cut off before it ends records nothing");
 }
 
 #[tokio::test]

@@ -524,7 +524,7 @@ mod tests {
     #[test]
     fn log_is_bounded_and_newest_first() {
         let dir = tempfile::tempdir().unwrap();
-        let log = RequestLog::new(Ledger::open(dir.path().to_path_buf()).unwrap());
+        let log = RequestLog::new(Ledger::open(dir.path().to_path_buf()));
         let rec = |account: &str| RequestRecord {
             id: 0,
             at: Utc::now(),

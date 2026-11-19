@@ -807,6 +807,11 @@ async fn guests_see_the_hub_and_their_own_machines_and_change_nothing() {
         ),
         (Method::GET, "/conflux/api/discover".into(), Value::Null),
         (Method::GET, "/conflux/api/threads".into(), Value::Null),
+        (
+            Method::GET,
+            format!("/conflux/api/usage?buckets={}", chrono::Utc::now().timestamp() - 3600),
+            Value::Null,
+        ),
         (Method::POST, "/conflux/transcripts".into(), upload),
     ];
     for (method, path, body) in &owner_only {

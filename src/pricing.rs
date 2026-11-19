@@ -285,8 +285,12 @@ impl Prices {
     }
 
     pub async fn refresh(&self, http: &reqwest::Client) -> anyhow::Result<()> {
-        let bytes = http.get(&self.url).send().await?.error_for_status()?.bytes().await?;
-        anyhow::ensure!(bytes.len() <= MAX_DOCUMENT, "the price list is larger than expected");
+        let mut resp = http.get(&self.url).send().await?.error_for_status()?;
+        let mut bytes = Vec::new();
+        while let Some(chunk) = resp.chunk().await? {
+            bytes.extend_from_slice(&chunk);
+            anyhow::ensure!(bytes.len() <= MAX_DOCUMENT, "the price list is larger than expected");
+        }
         let models = parse_litellm(&serde_json::from_slice(&bytes)?);
         anyhow::ensure!(!models.is_empty(), "the price list has no models");
         let table = Table {

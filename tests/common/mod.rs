@@ -31,6 +31,7 @@ pub enum WsScript {
     QuotaMidStream,
     SlowTurn,
     FailedTurn,
+    CutTurn,
     RejectHandshake429,
     RejectHandshake401,
 }
@@ -159,6 +160,7 @@ async fn fake_ws(fake: Arc<Fake>, req: Request) -> Response {
                     "type": "error", "status": 429,
                     "error": {"type": "usage_limit_reached", "message": "limit", "resets_in_seconds": 600}
                 })],
+                WsScript::CutTurn => vec![json!({"type": "response.created", "response": {"id": format!("resp_{token}_{n}")}})],
                 WsScript::FailedTurn => vec![
                     json!({"type": "response.created", "response": {"id": format!("resp_{token}_{n}")}}),
                     json!({"type": "response.failed", "response": {"id": format!("resp_{token}_{n}"), "service_tier": "priority", "usage": {
@@ -176,6 +178,9 @@ async fn fake_ws(fake: Arc<Fake>, req: Request) -> Response {
                 if socket.send(Message::Text(f.to_string().into())).await.is_err() {
                     return;
                 }
+            }
+            if let WsScript::CutTurn = script {
+                return;
             }
         }
     })

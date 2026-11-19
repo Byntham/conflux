@@ -57,12 +57,11 @@ fn day_file(dir: &std::path::Path, day: NaiveDate) -> PathBuf {
 }
 
 impl Ledger {
-    pub fn open(dir: PathBuf) -> anyhow::Result<Arc<Self>> {
-        fsutil::ensure_private_dir(&dir)?;
-        Ok(Arc::new(Self {
+    pub fn open(dir: PathBuf) -> Arc<Self> {
+        Arc::new(Self {
             dir,
             writing: Mutex::new(()),
-        }))
+        })
     }
 
     pub fn append(&self, row: &Row) {
@@ -77,6 +76,7 @@ impl Ledger {
         let path = day_file(&self.dir, row.at.date_naive());
         let _writing = self.writing.lock().unwrap();
         if !path.exists() {
+            fsutil::ensure_private_dir(&self.dir)?;
             self.prune(row.at);
         }
         fsutil::open_private_append(&path)?.write_all(&line)?;
