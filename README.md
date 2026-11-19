@@ -4,7 +4,7 @@
 
 <h1 align="center">conflux</h1>
 
-<p align="center">Pool your Claude Code and Codex subscriptions across all of your computers.</p>
+<p align="center">Pool your Claude Code, Codex, Grok Build, and Muse Code subscriptions across all of your computers.</p>
 
 <p align="center">
   <a href="#quick-start"><strong>Quick start</strong></a> ·
@@ -15,7 +15,7 @@
 
 With more than one subscription or computer, one account often hits its limit while another sits unused. conflux puts them in one pool.
 
-One always-on machine, the **hub**, holds your Claude and ChatGPT logins. Claude Code and Codex on each of your machines send their requests to it over [Tailscale](https://tailscale.com), and the hub picks an account with room.
+One always-on machine, the **hub**, holds your Claude, ChatGPT, Grok, and Muse logins. Claude Code, Codex, Grok Build, and Muse Code on each of your machines send their requests to it over [Tailscale](https://tailscale.com), and the hub picks an account with room.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/dashboard-dark.png">
@@ -33,7 +33,7 @@ One always-on machine, the **hub**, holds your Claude and ChatGPT logins. Claude
 - **Optional thread sync.** `conflux sync on` copies a machine's transcripts to the hub, where you can search them. It's off by default.
 
 > [!WARNING]
-> Pooling subscriptions may break your providers' terms and could get your accounts banned. conflux is unofficial. It logs in through Claude Code's and Codex's own OAuth clients, so either provider can break it at any time. Use it only for your own work on your own machines, and use Claude subscriptions only from Claude Code.
+> Pooling subscriptions may break your providers' terms and could get your accounts banned. conflux is unofficial. It logs in through each coding tool's own OAuth client, so any provider can break it at any time. Use it only for your own work on your own machines, and use Claude subscriptions only from Claude Code.
 
 ## Quick start
 
@@ -41,9 +41,9 @@ Working on one machine only? Skip step 3.
 
 ### Before you start
 
-- One or more Claude or ChatGPT subscriptions. Codex uses a ChatGPT subscription.
+- One or more Claude, ChatGPT, Grok, or Muse Code subscriptions. Codex uses a ChatGPT subscription. Grok Build uses a Grok subscription from xAI. Muse Code uses a Muse Code subscription from Meta.
 - [Tailscale](https://tailscale.com) on every machine, signed in to the same tailnet. MagicDNS must be on, which is the default.
-- [Claude Code](https://claude.com/product/claude-code) or [Codex](https://developers.openai.com/codex/cli) on each machine you work from.
+- [Claude Code](https://claude.com/product/claude-code), [Codex](https://developers.openai.com/codex/cli), Grok Build, or Muse Code on each machine you work from.
 - A hub that stays on at home. Linux is best, because a macOS or Windows hub runs only while you're signed in.
 - Keep the hub off VPNs and exit nodes, so the providers see one home IP address.
 - Linux x64 or ARM64 with systemd, macOS on Apple silicon, or Windows x64. On anything else, [build from source](docs/install.md#build-from-source).
@@ -81,14 +81,16 @@ On the hub, run the command for each subscription you have. Run it again for eac
 ```sh
 conflux login claude    # a Claude subscription
 conflux login codex     # a ChatGPT subscription
+conflux login grok      # a Grok subscription
+conflux login muse      # a Muse Code subscription
 ```
 
 Each one prints a link. Open it in a browser signed in to that account, on any machine.
 
 - For Claude, the browser then shows a connection error. That is expected. Paste the whole URL from the address bar into the terminal.
-- For ChatGPT, type the code from the terminal into the page. The command finishes on its own.
+- For ChatGPT, Grok, and Muse, type the code from the terminal into the page. The command finishes on its own.
 
-Your accounts now show on the dashboard. Its "Add Claude" and "Add Codex" buttons do the same as these commands.
+Your accounts now show on the dashboard. Its "Add Claude", "Add Codex", "Add Grok", and "Add Muse" buttons do the same as these commands.
 
 ### 3. Add your other machines
 
@@ -104,11 +106,11 @@ conflux join
 
 It finds your hub and links to it. If it lists more than one hub, or finds none, run `conflux join <hub>` with your hub's name from `tailscale status`.
 
-Either way, the machine then shows on the dashboard's Machines page, and its Claude Code and Codex send their requests through the hub. `conflux leave` puts their settings back.
+Either way, the machine then shows on the dashboard's Machines page, and its coding tools send their requests through the hub. `conflux leave` puts their settings back.
 
 ### 4. Restart and check
 
-Restart Claude Code and Codex on every machine that runs them, including the hub. Send a message. It shows up on the dashboard's Requests page. If it doesn't, see [Troubleshooting](docs/troubleshooting.md) or [open an issue](https://github.com/Byntham/conflux/issues).
+Restart your coding tools on every machine that runs them, including the hub. Send a message. It shows up on the dashboard's Requests page. If it doesn't, see [Troubleshooting](docs/troubleshooting.md) or [open an issue](https://github.com/Byntham/conflux/issues).
 
 The [install guide](docs/install.md) covers guests, linking from the hub, the Mac menu bar app, updates, and uninstalling.
 
@@ -120,7 +122,7 @@ The [install guide](docs/install.md) covers guests, linking from the hub, the Ma
 | `conflux disable <account>` | Stop using an account. `enable` brings it back |
 | `conflux off` | Use this machine's own logins, for example when the hub is down. `on` undoes it |
 | `conflux update` | Update every online machine that is behind |
-| `conflux leave` | Stop conflux on this machine and restore Claude Code's and Codex's settings |
+| `conflux leave` | Stop conflux on this machine and restore the coding tools' settings |
 
 `<account>` is an ID from `conflux status`. Account commands work from any linked machine signed in to Tailscale as you. [Commands](docs/commands.md) explains every command, including how to move the hub to another machine.
 

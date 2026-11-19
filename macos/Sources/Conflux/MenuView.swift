@@ -57,8 +57,8 @@ struct MenuView: View {
             Notice(
                 title: "conflux isn't running",
                 detail: model.routing == true
-                    ? "Start conflux to reconnect Claude Code and Codex. To use their own logins, turn off routing below, then restart them."
-                    : "Claude Code and Codex can't reach it until it starts."
+                    ? "Start conflux to reconnect your coding tools. To use their own logins, turn off routing below, then restart them."
+                    : "Your coding tools can't reach it until it starts."
             ) {
                 Button("Start conflux") { model.start() }.glassButton(prominent: true)
             }
@@ -78,18 +78,18 @@ struct MenuView: View {
         case .hubUnreachable:
             Notice(
                 title: "Can't reach the hub",
-                detail: "\(model.node?.hub ?? "The hub") isn't answering. To keep working, turn off routing below, then restart Claude Code or Codex."
+                detail: "\(model.node?.hub ?? "The hub") isn't answering. To keep working, turn off routing below, then restart your coding tools."
             )
         case .notApproved:
             if model.node?.access?.state == "pending" {
                 Notice(
                     title: "Waiting for \(model.node?.owner ?? "the hub's owner") to approve this Mac",
-                    detail: "Claude Code and Codex use this Mac's own logins until then."
+                    detail: "Your coding tools use this Mac's own logins until then."
                 )
             } else {
                 Notice(
                     title: "\(model.node?.owner ?? "The hub's owner") didn't approve this Mac",
-                    detail: "Claude Code and Codex use this Mac's own logins. You can ask again."
+                    detail: "Your coding tools use this Mac's own logins. You can ask again."
                 ) {
                     Button("Ask again") { model.askAgain() }.glassButton(prominent: true)
                 }
@@ -108,8 +108,8 @@ extension MenuView {
         switch hubs.count {
         case 0: return "No hub found on your tailnet. On your hub's dashboard, open Machines and click Find machines."
         case 1 where hubs[0].guest == true:
-            return "Found \(hubs[0].name) on your tailnet. Joining sends Claude Code and Codex on this Mac through \(hubs[0].owner ?? "its owner")'s hub, once they approve."
-        case 1: return "Found your hub, \(hubs[0].name), on your tailnet. Linking sends Claude Code and Codex on this Mac through it."
+            return "Found \(hubs[0].name) on your tailnet. Joining sends the coding tools on this Mac through \(hubs[0].owner ?? "its owner")'s hub, once they approve."
+        case 1: return "Found your hub, \(hubs[0].name), on your tailnet. Linking sends the coding tools on this Mac through it."
         default: return "Found \(hubs.count) hubs on your tailnet. Pick the one to link this Mac to."
         }
     }
@@ -217,7 +217,7 @@ struct Accounts: View {
         if model.accounts.isEmpty {
             Notice(
                 title: "No accounts yet",
-                detail: "Add a Claude or ChatGPT account from the dashboard."
+                detail: "Add an account from the dashboard."
             ) {
                 Button("Add account…") { model.openDashboard() }.glassButton(prominent: true)
             }
@@ -497,7 +497,7 @@ struct Actions: View {
                 }
                 .padding(.horizontal, 9)
                 .frame(height: 26)
-                .help("Off makes Claude Code and Codex on this Mac use their own logins.")
+                .help("Off makes the coding tools on this Mac use their own logins.")
                 Separator(inset: 9)
             }
             let showsDashboard = [.ready, .hubUnreachable].contains(model.phase)
@@ -518,7 +518,7 @@ struct Actions: View {
             }
             if showsRestart {
                 MenuRow(title: "Restart conflux", action: model.restart)
-                    .help("Active Claude Code and Codex requests through this Mac are cut off.")
+                    .help("Active coding tool requests through this Mac are cut off.")
             }
             if showsDashboard || showsRestart || showsUpdateCheck {
                 Separator(inset: 9)

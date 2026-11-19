@@ -9,7 +9,7 @@ use http::HeaderMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::accounts::{AccountEntry, Provider, Store};
+use crate::accounts::{AccountEntry, Provider, Receipt, RefreshState, Store};
 use crate::config::Endpoints;
 use crate::fsutil;
 
@@ -222,6 +222,63 @@ pub fn parse_codex_usage(v: &Value, now: DateTime<Utc>) -> Snapshot {
     s
 }
 
+pub fn parse_grok_usage(v: &Value, now: DateTime<Utc>) -> Snapshot {
+    let mut s = Snapshot::default();
+    let c = &v["config"];
+    if let Some(u) = c["creditUsagePercent"].as_f64() {
+        let period = &c["currentPeriod"];
+        let start = period["start"].as_str().and_then(parse_reset);
+        let end = period["end"].as_str().and_then(parse_reset);
+        s.upsert(Window {
+            key: "credits".into(),
+            used_pct: u.clamp(0.0, 100.0),
+            resets_at: end,
+            duration_secs: start.zip(end).map(|(a, b)| (b - a).num_seconds()),
+            model_scope: None,
+        });
+    }
+    s.updated_at = Some(now);
+    s.polled_at = Some(now);
+    s
+}
+
+fn apply_muse_subscription(s: &mut Snapshot, sub: &Value, now: DateTime<Utc>) -> bool {
+    let mut touched = false;
+    for (key, default_secs) in [("window", 5 * 3600), ("weekly", 7 * 86400)] {
+        let w = &sub[key];
+        let Some(u) = w["used_percent"].as_f64() else {
+            continue;
+        };
+        s.upsert(Window {
+            key: key.into(),
+            used_pct: u.clamp(0.0, 100.0),
+            resets_at: w["resets_at"]
+                .as_f64()
+                .and_then(|n| Utc.timestamp_opt(n as i64, 0).single()),
+            duration_secs: Some(
+                w["window_duration_mins"]
+                    .as_i64()
+                    .map(|m| m * 60)
+                    .unwrap_or(default_secs),
+            ),
+            model_scope: None,
+        });
+        touched = true;
+    }
+    if touched {
+        s.updated_at = Some(now);
+    }
+    touched
+}
+
+pub fn parse_muse_usage(v: &Value, now: DateTime<Utc>) -> Snapshot {
+    let mut s = Snapshot::default();
+    apply_muse_subscription(&mut s, &v["subs_usage"], now);
+    s.updated_at = Some(now);
+    s.polled_at = Some(now);
+    s
+}
+
 type History = HashMap<String, Vec<Sample>>;
 
 struct HistoryFile {
@@ -346,7 +403,23 @@ impl Usage {
         let touched = match provider {
             Provider::Claude => apply_claude_headers(s, h, now),
             Provider::Codex => apply_codex_headers(s, h, now),
+            Provider::Grok | Provider::Muse => false,
         };
+        let s = s.clone();
+        drop(snaps);
+        if touched {
+            self.record(id, s.shared_windows(), now);
+        }
+    }
+
+    pub fn observe_muse_event(&self, id: &str, v: &Value) {
+        if v["type"].as_str() != Some("response.subscription_usage") {
+            return;
+        }
+        let now = Utc::now();
+        let mut snaps = self.snaps.write().unwrap();
+        let s = snaps.entry(id.to_string()).or_default();
+        let touched = apply_muse_subscription(s, &v["subscription"], now);
         let s = s.clone();
         drop(snaps);
         if touched {
@@ -360,27 +433,71 @@ impl Usage {
     }
 
     pub async fn poll(&self, e: &AccountEntry) -> anyhow::Result<()> {
+        let _mint = match e.provider {
+            Provider::Muse => Some(e.op_lock.lock().await),
+            _ => None,
+        };
+        if let (Provider::Muse, RefreshState::RetryAt { at, .. }) = (e.provider, e.refresh_state())
+            && at > Utc::now()
+        {
+            return Ok(());
+        }
         let creds = e.credentials();
+        let token = &creds.grant.access_token;
         let req = match e.provider {
             Provider::Claude => self
                 .http
                 .get(format!("{}/api/oauth/usage", self.ep.anthropic_api))
                 .header("anthropic-beta", "oauth-2025-04-20")
-                .header("User-Agent", "claude-code/2.1.273"),
+                .header("User-Agent", "claude-code/2.1.273")
+                .bearer_auth(token),
             Provider::Codex => {
                 let mut r = self
                     .http
                     .get(format!("{}/wham/usage", self.ep.chatgpt_backend))
                     .header("OpenAI-Beta", "codex-1")
-                    .header("Originator", "codex_cli_rs");
+                    .header("Originator", "codex_cli_rs")
+                    .bearer_auth(token);
                 if let Some(acct) = &creds.chatgpt_account_id {
                     r = r.header("Chatgpt-Account-Id", acct);
                 }
                 r
             }
+            Provider::Grok => self
+                .http
+                .get(format!("{}/billing?format=credits", self.ep.grok_api))
+                .header("x-xai-token-auth", "xai-grok-cli")
+                .bearer_auth(token),
+            Provider::Muse => crate::oauth::muse_mint(&self.http, &self.ep, &creds.grant.refresh_token),
         };
-        let resp = req.bearer_auth(&creds.grant.access_token).send().await?;
+        let resp = req.send().await?;
         let status = resp.status();
+        if e.provider == Provider::Muse && status == http::StatusCode::TOO_MANY_REQUESTS {
+            let wait = header(resp.headers(), "retry-after")
+                .and_then(|v| v.parse::<i64>().ok())
+                .unwrap_or(0)
+                .clamp(120, 24 * 3600);
+            let at = Utc::now() + chrono::Duration::seconds(wait);
+            let later = match e.refresh_state() {
+                RefreshState::Rejected(_) => false,
+                RefreshState::RetryAt { at: current, .. } => at > current,
+                _ => true,
+            };
+            if later {
+                let n = e.credentials().generation + 1;
+                if let Err(err) = e.journal.write_receipt(
+                    n,
+                    &Receipt::Retry {
+                        next_at: at,
+                        retries: 0,
+                    },
+                ) {
+                    tracing::warn!(account = %e.id, "could not save the mint backoff: {err:#}");
+                }
+                e.set_refresh_state(RefreshState::RetryAt { at, retries: 0 });
+            }
+            anyhow::bail!("the Muse mint is throttled for {wait}s");
+        }
         let body: Value = resp.json().await?;
         if !status.is_success() {
             anyhow::bail!("usage endpoint returned HTTP {status}");
@@ -389,7 +506,17 @@ impl Usage {
         let mut snap = match e.provider {
             Provider::Claude => parse_claude_usage(&body, now),
             Provider::Codex => parse_codex_usage(&body, now),
+            Provider::Grok => parse_grok_usage(&body, now),
+            Provider::Muse => parse_muse_usage(&body, now),
         };
+        if snap.windows.is_empty() && matches!(e.provider, Provider::Grok | Provider::Muse) {
+            let mut snaps = self.snaps.write().unwrap();
+            let slot = snaps.entry(e.id.clone()).or_default();
+            if slot.windows.is_empty() {
+                *slot = snap;
+            }
+            anyhow::bail!("the {} usage response has no usage", e.provider.display_name());
+        }
         if let Some(old) = self.snaps.read().unwrap().get(&e.id) {
             snap.overage_in_use = old.overage_in_use && snap.exhausted(now);
         }

@@ -348,6 +348,8 @@ impl App {
             .route("/conflux/api/login/claude/start", post(api::claude_start))
             .route("/conflux/api/login/claude/finish", post(api::claude_finish))
             .route("/conflux/api/login/codex/start", post(api::codex_start))
+            .route("/conflux/api/login/grok/start", post(api::grok_start))
+            .route("/conflux/api/login/muse/start", post(api::muse_start))
             .route("/conflux/api/login/{id}", get(api::login_status))
             .route(
                 "/conflux/api/accounts/{id}",
@@ -364,6 +366,9 @@ impl App {
         let proxied = axum::Router::new()
             .route("/v1/{*rest}", any(proxy::handle))
             .route("/backend-api/{*rest}", any(proxy::handle))
+            .route("/grok/{*rest}", any(proxy::handle))
+            .route("/muse/{*rest}", any(proxy::handle))
+            .route("/muse-code/{*rest}", any(proxy::handle))
             .layer(axum::middleware::from_fn_with_state(self.clone(), require_approved));
         axum::Router::new()
             .merge(t3)

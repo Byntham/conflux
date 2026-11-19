@@ -15,7 +15,7 @@ use crate::app::App;
 use crate::guests::{Access, Guest};
 use crate::hubstate::HubState;
 use crate::machines;
-use crate::oauth::{self, DevicePoll, Pkce};
+use crate::oauth::{self, DevicePoll, DeviceToken, Pkce};
 use crate::{dashboard, setup, update};
 
 const LOGIN_TTL: Duration = Duration::from_secs(15 * 60);
@@ -26,7 +26,7 @@ pub enum PendingLogin {
         state: String,
         created: Instant,
     },
-    Codex {
+    Device {
         status: Arc<Mutex<LoginStatus>>,
         created: Instant,
     },
@@ -35,7 +35,7 @@ pub enum PendingLogin {
 impl PendingLogin {
     fn created(&self) -> Instant {
         match self {
-            PendingLogin::Claude { created, .. } | PendingLogin::Codex { created, .. } => *created,
+            PendingLogin::Claude { created, .. } | PendingLogin::Device { created, .. } => *created,
         }
     }
 }
@@ -338,35 +338,102 @@ pub async fn codex_start(State(app): State<Arc<App>>) -> ApiResult<Json<Value>> 
         user_code: start.user_code.clone(),
         verify_url: oauth::CODEX_DEVICE_VERIFY_URL.to_string(),
     };
+    Ok(Json(start_device_login(
+        &app,
+        pending,
+        start.interval_secs,
+        DeviceFlow::Codex(start),
+    )))
+}
+
+pub async fn grok_start(State(app): State<Arc<App>>) -> ApiResult<Json<Value>> {
+    let code = oauth::grok_device_start(&app.control_http, &app.ep).await?;
+    let pending = LoginStatus::Pending {
+        user_code: code.user_code.clone(),
+        verify_url: code.verify_url.clone(),
+    };
+    Ok(Json(start_device_login(
+        &app,
+        pending,
+        code.interval_secs,
+        DeviceFlow::Grok(code),
+    )))
+}
+
+pub async fn muse_start(State(app): State<Arc<App>>) -> ApiResult<Json<Value>> {
+    let code = oauth::muse_device_start(&app.control_http, &app.ep).await?;
+    let pending = LoginStatus::Pending {
+        user_code: code.user_code.clone(),
+        verify_url: code.verify_url.clone(),
+    };
+    Ok(Json(start_device_login(
+        &app,
+        pending,
+        code.interval_secs,
+        DeviceFlow::Muse(code),
+    )))
+}
+
+enum DeviceFlow {
+    Codex(oauth::DeviceStart),
+    Grok(oauth::DeviceCode),
+    Muse(oauth::DeviceCode),
+}
+
+enum DeviceStep {
+    Pending,
+    SlowDown,
+    Done(oauth::LoginTokens),
+}
+
+impl DeviceFlow {
+    async fn poll(&self, app: &App) -> anyhow::Result<DeviceStep> {
+        let (http, ep) = (&app.control_http, &app.ep);
+        match self {
+            DeviceFlow::Codex(start) => match oauth::codex_device_poll(http, ep, start).await? {
+                DevicePoll::Pending => Ok(DeviceStep::Pending),
+                DevicePoll::Done {
+                    authorization_code,
+                    code_verifier,
+                } => Ok(DeviceStep::Done(
+                    oauth::codex_exchange(http, ep, &authorization_code, &code_verifier).await?,
+                )),
+            },
+            DeviceFlow::Grok(code) => match oauth::grok_device_poll(http, ep, &code.device_code).await? {
+                DeviceToken::Pending => Ok(DeviceStep::Pending),
+                DeviceToken::SlowDown => Ok(DeviceStep::SlowDown),
+                DeviceToken::Done(v) => Ok(DeviceStep::Done(oauth::grok_tokens(http, ep, &v).await?)),
+            },
+            DeviceFlow::Muse(code) => match oauth::muse_device_poll(http, ep, &code.device_code).await? {
+                DeviceToken::Pending => Ok(DeviceStep::Pending),
+                DeviceToken::SlowDown => Ok(DeviceStep::SlowDown),
+                DeviceToken::Done(v) => Ok(DeviceStep::Done(oauth::muse_tokens(http, ep, &v).await?)),
+            },
+        }
+    }
+}
+
+fn start_device_login(app: &Arc<App>, pending: LoginStatus, interval_secs: u64, flow: DeviceFlow) -> Value {
     let status = Arc::new(Mutex::new(pending.clone()));
-    let id = app.logins.insert(PendingLogin::Codex {
+    let id = app.logins.insert(PendingLogin::Device {
         status: status.clone(),
         created: Instant::now(),
     });
-    tokio::spawn(poll_codex_login(app.clone(), start, status));
-    Ok(Json(json!({ "login_id": id, "status": pending })))
+    tokio::spawn(poll_device_login(app.clone(), flow, interval_secs, status));
+    json!({ "login_id": id, "status": pending })
 }
 
-async fn poll_codex_login(app: Arc<App>, start: oauth::DeviceStart, status: Arc<Mutex<LoginStatus>>) {
+async fn poll_device_login(app: Arc<App>, flow: DeviceFlow, mut interval_secs: u64, status: Arc<Mutex<LoginStatus>>) {
     let deadline = Instant::now() + LOGIN_TTL;
     let outcome = loop {
         if Instant::now() > deadline {
             break Err(anyhow::anyhow!("timed out waiting for the device code to be entered"));
         }
-        tokio::time::sleep(Duration::from_secs(start.interval_secs)).await;
-        match oauth::codex_device_poll(&app.control_http, &app.ep, &start).await {
-            Ok(DevicePoll::Pending) => continue,
-            Ok(DevicePoll::Done {
-                authorization_code,
-                code_verifier,
-            }) => {
-                break async {
-                    let tokens =
-                        oauth::codex_exchange(&app.control_http, &app.ep, &authorization_code, &code_verifier).await?;
-                    app.refresher.install_login(tokens).await
-                }
-                .await;
-            }
+        tokio::time::sleep(Duration::from_secs(interval_secs)).await;
+        match flow.poll(&app).await {
+            Ok(DeviceStep::Pending) => continue,
+            Ok(DeviceStep::SlowDown) => interval_secs += 5,
+            Ok(DeviceStep::Done(tokens)) => break app.refresher.install_login(tokens).await,
             Err(e) => break Err(e),
         }
     };
@@ -384,7 +451,7 @@ async fn poll_codex_login(app: Arc<App>, start: oauth::DeviceStart, status: Arc<
 pub async fn login_status(State(app): State<Arc<App>>, Path(id): Path<String>) -> ApiResult<Json<LoginStatus>> {
     let m = app.logins.map.lock().unwrap();
     match m.get(&id) {
-        Some(PendingLogin::Codex { status, .. }) => Ok(Json(status.lock().unwrap().clone())),
+        Some(PendingLogin::Device { status, .. }) => Ok(Json(status.lock().unwrap().clone())),
         _ => Err(not_found("login")),
     }
 }

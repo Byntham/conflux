@@ -39,8 +39,8 @@ pub enum Command {
                       claude prints a link. Approve access in a browser signed in to the account, \
                       then paste the URL from the address bar. The browser shows a connection \
                       error at that point, which is expected.\n\n\
-                      codex prints a link and a code. Enter the code in a browser signed in to \
-                      the ChatGPT account, and conflux finishes on its own."
+                      codex, grok, and muse print a link and a code. Enter the code in a browser \
+                      signed in to the ChatGPT, xAI, or Meta account, and conflux finishes on its own."
     )]
     Login {
         #[arg(help = "Which kind of account to add")]
@@ -90,7 +90,9 @@ pub enum Command {
                       name to make this machine a node of that hub. On a machine that is waiting \
                       to be linked, pass nothing, and conflux finds the hub on your tailnet.\n\n\
                       join installs conflux as a background service and points Claude Code \
-                      (~/.claude/settings.json) and Codex (~/.codex/config.toml) at it. It saves \
+                      (~/.claude/settings.json), Codex (~/.codex/config.toml), Grok Build \
+                      (~/.grok/config.toml), and Muse Code (~/.config/muse/settings.json) at it, \
+                      the last two only if their folder exists. It saves \
                       the values it replaces, so `conflux off` and `conflux leave` can put them back."
     )]
     Join {
@@ -133,17 +135,17 @@ pub enum Command {
         machines: Vec<String>,
     },
     #[command(
-        about = "Point Claude Code and Codex back at this machine's own logins",
-        long_about = "Point Claude Code and Codex back at this machine's own logins.\n\n\
+        about = "Point the coding tools back at this machine's own logins",
+        long_about = "Point the coding tools back at this machine's own logins.\n\n\
                       Use it when the hub is down. The service keeps running. Restart open \
                       sessions to pick up the change. `conflux on` undoes it."
     )]
     Off,
-    #[command(about = "Point Claude Code and Codex at conflux again after `conflux off`")]
+    #[command(about = "Point the coding tools at conflux again after `conflux off`")]
     On,
     #[command(
-        about = "Stop conflux and give Claude Code and Codex their old settings back",
-        long_about = "Stop conflux and give Claude Code and Codex their old settings back.\n\n\
+        about = "Stop conflux and give the coding tools their old settings back",
+        long_about = "Stop conflux and give the coding tools their old settings back.\n\n\
                       leave removes the background service. It keeps the binary, the config, and \
                       any account tokens on this machine. Run `conflux remove` first if you want \
                       the tokens gone."
@@ -227,6 +229,10 @@ pub enum LoginProvider {
     Claude,
     #[value(help = "A ChatGPT subscription, used by Codex")]
     Codex,
+    #[value(help = "A Grok subscription from xAI, used by Grok Build")]
+    Grok,
+    #[value(help = "A Muse Code subscription from Meta, used by Muse Code")]
+    Muse,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -436,7 +442,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             println!(
                 "{}",
                 if restored.is_some() {
-                    "Claude Code and Codex now use this machine's own logins. Run `conflux on` to go back."
+                    "The coding tools now use this machine's own logins. Run `conflux on` to go back."
                 } else {
                     "This machine has not joined a hub."
                 }
@@ -446,14 +452,14 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::On => {
             setup::apply(&ClientPaths::from_env()?, &paths.config_dir, cfg.port)?;
             daemon.report_to_hub(&cfg).await;
-            println!("Claude Code and Codex now go through conflux.");
+            println!("The coding tools now go through conflux.");
             Ok(())
         }
         Command::Leave => {
             setup::restore(&ClientPaths::from_env()?, &paths.config_dir, cfg.port)?;
             service::uninstall()?;
             crate::fsutil::remove_durable(&setup::joined_path(&paths.config_dir))?;
-            println!("conflux is stopped and removed from Claude Code and Codex. Account data was left in place.");
+            println!("conflux is stopped and removed from the coding tools. Account data was left in place.");
             Ok(())
         }
         Command::Login {
@@ -461,7 +467,13 @@ pub async fn run(cli: Cli) -> Result<()> {
         } => login_claude(&daemon).await,
         Command::Login {
             provider: LoginProvider::Codex,
-        } => login_codex(&daemon).await,
+        } => login_device(&daemon, "codex", "ChatGPT").await,
+        Command::Login {
+            provider: LoginProvider::Grok,
+        } => login_device(&daemon, "grok", "xAI").await,
+        Command::Login {
+            provider: LoginProvider::Muse,
+        } => login_device(&daemon, "muse", "Meta").await,
         Command::Status => {
             if cfg.role == Role::Node
                 && let Ok(node) = daemon.get("/conflux/node").await
@@ -589,7 +601,7 @@ async fn join(mut cfg: Config, paths: Paths, hub: &str, no_service: bool, force:
     if guest {
         println!(
             "{hub} belongs to another Tailscale user, who must approve this machine. \
-             Until then, Claude Code and Codex keep using this machine's own logins. \
+             Until then, the coding tools keep using this machine's own logins. \
              `conflux status` shows when the hub approves it."
         );
         return Ok(());
@@ -619,11 +631,13 @@ fn print_joined(cfg: &Config) {
     }
     match &cfg.hub {
         None => {
-            println!("This machine is now the hub. Add accounts with `conflux login claude` and `conflux login codex`.")
+            println!(
+                "This machine is now the hub. Add accounts with `conflux login claude`, `conflux login codex`, `conflux login grok`, or `conflux login muse`."
+            )
         }
-        Some(hub) => println!("Claude Code and Codex on this machine now go through {hub}."),
+        Some(hub) => println!("The coding tools on this machine now go through {hub}."),
     }
-    println!("New or restarted Claude Code and Codex sessions pick this up. Running ones keep their old settings.");
+    println!("New or restarted coding tool sessions pick this up. Running ones keep their old settings.");
     if let Some(url) = dashboard_url(cfg) {
         println!("\nDashboard: {url}");
     }
@@ -656,7 +670,7 @@ async fn join_found_hub(cfg: Config, paths: Paths, daemon: &Daemon) -> Result<()
                 println!("  {:<24} {:<16} {}", name(hub), address, found_hub(hub));
             }
             let guests = if hubs.iter().any(|hub| hub["guest"] == true) {
-                " A guest's Claude Code and Codex prompts go through the owner's hub."
+                " A guest's coding tools go through the owner's hub."
             } else {
                 ""
             };
@@ -842,11 +856,13 @@ async fn login_claude(daemon: &Daemon) -> Result<()> {
     Ok(())
 }
 
-async fn login_codex(daemon: &Daemon) -> Result<()> {
-    let start = daemon.post("/conflux/api/login/codex/start", json!({})).await?;
+async fn login_device(daemon: &Daemon, provider: &str, site: &str) -> Result<()> {
+    let start = daemon
+        .post(&format!("/conflux/api/login/{provider}/start"), json!({}))
+        .await?;
     let login_id = start["login_id"].as_str().context("no login_id")?.to_string();
     println!(
-        "1. Open {} in a browser signed in to the ChatGPT account.",
+        "1. Open {} in a browser signed in to the {site} account.",
         start["status"]["verify_url"].as_str().unwrap_or("")
     );
     println!(
@@ -919,7 +935,9 @@ fn print_status(v: &Value) -> Result<()> {
     }
     let accounts = v["accounts"].as_array().cloned().unwrap_or_default();
     if accounts.is_empty() {
-        println!("No accounts yet. Add one with `conflux login claude` or `conflux login codex`.");
+        println!(
+            "No accounts yet. Add one with `conflux login claude`, `conflux login codex`, `conflux login grok`, or `conflux login muse`."
+        );
         return Ok(());
     }
     println!(
@@ -933,6 +951,7 @@ fn print_status(v: &Value) -> Result<()> {
             .iter()
             .min_by_key(|w| w["duration_secs"].as_i64().unwrap_or(i64::MAX));
         let long = shared.iter().max_by_key(|w| w["duration_secs"].as_i64().unwrap_or(0));
+        let short = short.filter(|_| shared.len() > 1);
         let mut status = Vec::new();
         if a["enabled"] == false {
             status.push("disabled".to_string());

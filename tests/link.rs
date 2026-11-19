@@ -28,6 +28,8 @@ async fn waiting_machine(listener: tokio::net::TcpListener) -> Machine {
     let clients = ClientPaths {
         claude_settings: dir.path().join("claude/settings.json"),
         codex_config: dir.path().join("codex/config.toml"),
+        grok_config: dir.path().join("grok/config.toml"),
+        muse_settings: dir.path().join("muse/settings.json"),
     };
     let caller = Arc::new(Mutex::new(whois(1, &[])));
     let tailnet = Arc::new(Mutex::new(json!({ "Self": { "UserID": 1 } })));
@@ -359,6 +361,8 @@ fn only_a_machine_with_nothing_set_up_starts_waiting() {
     let clients = ClientPaths {
         claude_settings: dir.path().join("claude/settings.json"),
         codex_config: dir.path().join("codex/config.toml"),
+        grok_config: dir.path().join("grok/config.toml"),
+        muse_settings: dir.path().join("muse/settings.json"),
     };
     Config {
         role: Role::Node,

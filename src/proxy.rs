@@ -24,8 +24,26 @@ const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 const CLAUDE_OAUTH_BETA: &str = "oauth-2025-04-20";
 pub const HUB_NOT_ACTIVE: &str = "conflux: the hub is moving to another machine. Try again in a minute.";
 
+pub const GROK_PREFIX: &str = "/grok/v1/";
+pub const MUSE_PREFIX: &str = "/muse/v1/";
+pub const MUSE_CODE_PREFIX: &str = "/muse-code/";
+const MUSE_PATHS: &[&str] = &["responses"];
+const MUSE_CODE_PATHS: &[&str] = &["models", "search", "browser_open", "feedback"];
+
+fn first_segment_in(path: &str, prefix: &str, allowed: &[&str]) -> bool {
+    path.strip_prefix(prefix)
+        .and_then(|rest| rest.split('/').next())
+        .is_some_and(|first| allowed.contains(&first))
+}
+
 pub fn provider_for(path: &str, user_agent: &str) -> Option<Provider> {
-    if path.starts_with("/v1/messages") {
+    if path.starts_with(GROK_PREFIX) {
+        Some(Provider::Grok)
+    } else if first_segment_in(path, MUSE_PREFIX, MUSE_PATHS)
+        || first_segment_in(path, MUSE_CODE_PREFIX, MUSE_CODE_PATHS)
+    {
+        Some(Provider::Muse)
+    } else if path.starts_with("/v1/messages") {
         Some(Provider::Claude)
     } else if path.starts_with("/backend-api/codex/") {
         Some(Provider::Codex)
@@ -50,18 +68,32 @@ pub fn is_claude_code(h: &HeaderMap) -> bool {
     is_claude_cli(ua) && app.eq_ignore_ascii_case("cli")
 }
 
-pub fn upstream_url(app: &App, provider: Provider, path: &str, query: Option<&str>) -> String {
-    let q = query.map(|q| format!("?{q}")).unwrap_or_default();
-    match provider {
-        Provider::Claude => format!("{}{path}{q}", app.ep.anthropic_api),
-        Provider::Codex => {
-            let rest = path
-                .strip_prefix("/backend-api/codex")
+pub fn upstream_url(app: &App, provider: Provider, path: &str, query: Option<&str>) -> Option<String> {
+    let (base, rest) = match provider {
+        Provider::Claude => (&app.ep.anthropic_api, path),
+        Provider::Codex => (
+            &app.ep.codex_api,
+            path.strip_prefix("/backend-api/codex")
                 .or_else(|| path.strip_prefix("/v1"))
-                .unwrap_or(path);
-            format!("{}{rest}{q}", app.ep.codex_api)
-        }
+                .unwrap_or(path),
+        ),
+        Provider::Grok => (&app.ep.grok_api, path.strip_prefix("/grok/v1").unwrap_or(path)),
+        Provider::Muse => (
+            &app.ep.meta_api,
+            path.strip_prefix("/muse")
+                .filter(|r| r.starts_with('/'))
+                .unwrap_or(path),
+        ),
+    };
+    let lower = rest.to_ascii_lowercase();
+    if lower.contains("%2f") || lower.contains("%5c") {
+        return None;
     }
+    let q = query.map(|q| format!("?{q}")).unwrap_or_default();
+    let url = format!("{base}{rest}{q}");
+    let base_path = url::Url::parse(base).ok()?.path().trim_end_matches('/').to_string();
+    let parsed = url::Url::parse(&url).ok()?;
+    (parsed.path() == format!("{base_path}{rest}")).then_some(url)
 }
 
 const DROPPED_REQUEST_HEADERS: &[&str] = &[
@@ -149,6 +181,7 @@ pub fn apply_account_auth(provider: Provider, account: &AccountEntry, h: &mut He
                 h.insert("chatgpt-account-id", acct);
             }
         }
+        Provider::Grok | Provider::Muse => {}
     }
 }
 
@@ -195,6 +228,12 @@ pub fn codex_session(h: &HeaderMap, body: &Value) -> Option<String> {
     body["prompt_cache_key"].as_str().map(str::to_string)
 }
 
+fn header_or_cache_key(h: &HeaderMap, header: &str, body: &Value) -> Option<String> {
+    header_str(h, header)
+        .map(str::to_string)
+        .or_else(|| body["prompt_cache_key"].as_str().map(str::to_string))
+}
+
 pub fn route_request(provider: Provider, h: &HeaderMap, body: &[u8]) -> RouteRequest {
     let encoded = h.get(header::CONTENT_ENCODING).is_some();
     let json: Value = if encoded {
@@ -208,6 +247,8 @@ pub fn route_request(provider: Provider, h: &HeaderMap, body: &[u8]) -> RouteReq
         session: match provider {
             Provider::Claude => claude_session(h, &json),
             Provider::Codex => codex_session(h, &json),
+            Provider::Grok => header_or_cache_key(h, "x-grok-session-id", &json),
+            Provider::Muse => header_or_cache_key(h, "x-tbh-session-id", &json),
         },
     }
 }
@@ -295,10 +336,25 @@ pub fn codex_error_object(v: &Value) -> Option<&Value> {
         .find(|e| e["type"].is_string() || e["code"].is_string())
 }
 
-pub fn is_codex_usage_limit(v: &Value) -> bool {
+fn quota_codes(provider: Provider) -> &'static [&'static str] {
+    match provider {
+        Provider::Grok => &["usage_limit_reached", "usage_pool_exhausted"],
+        Provider::Muse => &["tier_limit", "ai_spend_budget_exceeded"],
+        _ => &["usage_limit_reached"],
+    }
+}
+
+fn is_usage_limit(provider: Provider, v: &Value) -> bool {
+    let codes = quota_codes(provider);
     codex_error_object(v).is_some_and(|e| {
-        e["type"].as_str() == Some("usage_limit_reached") || e["code"].as_str() == Some("usage_limit_reached")
+        [&e["type"], &e["code"]]
+            .into_iter()
+            .any(|c| c.as_str().is_some_and(|c| codes.contains(&c)))
     })
+}
+
+pub fn is_codex_usage_limit(v: &Value) -> bool {
+    is_usage_limit(Provider::Codex, v)
 }
 
 pub fn codex_reset(v: &Value, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
@@ -312,16 +368,26 @@ pub fn codex_reset(v: &Value, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
 }
 
 pub fn classify_codex_429(h: &HeaderMap, body: &[u8], model: Option<&str>, now: DateTime<Utc>) -> Rejection {
+    classify_responses_429(Provider::Codex, h, body, model, now)
+}
+
+pub fn classify_responses_429(
+    provider: Provider,
+    h: &HeaderMap,
+    body: &[u8],
+    model: Option<&str>,
+    now: DateTime<Utc>,
+) -> Rejection {
     let plain = requests::decompressed(header_str(h, "content-encoding"), body);
     let v: Value = serde_json::from_slice(&plain).unwrap_or(Value::Null);
-    if is_codex_usage_limit(&v) {
+    if is_usage_limit(provider, &v) {
         let until = codex_reset(&v, now)
             .or_else(|| retry_after(h, now))
             .unwrap_or(now + chrono::Duration::minutes(15));
         return Rejection::Quota {
             scope: router::ACCOUNT.into(),
             until,
-            reason: "Codex usage limit".into(),
+            reason: format!("{} usage limit", provider.display_name()),
         };
     }
     Rejection::Short {
@@ -343,7 +409,7 @@ fn json_response(status: StatusCode, body: Value, extra: Option<(HeaderName, Str
 pub fn provider_error(provider: Provider, status: StatusCode, kind: &str, message: &str) -> Response {
     let body = match provider {
         Provider::Claude => json!({"type": "error", "error": {"type": kind, "message": message}}),
-        Provider::Codex => json!({"error": {"type": kind, "message": message}}),
+        Provider::Codex | Provider::Grok | Provider::Muse => json!({"error": {"type": kind, "message": message}}),
     };
     json_response(status, body, None)
 }
@@ -365,7 +431,7 @@ fn no_account_response(provider: Provider, why: NoAccount) -> Response {
             };
             let body = match provider {
                 Provider::Claude => json!({"type": "error", "error": {"type": "rate_limit_error", "message": message}}),
-                Provider::Codex => json!({"error": {
+                Provider::Codex | Provider::Grok | Provider::Muse => json!({"error": {
                     "type": "usage_limit_reached",
                     "message": message,
                     "resets_in_seconds": secs,
@@ -478,7 +544,9 @@ pub async fn handle(State(app): State<Arc<App>>, req: Request) -> Response {
     let (parts, body) = req.into_parts();
     let path = parts.uri.path().to_string();
     let ua = header_str(&parts.headers, "user-agent").unwrap_or("").to_string();
-    let Some(provider) = provider_for(&path, &ua) else {
+    let target =
+        provider_for(&path, &ua).and_then(|p| upstream_url(&app, p, &path, parts.uri.query()).map(|url| (p, url)));
+    let Some((provider, url)) = target else {
         return json_response(StatusCode::NOT_FOUND, json!({"error": "not found"}), None);
     };
     if header_str(&parts.headers, "upgrade").is_some_and(|u| u.eq_ignore_ascii_case("websocket")) {
@@ -490,7 +558,7 @@ pub async fn handle(State(app): State<Arc<App>>, req: Request) -> Response {
                 "conflux: websockets are only supported for Codex",
             );
         }
-        return crate::ws::handle(app.clone(), parts, path).await;
+        return crate::ws::handle(app.clone(), parts, url).await;
     }
     if provider == Provider::Claude && app.cfg.claude_code_only && !is_claude_code(&parts.headers) {
         return provider_error(
@@ -522,7 +590,7 @@ pub async fn handle(State(app): State<Arc<App>>, req: Request) -> Response {
         app: &app,
         provider,
         method: &parts.method,
-        url: upstream_url(&app, provider, &path, parts.uri.query()),
+        url,
         headers: &parts.headers,
         body: &body,
     };
@@ -604,7 +672,7 @@ pub async fn handle(State(app): State<Arc<App>>, req: Request) -> Response {
             let now = Utc::now();
             let rejection = match provider {
                 Provider::Claude => classify_claude_429(&headers, route.model.as_deref(), now),
-                Provider::Codex => classify_codex_429(&headers, &bytes, route.model.as_deref(), now),
+                _ => classify_responses_429(provider, &headers, &bytes, route.model.as_deref(), now),
             };
             match &rejection {
                 Rejection::Quota { scope, until, reason } => app.router.cool(&account.id, scope, *until, reason),
@@ -622,7 +690,10 @@ pub async fn handle(State(app): State<Arc<App>>, req: Request) -> Response {
             header_str(resp.headers(), "content-encoding"),
             header_str(resp.headers(), "content-type"),
         );
-        let tap = ResponseTap::new(scanner, provider, record, app.requests.clone());
+        let mut tap = ResponseTap::new(scanner, provider, record, app.requests.clone());
+        if provider == Provider::Muse {
+            tap = tap.watching_quota(app.usage.clone(), account.id.clone());
+        }
         return stream_response(resp, tap);
     }
 }

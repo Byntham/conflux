@@ -279,9 +279,9 @@ pub fn apply_event(provider: Provider, u: &mut TokenUsage, v: &Value) {
     match (provider, v["type"].as_str()) {
         (Provider::Claude, Some("message_start")) => apply_claude_usage(u, &v["message"]["usage"]),
         (Provider::Claude, _) => apply_claude_usage(u, &v["usage"]),
-        (Provider::Codex, Some("response.completed")) => apply_codex_usage(u, &v["response"]["usage"]),
-        (Provider::Codex, _) if v["usage"].is_object() => apply_codex_usage(u, &v["usage"]),
-        (Provider::Codex, _) => {}
+        (_, Some("response.completed")) => apply_codex_usage(u, &v["response"]["usage"]),
+        _ if v["usage"].is_object() => apply_codex_usage(u, &v["usage"]),
+        _ => {}
     }
 }
 
@@ -291,6 +291,7 @@ pub struct ResponseTap {
     usage: TokenUsage,
     record: Option<u64>,
     log: Arc<RequestLog>,
+    quota: Option<(Arc<crate::usage::Usage>, String)>,
 }
 
 impl ResponseTap {
@@ -301,11 +302,20 @@ impl ResponseTap {
             usage: TokenUsage::default(),
             record,
             log,
+            quota: None,
         }
+    }
+
+    pub fn watching_quota(mut self, usage: Arc<crate::usage::Usage>, account: String) -> Self {
+        self.quota = Some((usage, account));
+        self
     }
 
     fn take(&mut self, v: Value) {
         apply_event(self.provider, &mut self.usage, &v);
+        if let Some((usage, account)) = &self.quota {
+            usage.observe_muse_event(account, &v);
+        }
     }
 
     pub fn feed(&mut self, chunk: &[u8]) {

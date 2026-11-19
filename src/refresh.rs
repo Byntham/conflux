@@ -17,8 +17,9 @@ const NOT_SENT_RETRY: Duration = Duration::from_secs(120);
 
 pub fn refresh_lead(provider: Provider) -> chrono::Duration {
     match provider {
-        Provider::Claude => chrono::Duration::hours(1),
+        Provider::Claude | Provider::Grok => chrono::Duration::hours(1),
         Provider::Codex => chrono::Duration::hours(96),
+        Provider::Muse => chrono::Duration::days(6),
     }
 }
 
@@ -103,11 +104,17 @@ impl Refresher {
             return RefreshResult::LocalError("account has never logged in".into());
         }
         let n = creds.generation + 1;
+        if let (Provider::Muse, RefreshState::RetryAt { at, .. }) = (e.provider, e.refresh_state())
+            && Utc::now() < at
+        {
+            return RefreshResult::Waiting(at);
+        }
 
         let mut retries = 0u32;
+        let repeatable = e.provider == Provider::Muse;
         match e.journal.read_receipt(n) {
             Ok(None) => {
-                if e.journal.has_claim(n) {
+                if e.journal.has_claim(n) && !repeatable {
                     e.set_refresh_state(RefreshState::Unknown);
                     return RefreshResult::Unknown;
                 }
@@ -122,10 +129,11 @@ impl Refresher {
                 }
                 retries = r;
             }
-            Ok(Some(Receipt::Unknown)) => {
+            Ok(Some(Receipt::Unknown)) if !repeatable => {
                 e.set_refresh_state(RefreshState::Unknown);
                 return RefreshResult::Unknown;
             }
+            Ok(Some(Receipt::Unknown)) => {}
             Ok(Some(Receipt::Rejected { reason })) => {
                 e.set_refresh_state(RefreshState::Rejected(reason.clone()));
                 return RefreshResult::Rejected(reason);
@@ -191,7 +199,7 @@ impl Refresher {
                 e.set_refresh_state(RefreshState::Rejected(reason.clone()));
                 RefreshResult::Rejected(reason)
             }
-            RefreshOutcome::RetryAfter(hint) if e.provider == Provider::Claude => {
+            RefreshOutcome::RetryAfter(hint) if matches!(e.provider, Provider::Claude | Provider::Grok) => {
                 let attempt = retries as usize;
                 if attempt >= CLAUDE_BACKOFF.len() {
                     e.set_refresh_state(RefreshState::Unknown);
@@ -201,6 +209,12 @@ impl Refresher {
                 self.schedule_retry(e, n, delay, retries + 1)
             }
             RefreshOutcome::NotSent(_) => self.schedule_retry(e, n, NOT_SENT_RETRY, retries),
+            RefreshOutcome::RetryAfter(hint) if e.provider == Provider::Muse => {
+                self.schedule_retry(e, n, hint.max(NOT_SENT_RETRY), retries)
+            }
+            RefreshOutcome::Unknown(_) if e.provider == Provider::Muse => {
+                self.schedule_retry(e, n, NOT_SENT_RETRY, retries)
+            }
             RefreshOutcome::RetryAfter(_) | RefreshOutcome::Unknown(_) => {
                 e.set_refresh_state(RefreshState::Unknown);
                 RefreshResult::Unknown
@@ -268,6 +282,9 @@ impl Refresher {
             return false;
         }
         match e.refresh_state() {
+            RefreshState::Unknown if e.provider == Provider::Muse => {
+                c.grant.expires_at - now < refresh_lead(e.provider)
+            }
             RefreshState::Rejected(_) | RefreshState::Unknown => false,
             RefreshState::RetryAt { at, .. } => now >= at,
             RefreshState::Normal => c.grant.expires_at - now < refresh_lead(e.provider),

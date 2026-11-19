@@ -14,6 +14,8 @@ use crate::fsutil;
 pub enum Provider {
     Claude,
     Codex,
+    Grok,
+    Muse,
 }
 
 impl Provider {
@@ -21,6 +23,17 @@ impl Provider {
         match self {
             Provider::Claude => "claude",
             Provider::Codex => "codex",
+            Provider::Grok => "grok",
+            Provider::Muse => "muse",
+        }
+    }
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Provider::Claude => "Claude",
+            Provider::Codex => "Codex",
+            Provider::Grok => "Grok",
+            Provider::Muse => "Muse",
         }
     }
 }

@@ -13,7 +13,7 @@
     --brand: #0e5f72; --accent: #0e6b80; --accent-soft: #e3f1f4; --primary: #18181b; --primary-fg: #ffffff;
     --track: #ececef; --fill: #71717a; --bubble: #ebebee; --seg-on: #ffffff; --popover: #ffffff; --row-on: #f1f1f3; --fail-mix: 7%;
     --ok: #047857; --warn: #a15c00; --warn-soft: #fdf1dd; --warn-fill: #d97f06; --bad: #c81e1e; --bad-fill: #c81e1e; --bad-soft: #fdeaea;
-    --claude: #c2653c; --codex: #5a5fd0; --scoped: #6f2a0e; --pool-area: 15%;
+    --claude: #c2653c; --codex: #5a5fd0; --grok: #2f7d5b; --muse: #a3398f; --scoped: #6f2a0e; --pool-area: 15%;
     --shadow: 0 1px 2px rgb(24 24 27 / 4%);
     --shadow-pop: 0 16px 40px rgb(24 24 27 / 16%), 0 2px 6px rgb(24 24 27 / 8%);
     --backdrop: rgb(24 24 27 / 40%);
@@ -26,7 +26,7 @@
       --brand: #4fb8cc; --accent: #6cc7d9; --accent-soft: #10292f; --primary: #f4f4f5; --primary-fg: #0a0a0b;
       --track: #232326; --fill: #a1a1aa; --bubble: #242427; --seg-on: #2c2c30; --popover: #1a1a1c; --row-on: #242427; --fail-mix: 10%;
       --ok: #34d399; --warn: #fbbf24; --warn-soft: #2c2108; --warn-fill: #f59e0b; --bad: #f87171; --bad-fill: #e5484d; --bad-soft: #321414;
-      --claude: #d4764c; --codex: #8086ec; --scoped: #ffd2bd; --pool-area: 20%;
+      --claude: #d4764c; --codex: #8086ec; --grok: #4fbf8a; --muse: #e07fd0; --scoped: #ffd2bd; --pool-area: 20%;
       --shadow: none;
       --shadow-pop: 0 18px 44px rgb(0 0 0 / 70%);
       --backdrop: rgb(0 0 0 / 62%);
@@ -82,8 +82,8 @@
   .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
   .dot.on { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 20%, transparent); }
   .dot.down { background: var(--bad); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 20%, transparent); }
-  .dot.claude, .dot.codex { width: 8px; height: 8px; border-radius: 2px; }
-  .dot.claude { background: var(--claude); } .dot.codex { background: var(--codex); }
+  .dot.claude, .dot.codex, .dot.grok, .dot.muse { width: 8px; height: 8px; border-radius: 2px; }
+  .dot.claude { background: var(--claude); } .dot.codex { background: var(--codex); } .dot.grok { background: var(--grok); } .dot.muse { background: var(--muse); }
 
   .topbar { display: none; }
   main { padding: 28px 36px 56px; max-width: 1240px; width: 100%; margin: 0 auto; }
@@ -202,6 +202,8 @@
   .col i:last-child { margin-bottom: 0; }
   .col i.claude { background: var(--claude); }
   .col i.codex { background: var(--codex); }
+  .col i.grok { background: var(--grok); }
+  .col i.muse { background: var(--muse); }
   .col i.other { background: var(--muted); }
   .col i.failed, .key i.failed { background: repeating-linear-gradient(135deg, var(--bad-fill) 0 2px, color-mix(in srgb, var(--bad-fill) 62%, var(--bg)) 2px 4px); }
   .col i:first-child { border-radius: 3px 3px 0 0; }
@@ -365,6 +367,8 @@
   .pool-board { overflow: hidden; padding-bottom: 8px; }
   .pool-claude { --series: var(--claude); }
   .pool-codex { --series: var(--codex); }
+  .pool-grok { --series: var(--grok); }
+  .pool-muse { --series: var(--muse); }
   .pool-chart { position: relative; padding: 14px 22px 0; touch-action: pan-y; }
   .pool-chart.narrow { padding: 12px 16px 0; }
   .pool-chart > svg { display: block; width: 100%; overflow: visible; }
@@ -573,6 +577,8 @@
           <div class="row hide-first-run">
             <button class="btn" data-add="claude"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>Add Claude</button>
             <button class="btn" data-add="codex"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>Add Codex</button>
+            <button class="btn" data-add="grok"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>Add Grok</button>
+            <button class="btn" data-add="muse"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>Add Muse</button>
           </div>
         </div>
         <div class="alerts" id="hub-alert" hidden></div>
@@ -596,7 +602,7 @@
         <div class="section">
           <div class="section-head">
             <h2 id="chart-title">Requests per minute</h2>
-            <div class="section-note" id="chart-key"><span class="key"><i style="background:var(--claude)"></i>Claude</span><span class="key"><i style="background:var(--codex)"></i>Codex</span><span class="key"><i class="failed"></i>Failed</span></div>
+            <div class="section-note" id="chart-key"></div>
           </div>
           <div id="chart"></div>
         </div>
@@ -798,7 +804,9 @@ function titleCase(v) {
   return s ? s[0].toUpperCase() + s.slice(1) : "";
 }
 
-const providerName = (p) => ({ claude: "Claude", codex: "Codex" }[p] || titleCase(p));
+const PROVIDERS = ["claude", "codex", "grok", "muse"];
+const DEVICE_PAGES = { codex: "ChatGPT", grok: "xAI", muse: "Meta" };
+const providerName = (p) => ({ claude: "Claude", codex: "Codex", grok: "Grok", muse: "Muse" }[p] || titleCase(p));
 
 function cachePercent(read, total) {
   return total ? Math.floor((read * 100) / total) : null;
@@ -975,27 +983,30 @@ function renderStats(d) {
 function renderChart(d) {
   const count = window.innerWidth <= 760 ? 30 : 60;
   const currentMinute = Math.floor(Date.now() / 60000);
-  const buckets = Array.from({ length: count }, (_, i) => ({ minute: currentMinute - (count - 1 - i), claude: 0, codex: 0, other: 0, failed: 0 }));
+  const buckets = Array.from({ length: count }, (_, i) => ({ minute: currentMinute - (count - 1 - i), ...Object.fromEntries(PROVIDERS.map((p) => [p, 0])), other: 0, failed: 0 }));
   for (const r of d.requests) {
     const index = count - 1 - (currentMinute - Math.floor(new Date(r.at).getTime() / 60000));
     if (index < 0 || index >= count) continue;
-    const lane = r.status >= 400 ? "failed" : r.provider === "claude" || r.provider === "codex" ? r.provider : "other";
+    const lane = r.status >= 400 ? "failed" : PROVIDERS.includes(r.provider) ? r.provider : "other";
     buckets[index][lane]++;
   }
-  const sum = (b) => b.claude + b.codex + b.other + b.failed;
+  const lanes = [...PROVIDERS, "other", "failed"];
+  const sum = (b) => lanes.reduce((n, lane) => n + b[lane], 0);
   const peak = Math.max(1, ...buckets.map(sum));
   const max = Math.max(2, Math.ceil(peak / 2) * 2);
   const clock = (minute) => new Date(minute * 60000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const bars = buckets.map((b) => {
     const seg = (n, cls) => n ? `<i class="${cls}" style="height:max(2px, ${((n / max) * 100).toFixed(1)}%)"></i>` : "";
-    const parts = [["Claude", b.claude], ["Codex", b.codex], ["other", b.other], ["failed", b.failed]].filter(([, n]) => n).map(([name, n]) => `${n} ${name}`);
+    const parts = lanes.map((lane) => [PROVIDERS.includes(lane) ? providerName(lane) : lane, b[lane]]).filter(([, n]) => n).map(([name, n]) => `${n} ${name}`);
     const tip = `${clock(b.minute)}: ${parts.join(", ") || "no requests"}`;
-    return `<div class="col" data-tip="${esc(tip)}">${seg(b.failed, "failed")}${seg(b.other, "other")}${seg(b.codex, "codex")}${seg(b.claude, "claude")}</div>`;
+    return `<div class="col" data-tip="${esc(tip)}">${[...lanes].reverse().map((lane) => seg(b[lane], lane)).join("")}</div>`;
   }).join("");
   const total = buckets.reduce((n, b) => n + sum(b), 0);
   const failed = buckets.reduce((n, b) => n + b.failed, 0);
   $("chart-title").textContent = `Requests per minute, last ${count} minutes`;
   $("chart-key").hidden = !total;
+  const shown = PROVIDERS.filter((p) => buckets.some((b) => b[p]));
+  setHtml("chart-key", [...shown.map((p) => `<span class="key"><i style="background:var(--${p})"></i>${esc(providerName(p))}</span>`), '<span class="key"><i class="failed"></i>Failed</span>'].join(""));
   if (!total) return setHtml("chart", `<div class="chart-empty">No requests in the last ${count} minutes.</div>`);
   setHtml("chart", `<div class="chart">
     <div class="y-axis"><span>${max}</span><span>${max / 2}</span><span>0</span></div>
@@ -1343,7 +1354,7 @@ function renderPools(d) {
   if ($("view-overview").hidden) return;
   if (!d.accounts.length) {
     poolGeom = null;
-    return setHtml("pool", `<div class="accounts"><div class="card empty"><strong>No accounts yet</strong>Add a subscription and conflux will start routing requests to it.<div class="row"><button class="btn" data-add="claude">Add Claude account</button><button class="btn" data-add="codex">Add Codex account</button></div></div></div>`);
+    return setHtml("pool", `<div class="accounts"><div class="card empty"><strong>No accounts yet</strong>Add a subscription and conflux will start routing requests to it.<div class="row"><button class="btn" data-add="claude">Add Claude account</button><button class="btn" data-add="codex">Add Codex account</button><button class="btn" data-add="grok">Add Grok account</button><button class="btn" data-add="muse">Add Muse account</button></div></div></div>`);
   }
   const now = Math.floor(Date.now() / 60000) * 60000;
   const providers = [...new Set(d.accounts.map((a) => a.provider))].sort();
@@ -1740,19 +1751,19 @@ async function loginClaude(email) {
   } catch (e) { showError(e); }
 }
 
-async function loginCodex(email) {
+async function loginDevice(provider, email) {
   try {
-    const start = await api("POST", "/conflux/api/login/codex/start", {});
-    openModal(`${loginHeading("codex", email)}
+    const start = await api("POST", `/conflux/api/login/${provider}/start`, {});
+    openModal(`${loginHeading(provider, email)}
       <ol class="steps">
-        <li><a target="_blank" rel="noreferrer" id="codex-url">Open the ChatGPT device page</a> in a browser signed in to the account.</li>
+        <li><a target="_blank" rel="noreferrer" id="device-url">Open the ${esc(DEVICE_PAGES[provider])} device page</a> in a browser signed in to the account.</li>
         <li>Enter this code.</li>
       </ol>
-      <div class="code-block device-code"><span class="code-text" id="codex-code"></span><button class="icon-btn" data-copy="codex-code" title="Copy code" aria-label="Copy code">${icon("copy")}</button></div>
+      <div class="code-block device-code"><span class="code-text" id="device-code"></span><button class="icon-btn" data-copy="device-code" title="Copy code" aria-label="Copy code">${icon("copy")}</button></div>
       <div class="waiting" id="login-wait">${icon("refresh")}<span>Waiting for approval</span></div>
       <div class="modal-actions"><button class="btn" data-close>Close</button></div>`);
-    $("codex-url").href = start.status.verify_url;
-    $("codex-code").textContent = start.status.user_code;
+    $("device-url").href = start.status.verify_url;
+    $("device-code").textContent = start.status.user_code;
     clearInterval(loginTimer);
     loginTimer = setInterval(async () => {
       try {
@@ -2071,7 +2082,7 @@ document.addEventListener("click", (ev) => {
   const install = ev.target.closest("[data-install]");
   if (install) { installKey = install.dataset.install; return renderInstall(); }
   const add = ev.target.closest("[data-add]");
-  if (add) return add.dataset.add === "claude" ? loginClaude(add.dataset.email) : loginCodex(add.dataset.email);
+  if (add) return add.dataset.add === "claude" ? loginClaude(add.dataset.email) : loginDevice(add.dataset.add, add.dataset.email);
   const thread = ev.target.closest("[data-thread]");
   if (thread) return openThread(thread.dataset.thread);
   const routing = ev.target.closest("[data-routing]");

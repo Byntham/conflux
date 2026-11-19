@@ -44,6 +44,7 @@ async fn auth_files_match_what_t3_decodes() {
     let h = Harness::new().await;
     let claude = h.add(Provider::Claude, "a").await;
     let codex = h.add(Provider::Codex, "c").await;
+    let grok = h.add(Provider::Grok, "g").await;
     h.app
         .store
         .get(&claude)
@@ -61,7 +62,9 @@ async fn auth_files_match_what_t3_decodes() {
         .await
         .unwrap();
     let files = v["files"].as_array().unwrap();
-    assert_eq!(files.len(), 2);
+    assert_eq!(files.len(), 3);
+    let g = files.iter().find(|f| f["id"] == grok.as_str()).unwrap();
+    assert_eq!(g["provider"], "xai", "T3 reads Grok usage only for provider xai");
     let c = files.iter().find(|f| f["id"] == codex.as_str()).unwrap();
     assert_eq!(c["auth_index"], codex.as_str());
     assert_eq!(c["provider"], "codex");
@@ -144,6 +147,28 @@ async fn consume_sends_the_body_with_the_token_replaced() {
     assert_eq!(r.status(), 200);
     let hit = h.fake.hits.lock().unwrap().last().cloned().unwrap();
     assert_eq!(hit.0, "/backend-api/wham/rate-limit-reset-credits/consume");
+}
+
+#[tokio::test]
+async fn api_call_reads_grok_billing_with_the_grok_token() {
+    let h = Harness::new().await;
+    let id = h.add(Provider::Grok, "g").await;
+    let r = post(
+        &h,
+        "api-call",
+        json!({
+            "auth_index": id,
+            "method": "GET",
+            "url": "https://cli-chat-proxy.grok.com/v1/billing?format=credits",
+            "header": {"Authorization": "Bearer $TOKEN$", "x-xai-token-auth": "xai-grok-cli"}
+        }),
+    )
+    .await;
+    assert_eq!(r.status(), 200);
+    let hit = h.fake.hits.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(hit, ("/grok-api/billing".to_string(), "at-g".to_string()));
+    let headers = h.fake.http_headers.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(headers["x-xai-token-auth"], "xai-grok-cli");
 }
 
 #[tokio::test]

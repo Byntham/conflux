@@ -6,7 +6,7 @@ Everything the [quick start](../README.md#quick-start) leaves out: [installing o
 
 - Every machine runs [Tailscale](https://tailscale.com) with MagicDNS on, which is the default. Every machine signed in to Tailscale as you can use and manage your accounts. Machines of other users, and tagged machines, need your approval first. See [Security](../README.md#security).
 - The hub stays on and stays at home. Linux is best, because a macOS or Windows hub runs only while you're signed in. Don't route its traffic through another VPN or an exit node, so the providers see one home IP address.
-- Each machine you work from has Claude Code or Codex. The hub needs them only if you also work on it.
+- Each machine you work from has Claude Code, Codex, Grok Build, or Muse Code. The hub needs them only if you also work on it.
 - On Linux, conflux keeps running after you log out only if lingering is on for your user. `conflux join` tries to turn it on. See [Troubleshooting](troubleshooting.md#conflux-stops-when-you-log-out-of-linux).
 - The installer supports Linux x64 and ARM64 with systemd, macOS on Apple silicon, and Windows x64. On other systems, [build from source](#build-from-source).
 
@@ -58,7 +58,7 @@ Conflux.app adds an icon to the menu bar. It shows every account's limits, and l
 
 Quitting the app doesn't stop conflux. The app opens again at your next login.
 
-If you set `CLAUDE_CONFIG_DIR` or `CODEX_HOME`, use `conflux on` and `conflux off` instead of the app's routing switch. The app edits only the default folders.
+If you set `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`, or `XDG_CONFIG_HOME`, use `conflux on` and `conflux off` instead of the app's routing switch. The app edits only the default folders.
 
 ## Update
 
@@ -73,6 +73,6 @@ Requests already running finish on the old version. A machine that is off stays 
 
 ## Uninstall
 
-`conflux leave` stops conflux on a machine and gives Claude Code and Codex their old settings back. It keeps the binary and any account tokens. On the hub, run `conflux remove <account>` for each account first. See [`conflux leave`](commands.md#conflux-leave).
+`conflux leave` stops conflux on a machine and gives the coding tools their old settings back. It keeps the binary and any account tokens. On the hub, run `conflux remove <account>` for each account first. See [`conflux leave`](commands.md#conflux-leave).
 
 After a hub move, the old hub keeps a copy of the account tokens in a `retired-*` folder under `~/.local/share/conflux`. Delete it once the move has worked.

@@ -87,18 +87,28 @@ fn without_nulls(v: Value) -> Value {
     }
 }
 
+fn t3_provider(provider: Provider) -> Option<&'static str> {
+    match provider {
+        Provider::Claude => Some("claude"),
+        Provider::Codex => Some("codex"),
+        Provider::Grok => Some("xai"),
+        Provider::Muse => None,
+    }
+}
+
 pub async fn auth_files(State(app): State<Arc<App>>) -> Json<Value> {
     let files: Vec<Value> = app
         .store
         .all()
         .iter()
         .filter(|e| e.credentials().generation > 0)
-        .map(|e| {
+        .filter_map(|e| Some((e, t3_provider(e.provider)?)))
+        .map(|(e, provider)| {
             let c = e.credentials();
             let mut file = json!({
                 "id": e.id,
                 "auth_index": e.id,
-                "provider": e.provider.as_str(),
+                "provider": provider,
                 "email": c.email,
                 "disabled": !e.settings().enabled,
             });
@@ -121,6 +131,7 @@ pub enum AllowedCall {
     CodexUsage,
     CodexCredits,
     CodexConsumeCredit,
+    GrokUsage,
 }
 
 impl AllowedCall {
@@ -132,6 +143,7 @@ impl AllowedCall {
             ("POST", "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume") => {
                 Some(Self::CodexConsumeCredit)
             }
+            ("GET", "https://cli-chat-proxy.grok.com/v1/billing?format=credits") => Some(Self::GrokUsage),
             _ => None,
         }
     }
@@ -139,6 +151,7 @@ impl AllowedCall {
     fn provider(self) -> Provider {
         match self {
             Self::ClaudeUsage => Provider::Claude,
+            Self::GrokUsage => Provider::Grok,
             _ => Provider::Codex,
         }
     }
@@ -156,6 +169,7 @@ impl AllowedCall {
             Self::CodexUsage => format!("{}/wham/usage", ep.chatgpt_backend),
             Self::CodexCredits => format!("{}/wham/rate-limit-reset-credits", ep.chatgpt_backend),
             Self::CodexConsumeCredit => format!("{}/wham/rate-limit-reset-credits/consume", ep.chatgpt_backend),
+            Self::GrokUsage => format!("{}/billing?format=credits", ep.grok_api),
         }
     }
 }

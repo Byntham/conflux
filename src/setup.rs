@@ -11,11 +11,16 @@ pub const CLAUDE_TOKEN: &str = "conflux";
 pub const CLAUDE_CACHE_TTL_KEY: &str = "CLAUDE_CODE_PROMPT_CACHE_TTL";
 pub const CLAUDE_CACHE_TTL: &str = "1h";
 pub const CODEX_PROVIDER: &str = "conflux";
+const GROK_PLACEHOLDER: &str = "conflux";
+const GROK_AUTH_COMMAND: &str = "echo conflux";
+const GROK_AUTH_TTL: i64 = 365 * 24 * 3600;
 
 #[derive(Clone, Debug)]
 pub struct ClientPaths {
     pub claude_settings: PathBuf,
     pub codex_config: PathBuf,
+    pub grok_config: PathBuf,
+    pub muse_settings: PathBuf,
 }
 
 impl ClientPaths {
@@ -27,9 +32,20 @@ impl ClientPaths {
         let codex_dir = std::env::var("CODEX_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|_| home.join(".codex"));
+        let grok_dir = std::env::var("GROK_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| home.join(".grok"));
+        let muse_dir = std::env::var("XDG_CONFIG_HOME")
+            .ok()
+            .filter(|v| Path::new(v).is_absolute())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".config"))
+            .join("muse");
         Ok(Self {
             claude_settings: claude_dir.join("settings.json"),
             codex_config: codex_dir.join("config.toml"),
+            grok_config: grok_dir.join("config.toml"),
+            muse_settings: muse_dir.join("settings.json"),
         })
     }
 }
@@ -42,6 +58,18 @@ pub struct Joined {
     pub claude_cache_ttl: Option<Value>,
     pub codex_model_provider: Option<String>,
     pub codex_table: Option<String>,
+    #[serde(default)]
+    pub grok_base_url: Option<String>,
+    #[serde(default)]
+    pub grok_auth_command: Option<String>,
+    #[serde(default)]
+    pub grok_auth_ttl: Option<i64>,
+    #[serde(default)]
+    pub grok_recorded: bool,
+    #[serde(default)]
+    pub muse_transport: Option<Value>,
+    #[serde(default)]
+    pub muse_recorded: bool,
     #[serde(default)]
     pub recorded: bool,
 }
@@ -109,6 +137,175 @@ fn write_codex(path: &Path, doc: &DocumentMut) -> Result<()> {
     fsutil::write_durable(path, doc.to_string().as_bytes())
 }
 
+fn grok_url(port: u16) -> String {
+    format!("{}{}", base_url(port), crate::proxy::GROK_PREFIX.trim_end_matches('/'))
+}
+
+fn grok_installed(paths: &ClientPaths) -> bool {
+    paths.grok_config.parent().is_some_and(Path::is_dir)
+}
+
+fn grok_has_login(paths: &ClientPaths) -> bool {
+    let Some(auth) = paths.grok_config.parent().map(|d| d.join("auth.json")) else {
+        return false;
+    };
+    if std::fs::read_to_string(&auth).is_ok_and(|s| s.trim().is_empty()) {
+        return false;
+    }
+    match fsutil::read_json::<Value>(&auth) {
+        Ok(None) => false,
+        Ok(Some(Value::Object(entries))) => entries
+            .values()
+            .any(|e| e["auth_mode"].as_str() != Some("external") || e["key"].as_str() != Some(GROK_PLACEHOLDER)),
+        _ => true,
+    }
+}
+
+fn read_grok(path: &Path) -> Result<DocumentMut> {
+    let doc = read_codex(path)?;
+    for table in ["endpoints", "auth"] {
+        if doc.get(table).is_some_and(|t| t.as_table_like().is_none()) {
+            anyhow::bail!("`{table}` in {} is not a table", path.display());
+        }
+    }
+    let item = |table: &str, key: &str| doc.get(table).and_then(|t| t.get(key));
+    let wrong = [
+        (
+            "endpoints",
+            "cli_chat_proxy_base_url",
+            item("endpoints", "cli_chat_proxy_base_url").is_some_and(|v| !v.is_str()),
+        ),
+        (
+            "auth",
+            "auth_provider_command",
+            item("auth", "auth_provider_command").is_some_and(|v| !v.is_str()),
+        ),
+        (
+            "auth",
+            "auth_token_ttl",
+            item("auth", "auth_token_ttl").is_some_and(|v| !v.is_integer()),
+        ),
+    ];
+    if let Some((table, key, _)) = wrong.into_iter().find(|w| w.2) {
+        anyhow::bail!("`{table}.{key}` in {} has the wrong type", path.display());
+    }
+    Ok(doc)
+}
+
+fn toml_str(doc: &DocumentMut, table: &str, key: &str) -> Option<String> {
+    doc.get(table)?.get(key)?.as_str().map(str::to_string)
+}
+
+fn toml_int(doc: &DocumentMut, table: &str, key: &str) -> Option<i64> {
+    doc.get(table)?.get(key)?.as_integer()
+}
+
+fn set_in(doc: &mut DocumentMut, table: &str, key: &str, v: Item) {
+    if doc.get(table).and_then(Item::as_table_like).is_none() {
+        doc[table] = Item::Table(Table::new());
+    }
+    if let Some(t) = doc[table].as_table_like_mut() {
+        t.insert(key, v);
+    }
+}
+
+fn restore_in(doc: &mut DocumentMut, table: &str, key: &str, ours: &Item, previous: Option<Item>) {
+    let Some(t) = doc.get_mut(table).and_then(Item::as_table_like_mut) else {
+        return;
+    };
+    let same = match (t.get(key).and_then(Item::as_value), ours.as_value()) {
+        (Some(a), Some(b)) => a.to_string().trim() == b.to_string().trim(),
+        _ => false,
+    };
+    if !same {
+        return;
+    }
+    match previous {
+        Some(p) => {
+            t.insert(key, p);
+        }
+        None => {
+            t.remove(key);
+        }
+    }
+    if t.is_empty() {
+        doc.remove(table);
+    }
+}
+
+fn record_grok(joined: &mut Joined, doc: &DocumentMut) {
+    joined.grok_base_url = toml_str(doc, "endpoints", "cli_chat_proxy_base_url");
+    joined.grok_auth_command = toml_str(doc, "auth", "auth_provider_command");
+    joined.grok_auth_ttl = toml_int(doc, "auth", "auth_token_ttl");
+    joined.grok_recorded = true;
+}
+
+fn apply_grok(paths: &ClientPaths, joined: &Joined, mut doc: DocumentMut, port: u16) -> Result<()> {
+    set_in(&mut doc, "endpoints", "cli_chat_proxy_base_url", value(grok_url(port)));
+    if grok_has_login(paths) {
+        restore_grok_auth(&mut doc, joined);
+    } else {
+        set_in(&mut doc, "auth", "auth_provider_command", value(GROK_AUTH_COMMAND));
+        set_in(&mut doc, "auth", "auth_token_ttl", value(GROK_AUTH_TTL));
+    }
+    write_codex(&paths.grok_config, &doc)
+}
+
+fn restore_grok_auth(doc: &mut DocumentMut, joined: &Joined) {
+    if toml_str(doc, "auth", "auth_provider_command").as_deref() != Some(GROK_AUTH_COMMAND) {
+        return;
+    }
+    restore_in(
+        doc,
+        "auth",
+        "auth_provider_command",
+        &value(GROK_AUTH_COMMAND),
+        joined.grok_auth_command.as_deref().map(value),
+    );
+    restore_in(
+        doc,
+        "auth",
+        "auth_token_ttl",
+        &value(GROK_AUTH_TTL),
+        joined.grok_auth_ttl.map(value),
+    );
+}
+
+fn restore_grok(paths: &ClientPaths, joined: &Joined, mut doc: DocumentMut, port: u16) -> Result<()> {
+    restore_in(
+        &mut doc,
+        "endpoints",
+        "cli_chat_proxy_base_url",
+        &value(grok_url(port)),
+        joined.grok_base_url.as_deref().map(value),
+    );
+    restore_grok_auth(&mut doc, joined);
+    write_codex(&paths.grok_config, &doc)
+}
+
+fn muse_transport(port: u16) -> Value {
+    serde_json::json!({
+        "base_url": format!("{}{}", base_url(port), crate::proxy::MUSE_PREFIX.trim_end_matches('/')),
+        "auth": "none",
+    })
+}
+
+fn apply_muse(paths: &ClientPaths, mut settings: Map<String, Value>, port: u16) -> Result<()> {
+    settings.entry("schema_version").or_insert(Value::from(1));
+    settings.insert("endpoint_transport".into(), muse_transport(port));
+    write_claude(&paths.muse_settings, settings)
+}
+
+fn restore_muse(path: &Path, joined: &Joined, mut settings: Map<String, Value>, port: u16) -> Result<()> {
+    restore_value(
+        &mut settings,
+        "endpoint_transport",
+        &muse_transport(port),
+        &joined.muse_transport,
+    );
+    write_claude(path, settings)
+}
+
 fn conflux_table(port: u16) -> Table {
     let mut t = Table::new();
     t["name"] = value("conflux");
@@ -133,7 +330,27 @@ pub fn apply(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Joined
 
     let mut doc = read_codex(&paths.codex_config)?;
     let providers_has_ours = doc.get("model_providers").and_then(|p| p.get(CODEX_PROVIDER)).is_some();
+    let grok = grok_installed(paths)
+        .then(|| read_grok(&paths.grok_config))
+        .transpose()?;
 
+    let muse = paths
+        .muse_settings
+        .parent()
+        .is_some_and(Path::is_dir)
+        .then(|| read_claude(&paths.muse_settings))
+        .transpose()?;
+
+    let mut newly_recorded = false;
+    if let Some(g) = grok.as_ref().filter(|_| !joined.grok_recorded) {
+        record_grok(&mut joined, g);
+        newly_recorded = true;
+    }
+    if let Some(m) = muse.as_ref().filter(|_| !joined.muse_recorded) {
+        joined.muse_transport = m.get("endpoint_transport").cloned();
+        joined.muse_recorded = true;
+        newly_recorded = true;
+    }
     if !joined.recorded {
         joined.claude_base_url = env.get("ANTHROPIC_BASE_URL").cloned();
         joined.claude_auth_token = env.get("ANTHROPIC_AUTH_TOKEN").cloned();
@@ -144,6 +361,9 @@ pub fn apply(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Joined
             .flatten();
         joined.recorded = true;
         joined.active = false;
+        newly_recorded = true;
+    }
+    if newly_recorded {
         fsutil::ensure_private_dir(config_dir)?;
         fsutil::write_json_durable(&joined_path(config_dir), &joined)?;
     }
@@ -162,6 +382,12 @@ pub fn apply(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Joined
     }
     doc["model_providers"][CODEX_PROVIDER] = Item::Table(conflux_table(port));
     write_codex(&paths.codex_config, &doc)?;
+    if let Some(g) = grok {
+        apply_grok(paths, &joined, g, port)?;
+    }
+    if let Some(m) = muse {
+        apply_muse(paths, m, port)?;
+    }
 
     joined.active = true;
     fsutil::ensure_private_dir(config_dir)?;
@@ -191,6 +417,12 @@ pub fn restore(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Opti
         return Ok(Some(joined));
     }
     let (url, token) = ours_claude(port);
+    let grok = (joined.grok_recorded && paths.grok_config.exists())
+        .then(|| read_grok(&paths.grok_config))
+        .transpose()?;
+    let muse = (joined.muse_recorded && paths.muse_settings.exists())
+        .then(|| read_claude(&paths.muse_settings))
+        .transpose()?;
 
     let mut claude = read_claude(&paths.claude_settings)?;
     if let Some(env) = claude.get_mut("env").and_then(Value::as_object_mut) {
@@ -242,9 +474,17 @@ pub fn restore(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Opti
         }
     }
     write_codex(&paths.codex_config, &doc)?;
+    if let Some(g) = grok {
+        restore_grok(paths, &joined, g, port)?;
+    }
+    if let Some(m) = muse {
+        restore_muse(&paths.muse_settings, &joined, m, port)?;
+    }
 
     joined.active = false;
     joined.recorded = false;
+    joined.grok_recorded = false;
+    joined.muse_recorded = false;
     fsutil::write_json_durable(&joined_path(config_dir), &joined)?;
     Ok(Some(joined))
 }
@@ -257,9 +497,16 @@ pub fn env_warnings() -> Vec<String> {
         "CLAUDE_CONFIG_DIR",
         "CODEX_HOME",
         "OPENAI_BASE_URL",
+        "GROK_HOME",
+        "GROK_CLI_CHAT_PROXY_BASE_URL",
+        "XDG_CONFIG_HOME",
     ]
     .iter()
-    .filter(|k| std::env::var(k).is_ok_and(|v| !v.is_empty()))
+    .filter(|k| {
+        let default = crate::config::home_dir().ok().map(|h| h.join(".config"));
+        std::env::var(k)
+            .is_ok_and(|v| !v.is_empty() && !(**k == "XDG_CONFIG_HOME" && default == Some(PathBuf::from(&v))))
+    })
     .map(|k| format!("{k} is set in your shell. It can override or bypass the config conflux wrote."))
     .collect()
 }
@@ -273,6 +520,8 @@ mod tests {
             ClientPaths {
                 claude_settings: dir.join("claude/settings.json"),
                 codex_config: dir.join("codex/config.toml"),
+                grok_config: dir.join("grok/config.toml"),
+                muse_settings: dir.join("muse/settings.json"),
             },
             dir.join("conflux"),
         )
@@ -289,6 +538,12 @@ mod tests {
         let claude_before = "{\n  \"theme\": \"dark\",\n  \"autoCompactEnabled\": true\n}\n";
         std::fs::write(&p.claude_settings, claude_before).unwrap();
         std::fs::write(&p.codex_config, CODEX).unwrap();
+        std::fs::create_dir_all(p.grok_config.parent().unwrap()).unwrap();
+        let grok_before = "endpoints = { web_base_url = \"https://example.com\" }\n\n[ui]\nyolo = false\n";
+        std::fs::write(&p.grok_config, grok_before).unwrap();
+        std::fs::create_dir_all(p.muse_settings.parent().unwrap()).unwrap();
+        let muse_before = "{\n  \"schema_version\": 1,\n  \"model\": \"muse-wonder-full-1.0\"\n}\n";
+        std::fs::write(&p.muse_settings, muse_before).unwrap();
 
         apply(&p, &conf, 8317).unwrap();
         let claude: Value = serde_json::from_str(&std::fs::read_to_string(&p.claude_settings).unwrap()).unwrap();
@@ -300,11 +555,91 @@ mod tests {
         assert!(codex.contains("[model_providers.conflux]"));
         assert!(codex.contains("supports_websockets = true"));
         assert!(codex.contains("trust_level = \"trusted\""));
+        let grok: toml::Value = toml::from_str(&std::fs::read_to_string(&p.grok_config).unwrap()).unwrap();
+        assert_eq!(
+            grok["endpoints"]["cli_chat_proxy_base_url"].as_str(),
+            Some("http://127.0.0.1:8317/grok/v1")
+        );
+        assert_eq!(grok["endpoints"]["web_base_url"].as_str(), Some("https://example.com"));
+        assert_eq!(grok["auth"]["auth_provider_command"].as_str(), Some(GROK_AUTH_COMMAND));
+        let muse: Value = serde_json::from_str(&std::fs::read_to_string(&p.muse_settings).unwrap()).unwrap();
+        assert_eq!(muse["endpoint_transport"]["base_url"], "http://127.0.0.1:8317/muse/v1");
+        assert_eq!(muse["endpoint_transport"]["auth"], "none");
 
         apply(&p, &conf, 8317).unwrap();
         restore(&p, &conf, 8317).unwrap();
         assert_eq!(std::fs::read_to_string(&p.claude_settings).unwrap(), claude_before);
         assert_eq!(std::fs::read_to_string(&p.codex_config).unwrap(), CODEX);
+        assert_eq!(std::fs::read_to_string(&p.grok_config).unwrap(), grok_before);
+        assert_eq!(std::fs::read_to_string(&p.muse_settings).unwrap(), muse_before);
+    }
+
+    #[test]
+    fn a_grok_login_keeps_its_own_auth() {
+        let d = tempfile::tempdir().unwrap();
+        let (p, conf) = paths(d.path());
+        let grok_dir = p.grok_config.parent().unwrap();
+        std::fs::create_dir_all(grok_dir).unwrap();
+        let read = || -> toml::Value { toml::from_str(&std::fs::read_to_string(&p.grok_config).unwrap()).unwrap() };
+        std::fs::write(grok_dir.join("auth.json"), "").unwrap();
+        apply(&p, &conf, 8317).unwrap();
+        assert_eq!(
+            read()["auth"]["auth_provider_command"].as_str(),
+            Some(GROK_AUTH_COMMAND)
+        );
+
+        std::fs::write(
+            grok_dir.join("auth.json"),
+            r#"{"https://auth.x.ai::client":{"auth_mode":"external","key":"conflux"}}"#,
+        )
+        .unwrap();
+        apply(&p, &conf, 8317).unwrap();
+        assert_eq!(
+            read()["auth"]["auth_provider_command"].as_str(),
+            Some(GROK_AUTH_COMMAND)
+        );
+        for login in [
+            r#"{"https://auth.x.ai::client":{"auth_mode":"external","key":"sso-token"}}"#,
+            r#"{"https://auth.x.ai::client":{"auth_mode":"oidc","key":"k"}}"#,
+            r#"{"https://auth.x.ai::cli"#,
+        ] {
+            std::fs::write(grok_dir.join("auth.json"), login).unwrap();
+            apply(&p, &conf, 8317).unwrap();
+            assert!(read()["endpoints"]["cli_chat_proxy_base_url"].is_str());
+            assert!(read().get("auth").is_none(), "{login} keeps its own auth");
+        }
+        restore(&p, &conf, 8317).unwrap();
+        assert_eq!(std::fs::read_to_string(&p.grok_config).unwrap().trim(), "");
+    }
+
+    #[test]
+    fn an_upgraded_join_records_new_tools_before_changing_them() {
+        let d = tempfile::tempdir().unwrap();
+        let (p, conf) = paths(d.path());
+        apply(&p, &conf, 8317).unwrap();
+        let mut old: Value = serde_json::from_str(&std::fs::read_to_string(joined_path(&conf)).unwrap()).unwrap();
+        for key in [
+            "grok_base_url",
+            "grok_auth_command",
+            "grok_auth_ttl",
+            "grok_recorded",
+            "muse_transport",
+            "muse_recorded",
+        ] {
+            old.as_object_mut().unwrap().remove(key);
+        }
+        std::fs::write(joined_path(&conf), old.to_string()).unwrap();
+        std::fs::create_dir_all(p.grok_config.parent().unwrap()).unwrap();
+        let mine = "[auth]\nauth_provider_command = \"my-sso\"\n";
+        std::fs::write(&p.grok_config, mine).unwrap();
+        std::fs::create_dir_all(p.muse_settings.parent().unwrap()).unwrap();
+        let my_muse = "{\n  \"schema_version\": 1,\n  \"endpoint_transport\": {\n    \"base_url\": \"https://gateway.example.com/v1\"\n  }\n}\n";
+        std::fs::write(&p.muse_settings, my_muse).unwrap();
+
+        apply(&p, &conf, 8317).unwrap();
+        restore(&p, &conf, 8317).unwrap();
+        assert_eq!(std::fs::read_to_string(&p.grok_config).unwrap(), mine);
+        assert_eq!(std::fs::read_to_string(&p.muse_settings).unwrap(), my_muse);
     }
 
     #[test]
@@ -359,6 +694,30 @@ mod tests {
         restore(&p, &conf, 8317).unwrap();
         let after: Value = serde_json::from_str(&std::fs::read_to_string(&p.claude_settings).unwrap()).unwrap();
         assert_eq!(after["env"]["ANTHROPIC_AUTH_TOKEN"], "mine");
+    }
+
+    #[test]
+    fn a_broken_grok_config_changes_nothing() {
+        let d = tempfile::tempdir().unwrap();
+        let (p, conf) = paths(d.path());
+        std::fs::create_dir_all(p.grok_config.parent().unwrap()).unwrap();
+        for broken in [
+            "not = [toml",
+            "auth = \"x\"\n",
+            "[endpoints]\ncli_chat_proxy_base_url = 1\n",
+        ] {
+            std::fs::write(&p.grok_config, broken).unwrap();
+            assert!(apply(&p, &conf, 8317).is_err(), "{broken}");
+            assert!(!p.claude_settings.exists());
+        }
+
+        std::fs::write(&p.grok_config, "").unwrap();
+        apply(&p, &conf, 8317).unwrap();
+        let routed = std::fs::read_to_string(&p.claude_settings).unwrap();
+        std::fs::write(&p.grok_config, "not = [toml").unwrap();
+        assert!(restore(&p, &conf, 8317).is_err());
+        assert_eq!(std::fs::read_to_string(&p.claude_settings).unwrap(), routed);
+        assert!(routing(&conf));
     }
 
     #[test]

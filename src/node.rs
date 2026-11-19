@@ -74,6 +74,16 @@ const HOP_BY_HOP: &[&str] = &[
     "origin",
     "content-length",
 ];
+const CLIENT_CREDENTIALS: &[&str] = &["authorization", "x-api-key", "cookie"];
+
+fn forwarded_headers(path: &str, src: &HeaderMap, also_skip: &[&str]) -> HeaderMap {
+    if crate::access::is_proxy_path(path) {
+        copy_headers(src, &[HOP_BY_HOP, CLIENT_CREDENTIALS, also_skip])
+    } else {
+        copy_headers(src, &[HOP_BY_HOP, also_skip])
+    }
+}
+
 const HANDSHAKE: &[&str] = &[
     "sec-websocket-key",
     "sec-websocket-version",
@@ -517,7 +527,7 @@ async fn forward(State(node): State<Arc<Node>>, req: Request) -> Response {
     if is_ws {
         return forward_ws(node, parts, path_and_query).await;
     }
-    let mut headers = copy_headers(&parts.headers, &[HOP_BY_HOP]);
+    let mut headers = forwarded_headers(&path, &parts.headers, &[]);
     headers.insert(NODE_HEADER, node.node_header());
     let url = format!("{}{path_and_query}", node.hub_base("http"));
     let sent = node
@@ -552,7 +562,7 @@ async fn forward_ws(node: Arc<Node>, mut parts: http::request::Parts, path_and_q
         Ok(r) => r,
         Err(e) => return (StatusCode::BAD_GATEWAY, e.to_string()).into_response(),
     };
-    for (k, v) in copy_headers(&parts.headers, &[HOP_BY_HOP, HANDSHAKE]) {
+    for (k, v) in forwarded_headers(parts.uri.path(), &parts.headers, HANDSHAKE) {
         if let Some(k) = k {
             req.headers_mut().insert(k, v);
         }

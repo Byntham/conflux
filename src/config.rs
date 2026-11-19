@@ -157,6 +157,10 @@ pub struct Endpoints {
     pub codex_api: String,
     pub chatgpt_backend: String,
     pub openai_auth: String,
+    pub grok_api: String,
+    pub xai_auth: String,
+    pub meta_api: String,
+    pub meta_auth: String,
     pub releases: String,
 }
 
@@ -169,6 +173,10 @@ impl Default for Endpoints {
             codex_api: "https://chatgpt.com/backend-api/codex".into(),
             chatgpt_backend: "https://chatgpt.com/backend-api".into(),
             openai_auth: "https://auth.openai.com".into(),
+            grok_api: "https://cli-chat-proxy.grok.com/v1".into(),
+            xai_auth: "https://auth.x.ai".into(),
+            meta_api: "https://api.meta.ai".into(),
+            meta_auth: "https://auth.meta.com".into(),
             releases: "https://github.com/Byntham/conflux/releases".into(),
         }
     }
@@ -188,6 +196,10 @@ impl Endpoints {
         set(&mut e.codex_api, "CONFLUX_CODEX_API");
         set(&mut e.chatgpt_backend, "CONFLUX_CHATGPT_BACKEND");
         set(&mut e.openai_auth, "CONFLUX_OPENAI_AUTH");
+        set(&mut e.grok_api, "CONFLUX_GROK_API");
+        set(&mut e.xai_auth, "CONFLUX_XAI_AUTH");
+        set(&mut e.meta_api, "CONFLUX_META_API");
+        set(&mut e.meta_auth, "CONFLUX_META_AUTH");
         set(&mut e.releases, "CONFLUX_RELEASES");
         e
     }
@@ -201,6 +213,10 @@ impl Endpoints {
             codex_api: format!("{b}/backend-api/codex"),
             chatgpt_backend: format!("{b}/backend-api"),
             openai_auth: b.to_string(),
+            grok_api: format!("{b}/grok-api"),
+            xai_auth: format!("{b}/xai"),
+            meta_api: format!("{b}/meta"),
+            meta_auth: format!("{b}/meta-auth"),
             releases: format!("{b}/releases"),
         }
     }

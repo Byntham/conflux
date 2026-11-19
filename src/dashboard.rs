@@ -42,7 +42,7 @@ pub fn add_machine(hub: &str) -> Value {
     let command = format!("curl -fsSL {INSTALL_BASE}/install.sh | sh -s -- {hub}");
     let windows_command = format!("irm {INSTALL_BASE}/install.ps1 | iex\nconflux join {hub}");
     let agent_prompt = format!(
-        "Set up conflux on this machine so its Claude Code and Codex use my hub. Run `{command}`, \
+        "Set up conflux on this machine so its coding tools use my hub. Run `{command}`, \
          or on Windows run `{windows_command}` in PowerShell. The machine must be on my tailnet. \
          When it finishes, run `conflux status` and tell me whether it can reach the hub."
     );

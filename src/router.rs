@@ -62,7 +62,10 @@ impl BillingBlock {
 }
 
 fn has_room_since(snap: &Snapshot, since: DateTime<Utc>, now: DateTime<Utc>) -> bool {
-    snap.updated_at.is_some_and(|t| t > since) && snap.is_fresh(now) && !snap.exhausted(now)
+    snap.updated_at.is_some_and(|t| t > since)
+        && snap.is_fresh(now)
+        && snap.shared_windows().next().is_some()
+        && !snap.exhausted(now)
 }
 
 #[derive(Default, Serialize, Deserialize)]
