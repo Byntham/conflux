@@ -1087,6 +1087,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         "xai/grok-4.7-build": {"litellm_provider": "openai", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0},
         "openai/grok-4.7-build": {"litellm_provider": "openai", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0},
         "gpt-6.2-sol": {"litellm_provider": "openai", "input_cost_per_token": 2e-6, "output_cost_per_token": 1e-5},
+        "muse-spark-1.3": {"litellm_provider": "meta", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0},
         "meta/muse-spark-1.3": {"litellm_provider": "meta", "input_cost_per_token": 1.25e-6, "output_cost_per_token": 4.25e-6}
     }));
     std::fs::create_dir_all(h.dir.path().join("data/prices.json")).unwrap();
@@ -1137,6 +1138,17 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
     assert!(
         h.app.prices.refresh(&reqwest::Client::new()).await.is_err(),
         "a much shorter price list does not replace a good one"
+    );
+    let aged_file = h.dir.path().join("aged-prices.json");
+    let mut aged = (*h.app.prices.table()).clone();
+    aged.fetched_at = Some(chrono::Utc::now() - chrono::Duration::days(4));
+    std::fs::write(&aged_file, serde_json::to_vec(&aged).unwrap()).unwrap();
+    let old_prices = conflux::pricing::Prices::new(h.app.ep.prices.clone(), Some(aged_file));
+    old_prices.refresh(&reqwest::Client::new()).await.unwrap();
+    assert_eq!(
+        old_prices.table().models.len(),
+        1,
+        "an aged table accepts a shorter list"
     );
     let now = chrono::Utc::now().timestamp();
     let many = (0..401).map(|i| (since + i).to_string()).collect::<Vec<_>>().join(",");
