@@ -50,6 +50,7 @@ impl From<&RequestRecord> for Row {
 pub struct Ledger {
     dir: PathBuf,
     writing: Mutex<()>,
+    last_error: Mutex<Option<String>>,
 }
 
 fn day_file(dir: &std::path::Path, day: NaiveDate) -> PathBuf {
@@ -61,13 +62,19 @@ impl Ledger {
         Arc::new(Self {
             dir,
             writing: Mutex::new(()),
+            last_error: Mutex::new(None),
         })
     }
 
     pub fn append(&self, row: &Row) {
-        if let Err(e) = self.try_append(row) {
-            tracing::warn!("could not record usage: {e:#}");
+        let failure = self.try_append(row).err().map(|e| format!("{e:#}"));
+        let mut last = self.last_error.lock().unwrap();
+        if let Some(e) = &failure
+            && last.as_ref() != Some(e)
+        {
+            tracing::warn!("could not record usage: {e}");
         }
+        *last = failure;
     }
 
     fn try_append(&self, row: &Row) -> anyhow::Result<()> {

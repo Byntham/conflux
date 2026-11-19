@@ -446,8 +446,6 @@
   .usage-chart .edge { fill: none; stroke: var(--series); stroke-width: 1.75; stroke-linejoin: round; }
   #usage-body.loading { opacity: .55; transition: opacity .15s; }
   .usage-chart .so-far { fill: var(--surface); stroke: var(--fg-2); stroke-width: 1.75; }
-  .usage-chart text.so-far-label { fill: var(--fg-2); }
-  .usage-chart .so-far-link { stroke: var(--line-strong); stroke-width: 1.5; stroke-dasharray: 2 4; stroke-linecap: round; }
   .partial { margin-left: .06em; color: var(--muted); font-weight: 400; }
   .series-claude { --series: var(--claude); } .series-codex { --series: var(--codex); } .series-grok { --series: var(--grok); } .series-muse { --series: var(--muse); }
   .usage-tip { position: absolute; top: 0; z-index: 5; min-width: 180px; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--popover); box-shadow: var(--shadow-pop); font-size: 12.5px; pointer-events: none; font-variant-numeric: tabular-nums; }
@@ -527,6 +525,7 @@
     .usage-controls .select select { width: 100%; }
     .usage-table .rank { display: none; }
     .usage-table td.name { white-space: normal; overflow-wrap: anywhere; }
+    .usage-table th { white-space: normal; }
     .usage-name > span:last-child { overflow: visible; }
     .account-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "email pill" "sub actions"; align-items: center; gap: 4px 8px; }
     .account-title { display: contents; }
@@ -1643,6 +1642,7 @@ function usageStarts(range) {
     };
     const tops = [];
     let t = hourOf(now.getTime());
+    if (now.getTime() - t >= HOUR_MS) t += HOUR_MS;
     while (t > floor) {
       tops.unshift(t);
       const top = hourOf(t - 1);
@@ -1792,14 +1792,10 @@ function usageChart(u, width) {
     parts.push(`<g class="series-${esc(layer.p)}"><path class="layer" d="${edge}L${c(at(top.length - 1), bottom[bottom.length - 1])}${back}Z"/><path class="edge" d="${edge}"/></g>`);
   }
   if (stacked.length) {
-    parts.push(`<line class="so-far-link" x1="${x(done - 1)}" y1="${y(below[done - 1])}" x2="${x(done)}" y2="${y(below[done])}"/>`);
     for (const i of first && below[0] > 0 ? [0, done] : [done]) parts.push(`<circle class="so-far" cx="${x(i)}" cy="${y(below[i])}" r="4"/>`);
-    const room = x(done) - x(done - 1) >= 90;
-    const marked = byCost() && s.unpricedAt[done] ? "+" : "";
-    if (!u.hourly && room && below[done] > 0) parts.push(`<text class="so-far-label" x="${x(done) - 8}" y="${y(below[done]) - 9}" text-anchor="end">${esc(metricText(below[done]))}${marked} so far</text>`);
   }
   const labelEvery = u.hourly ? (narrow ? 8 : 6) : Math.max(1, Math.ceil(n / (narrow ? 3 : 5)));
-  const tick = (i) => (u.hourly ? shortHour(u.starts[i]) : i === n - 1 ? "Today" : shortDay(u.starts[i]));
+  const tick = (i) => (u.hourly ? `${i ? "" : `${shortDay(u.starts[i])}, `}${shortHour(u.starts[i])}` : i === n - 1 ? "Today" : shortDay(u.starts[i]));
   for (let i = 0; i < n; i += labelEvery) parts.push(`<text x="${x(i)}" y="${height - 5}" text-anchor="${i ? "middle" : "start"}">${esc(tick(i))}</text>`);
   if ((n - 1) % labelEvery >= labelEvery / 2) parts.push(`<text x="${x(n - 1)}" y="${height - 5}" text-anchor="end">${esc(tick(n - 1))}</text>`);
   parts.push(`<line class="cross" x1="0" x2="0" y1="${padT}" y2="${padT + plotH}" visibility="hidden"/>`);
@@ -1853,15 +1849,15 @@ function usageNotes(u) {
   const notes = [];
   const fetched = u.prices_fetched_at && new Date(u.prices_fetched_at).getTime();
   if (!fetched) notes.push("Prices haven't loaded yet, so costs show as unpriced.");
-  else if (Date.now() - fetched > 2 * 24 * HOUR_MS) notes.push(`Prices are from ${esc(shortDay(fetched))}. The hub couldn't refresh them since.`);
-  if (u.unpriced_models.length) notes.push(`No public price for ${u.unpriced_models.map(esc).join(", ")}. Costs marked + leave these out.`);
+  else if (new Date(u.now).getTime() - fetched > 2 * 24 * HOUR_MS) notes.push(`Prices are from ${esc(shortDay(fetched))}. The hub couldn't refresh them since.`);
+  if (fetched && u.unpriced_models.length) notes.push(`No public price for ${u.unpriced_models.map(esc).join(", ")}. Costs marked + leave these out.`);
   return notes.length ? `<div class="usage-notes">${notes.map((n) => `<span>${n}</span>`).join("")}</div>` : "";
 }
 
 function usageProvider(g, total, pricedOnly) {
   const v = metricOf(g);
-  const unpriced = byCost() && g.unpriced_tokens ? `, ${amount(g.unpriced_tokens)} unpriced` : "";
-  const other = byCost() ? esc(`${amount(g.tokens)} tokens${unpriced}`) : moneyOf(g);
+  const counted = byCost() && g.unpriced_tokens ? `${amount(g.unpriced_tokens)} of ${amount(g.tokens)} tokens unpriced` : `${amount(g.tokens)} tokens`;
+  const other = byCost() ? esc(counted) : moneyOf(g);
   return `<div class="usage-provider">
     <div class="usage-provider-name"><span class="dot ${esc(g.provider)}"></span><span class="truncate">${esc(providerName(g.provider))}</span><small>${g.sessions.toLocaleString()} ${g.sessions === 1 ? "session" : "sessions"}</small></div>
     <div class="usage-provider-value">${esc(metricText(v))}${partial(g)}</div>
@@ -2503,9 +2499,12 @@ document.addEventListener("keydown", (ev) => {
   anchor.focus();
 });
 
+let tipFor = null;
+
 function showTip(ev) {
   const col = ev.target.closest("[data-tip]");
   const tip = $("tip");
+  tipFor = col;
   if (!col) { tip.hidden = true; return; }
   tip.textContent = col.dataset.tip;
   tip.hidden = false;
@@ -2518,7 +2517,7 @@ function showTip(ev) {
 
 document.addEventListener("mouseover", showTip);
 document.addEventListener("focusin", showTip);
-document.addEventListener("focusout", (ev) => { if (ev.target.closest?.("[data-tip]")) $("tip").hidden = true; });
+document.addEventListener("focusout", (ev) => { if (tipFor && tipFor === ev.target.closest?.("[data-tip]")) $("tip").hidden = true; });
 
 document.addEventListener("click", (ev) => {
   if (ev.target.closest("[data-secrets-toggle]")) {
