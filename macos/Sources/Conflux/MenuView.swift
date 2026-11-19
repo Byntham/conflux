@@ -274,13 +274,15 @@ struct PoolRow: View {
         .opacity(pool.accounts.contains(where: \.enabled) ? 1 : 0.55)
     }
 
-
     @ViewBuilder private var status: some View {
         let states = pool.accounts.map { $0.state(now: now) }.filter { $0 != .disabled }
+        let cooling = states.compactMap(\.coolingUntil)
         if states.isEmpty {
             StatePill(state: .disabled, now: now)
         } else if states.allSatisfy({ $0 == states[0] }) {
             StatePill(state: states[0], now: now)
+        } else if !cooling.isEmpty && cooling.count == states.count {
+            StatePill(state: .cooling(until: cooling.min() ?? now), now: now)
         } else if states.allSatisfy(\.canServe) {
             StatePill(state: states.first { $0 != .ready } ?? .ready, now: now)
         } else {

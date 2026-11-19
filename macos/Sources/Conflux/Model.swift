@@ -35,6 +35,11 @@ enum AccountState: Equatable {
         default: return false
         }
     }
+
+    var coolingUntil: Date? {
+        if case let .cooling(until) = self { return until }
+        return nil
+    }
 }
 
 extension Account {
