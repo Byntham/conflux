@@ -388,9 +388,6 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, upstrea
             }
         }
     }
-    if let Some(unfinished) = turn.record.take() {
-        app.requests.finish(&unfinished);
-    }
 }
 
 fn apply_rejection(app: &App, account: &AccountEntry, rejection: &Rejection) {
@@ -456,9 +453,7 @@ fn inspect_event(app: &App, account: &AccountEntry, route: &RouteRequest, turn: 
                 turn.started.get(),
             );
             app.requests.set_transport(record.id, "ws");
-            if let Some(unfinished) = turn.record.replace(Some(record)) {
-                app.requests.finish(&unfinished);
-            }
+            turn.record.set(Some(record));
             false
         }
         Some("codex.rate_limits") => {

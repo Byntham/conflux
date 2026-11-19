@@ -1026,6 +1026,10 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         .await
         .unwrap();
     assert_eq!(counted.status(), 200);
+    h.reply("at-a", Reply::Json(500, vec![], json!({"type": "error"}).to_string()));
+    let failed = h.claude(json!({"model": "claude-sonnet-5-5"})).send().await.unwrap();
+    assert_eq!(failed.status(), 500);
+    failed.bytes().await.unwrap();
 
     *h.fake.prices.lock().unwrap() = Some(json!({
         "claude-sonnet-5-5": {
@@ -1091,6 +1095,22 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
     );
     let grok_only = usage_page("&provider=grok").await;
     assert!(close(&grok_only["total"]["cost"]["total"], grok_cost), "{grok_only}");
+    let split: serde_json::Value = h
+        .http
+        .get(format!("{}/conflux/api/usage?buckets={},{since}", h.base, since - 3600))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let slots: Vec<_> = split["buckets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["i"].clone())
+        .collect();
+    assert_eq!(slots, [json!(1), json!(1)], "{split}");
 }
 
 #[tokio::test]

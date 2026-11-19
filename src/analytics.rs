@@ -30,7 +30,6 @@ pub struct Row {
     pub account: String,
     pub model: Option<String>,
     pub session: Option<String>,
-    pub status: u16,
     pub usage: TokenUsage,
 }
 
@@ -43,7 +42,6 @@ impl From<&RequestRecord> for Row {
             account: r.account.clone(),
             model: r.model.clone(),
             session: r.session.clone(),
-            status: r.status,
             usage: r.usage,
         }
     }
@@ -147,7 +145,7 @@ impl Group {
         let u = &row.usage;
         let n = tokens(u);
         self.requests += 1;
-        if n == 0 && row.status < 400 {
+        if n == 0 {
             self.no_usage += 1;
         }
         if let Some(s) = session {
@@ -222,7 +220,7 @@ pub fn summarize(rows: &[Row], prices: &Table, filter: &Filter, email: impl Fn(&
     let mut by_model: BTreeMap<(Provider, &str), Group> = BTreeMap::new();
     let mut by_account: BTreeMap<(Provider, &str), Group> = BTreeMap::new();
     let mut by_machine: BTreeMap<&str, Group> = BTreeMap::new();
-    let mut buckets: BTreeMap<(usize, Provider), (u64, f64)> = BTreeMap::new();
+    let mut buckets: BTreeMap<(usize, Provider), (u64, f64, u64)> = BTreeMap::new();
     let mut rates: HashMap<(Provider, &str), Option<&ModelRate>> = HashMap::new();
     let mut unpriced_models = HashSet::new();
     for row in rows {
@@ -262,7 +260,10 @@ pub fn summarize(rows: &[Row], prices: &Table, filter: &Filter, email: impl Fn(&
         if let Some(i) = filter.starts.partition_point(|s| *s <= row.at).checked_sub(1) {
             let bucket = buckets.entry((i, row.provider)).or_default();
             bucket.0 += tokens(&row.usage);
-            bucket.1 += cost.map_or(0.0, Cost::total);
+            match cost {
+                Some(c) => bucket.1 += c.total(),
+                None => bucket.2 += tokens(&row.usage),
+            }
         }
     }
     let mut machines: Vec<&str> = machines.into_iter().collect();
@@ -282,7 +283,9 @@ pub fn summarize(rows: &[Row], prices: &Table, filter: &Filter, email: impl Fn(&
         "by_machine": grouped(by_machine, |m| json!({ "machine": m })),
         "buckets": buckets
             .into_iter()
-            .map(|((i, provider), (tokens, cost))| json!({ "i": i, "provider": provider, "tokens": tokens, "cost": cost }))
+            .map(|((i, provider), (tokens, cost, unpriced))| {
+                json!({ "i": i, "provider": provider, "tokens": tokens, "cost": cost, "unpriced_tokens": unpriced })
+            })
             .collect::<Vec<_>>(),
     })
 }

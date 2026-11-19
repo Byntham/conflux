@@ -491,15 +491,15 @@ mod tests {
             Provider::Codex,
             &mut u,
             &json!({"type": "response.completed", "response": {"usage": {
-                "input_tokens": 100, "input_tokens_details": {"cached_tokens": 80}, "output_tokens": 5
+                "input_tokens": 100, "input_tokens_details": {"cached_tokens": 80, "cache_write_tokens": 15}, "output_tokens": 5
             }}}),
         );
         assert_eq!(
             u,
             TokenUsage {
-                input: 20,
+                input: 5,
                 cache_read: 80,
-                cache_write: 0,
+                cache_write: 15,
                 cache_write_1h: 0,
                 output: 5,
                 speed: Speed::Standard
@@ -510,7 +510,7 @@ mod tests {
             &mut u,
             &json!({"type": "response.cancelled", "response": {"usage": null, "service_tier": "priority"}}),
         );
-        assert_eq!((u.input, u.cache_read, u.output, u.speed), (20, 80, 5, Speed::Fast));
+        assert_eq!((u.input, u.cache_read, u.output, u.speed), (5, 80, 5, Speed::Fast));
     }
 
     #[test]

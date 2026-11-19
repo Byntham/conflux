@@ -115,7 +115,9 @@ impl ModelRate {
             Speed::Ultrafast => tier.ultrafast,
         };
         if let Some(rates) = sped {
-            cost.fast = (category_cost(u, &rates).total() - cost.total()).max(0.0);
+            let sped = category_cost(u, &rates);
+            cost.fast = (sped.total() - cost.total()).max(0.0);
+            cost.savings = sped.savings;
         }
         cost
     }
@@ -221,8 +223,14 @@ fn vendor(provider: Provider) -> &'static str {
 }
 
 fn without_date(name: &str) -> Option<&str> {
+    let digits = |s: &str, n: usize| s.len() == n && s.bytes().all(|b| b.is_ascii_digit());
     let (head, tail) = name.rsplit_once('-')?;
-    (tail.len() == 8 && tail.bytes().all(|b| b.is_ascii_digit())).then_some(head)
+    if digits(tail, 8) {
+        return Some(head);
+    }
+    let (head, month) = head.rsplit_once('-')?;
+    let (head, year) = head.rsplit_once('-')?;
+    (digits(tail, 2) && digits(month, 2) && digits(year, 4)).then_some(head)
 }
 
 pub fn candidates(provider: Provider, model: &str) -> Vec<String> {

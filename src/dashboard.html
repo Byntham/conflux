@@ -458,8 +458,8 @@
   .usage-type-key b { font-weight: 500; color: var(--fg); }
   .usage-type-key i, .usage-type-bar i { display: inline-block; }
   .usage-type-key i { width: 9px; height: 9px; border-radius: 2px; }
-  .type-input { background: color-mix(in srgb, var(--fg) 45%, var(--bg)); }
-  .type-cache_read { background: color-mix(in srgb, var(--fg) 25%, var(--bg)); }
+  .type-cache_read { background: color-mix(in srgb, var(--fg) 32%, var(--bg)); }
+  .type-input { background: color-mix(in srgb, var(--fg) 50%, var(--bg)); }
   .type-cache_write { background: color-mix(in srgb, var(--fg) 70%, var(--bg)); }
   .type-output { background: var(--fg); }
   .type-fast { background: var(--warn-fill); }
@@ -519,6 +519,9 @@
     .usage-controls .seg button { flex: 1 1 auto; padding: 0 6px; }
     .usage-controls .select { flex: 1 1 140px; }
     .usage-controls .select select { width: 100%; }
+    .usage-table .rank { display: none; }
+    .usage-table td.name { white-space: normal; overflow-wrap: anywhere; }
+    .usage-name > span:last-child { overflow: visible; }
     .account-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "email pill" "sub actions"; align-items: center; gap: 4px 8px; }
     .account-title { display: contents; }
     .email { grid-area: email; display: block; }
@@ -1617,15 +1620,17 @@ function share(part, whole) {
 const byCost = () => usageMetric === "cost";
 const metricOf = (g) => (byCost() ? (g.cost ? g.cost.total : null) : g.tokens);
 const metricText = (v) => (byCost() ? (v === null ? "Unpriced" : money(v)) : amount(v));
-const partial = (g) => byCost() && g.cost && g.unpriced_tokens > 0
-  ? `<span class="partial" data-tip="Leaves out ${esc(amount(g.unpriced_tokens))} tokens with no public price">+</span>`
+const plus = (unpriced) => unpriced > 0
+  ? `<span class="partial" data-tip="Leaves out ${esc(amount(unpriced))} tokens with no public price">+</span>`
   : "";
+const partial = (g) => (byCost() && g.cost ? plus(g.unpriced_tokens) : "");
+const moneyOf = (g) => (g.cost ? `${esc(money(g.cost.total))}${plus(g.unpriced_tokens)}` : "Unpriced");
 
 function usageStarts(range) {
   const now = new Date();
   if (range === "24h") {
-    now.setMinutes(0, 0, 0);
-    return Array.from({ length: 24 }, (_, i) => now.getTime() - (23 - i) * HOUR_MS);
+    const top = now.getTime() - (now.getMinutes() * 60000 + now.getSeconds() * 1000 + now.getMilliseconds());
+    return Array.from({ length: 24 }, (_, i) => top - (23 - i) * HOUR_MS);
   }
   now.setHours(0, 0, 0, 0);
   return Array.from({ length: USAGE_DAYS[range] }, (_, i) => {
@@ -1644,12 +1649,15 @@ async function loadUsage() {
   try {
     const u = await api("GET", `/conflux/api/usage?${query}`);
     if (token !== usageToken) return;
-    usage = { ...u, starts, hourly: range === "24h" };
+    usage = { ...u, starts, range, hourly: range === "24h" };
     renderUsage();
   } catch (e) {
     if (token !== usageToken) return;
-    if (usage) showError(e);
-    else setHtml("usage-body", `<div class="card empty"><strong>Couldn't load usage</strong>${esc(e.message)}</div>`);
+    if (usage) {
+      showError(e);
+      usageRange = usage.range;
+      document.querySelectorAll("[data-usage-range]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.usageRange === usageRange)));
+    } else setHtml("usage-body", `<div class="card empty"><strong>Couldn't load usage</strong>${esc(e.message)}</div>`);
   }
 }
 
@@ -1666,8 +1674,14 @@ function usageSeries(u) {
   for (const b of u.buckets) totals[b.provider] = (totals[b.provider] || 0) + (byCost() ? b.cost : b.tokens);
   const providers = Object.keys(totals).filter((p) => totals[p] > 0).sort((a, b) => totals[b] - totals[a]);
   const series = Object.fromEntries(providers.map((p) => [p, u.starts.map(() => 0)]));
-  for (const b of u.buckets) if (series[b.provider]) series[b.provider][b.i] += byCost() ? b.cost : b.tokens;
-  return { providers, series };
+  const tokensAt = u.starts.map(() => 0);
+  const unpricedAt = u.starts.map(() => 0);
+  for (const b of u.buckets) {
+    if (series[b.provider]) series[b.provider][b.i] += byCost() ? b.cost : b.tokens;
+    tokensAt[b.i] += b.tokens;
+    unpricedAt[b.i] += b.unpriced_tokens;
+  }
+  return { providers, series, tokensAt, unpricedAt };
 }
 
 function bucketLabel(u, i) {
@@ -1742,7 +1756,8 @@ function usageChart(u, width) {
     const top = layer.top.map((v, i) => [x(i), y(v)]);
     const bottom = layer.below.map((v, i) => [x(i), y(v)]).reverse();
     const upper = curveSegments(top);
-    const area = `${moveTo(top[0])}${upper.join("")}${lineTo(bottom[0])}${curveSegments(bottom).join("")}Z`;
+    const lower = curveSegments(bottom).slice(1);
+    const area = `${moveTo(top[0])}${upper.slice(0, -1).join("")}${lineTo(bottom[1])}${lower.join("")}Z`;
     const solid = `${moveTo(top[0])}${upper.slice(0, -1).join("")}`;
     const today = `${moveTo(top[n - 2])}${upper[n - 2]}`;
     parts.push(`<g class="series-${esc(layer.p)}"><path class="layer" d="${area}"/><path class="edge" d="${solid}"/><path class="edge so-far" d="${today}"/></g>`);
@@ -1781,7 +1796,7 @@ function showUsageTip(ev) {
   const tip = chart.querySelector(".usage-tip");
   const rows = s.providers.map((p) => `<div><span class="dot ${esc(p)}"></span><span>${esc(providerName(p))}</span><span>${esc(metricText(s.series[p][i]))}</span></div>`);
   const total = s.providers.reduce((sum, p) => sum + s.series[p][i], 0);
-  tip.innerHTML = `<b>${esc(bucketLabel(usage, i))}</b>${rows.join("")}<div class="sum"><span>Total</span><span>${esc(metricText(total))}</span></div>`;
+  tip.innerHTML = `<b>${esc(bucketLabel(usage, i))}</b>${rows.join("")}<div class="sum"><span>Total</span><span>${esc(metricText(total))}${byCost() ? plus(s.unpricedAt[i]) : ""}</span></div>`;
   tip.hidden = false;
   const cx = x(i) * scale + (box.left - chart.getBoundingClientRect().left);
   const tw = tip.offsetWidth;
@@ -1792,8 +1807,10 @@ function showUsageTip(ev) {
 
 function usageNotes(u) {
   const notes = [];
-  if (byCost() && !u.prices_fetched_at) notes.push("Prices haven't loaded yet, so costs show as unpriced.");
-  if (byCost() && u.unpriced_models.length) notes.push(`No public price for ${u.unpriced_models.map(esc).join(", ")}. Costs marked + leave these out.`);
+  const fetched = u.prices_fetched_at && new Date(u.prices_fetched_at).getTime();
+  if (!fetched) notes.push("Prices haven't loaded yet, so costs show as unpriced.");
+  else if (Date.now() - fetched > 2 * 24 * HOUR_MS) notes.push(`Prices are from ${esc(shortDay(fetched))}. The hub couldn't refresh them since.`);
+  if (u.unpriced_models.length) notes.push(`No public price for ${u.unpriced_models.map(esc).join(", ")}. Costs marked + leave these out.`);
   if (u.total.no_usage) notes.push(`${u.total.no_usage.toLocaleString()} ${u.total.no_usage === 1 ? "request" : "requests"} reported no token counts.`);
   return notes.length ? `<div class="usage-notes">${notes.map((n) => `<span>${n}</span>`).join("")}</div>` : "";
 }
@@ -1801,11 +1818,11 @@ function usageNotes(u) {
 function usageProvider(g, total) {
   const v = metricOf(g);
   const unpriced = byCost() && g.unpriced_tokens ? `, ${amount(g.unpriced_tokens)} unpriced` : "";
-  const other = byCost() ? `${amount(g.tokens)} tokens${unpriced}` : g.cost ? money(g.cost.total) : "Unpriced";
+  const other = byCost() ? esc(`${amount(g.tokens)} tokens${unpriced}`) : moneyOf(g);
   return `<div class="usage-provider">
     <div class="usage-provider-name"><span class="dot ${esc(g.provider)}"></span><span class="truncate">${esc(providerName(g.provider))}</span><small>${g.sessions.toLocaleString()} ${g.sessions === 1 ? "session" : "sessions"}</small></div>
     <div class="usage-provider-value">${esc(metricText(v))}${partial(g)}</div>
-    <div class="usage-provider-sub">${share(v, total)} of ${byCost() ? "cost" : "tokens"} · ${esc(other)}</div>
+    <div class="usage-provider-sub">${share(v, total)} of ${byCost() ? "cost" : "tokens"} · ${other}</div>
   </div>`;
 }
 
@@ -1827,7 +1844,9 @@ function usageRows(u) {
     return u.starts.map((_, i) => ({
       label: esc(bucketLabel(u, i)),
       value: s.providers.reduce((sum, p) => sum + s.series[p][i], 0),
-    })).reverse().filter((r) => r.value > 0);
+      unpriced: s.unpricedAt[i],
+      used: s.tokensAt[i],
+    })).reverse().filter((r) => r.used > 0);
   }
   const groups = { model: u.by_model, account: u.by_account, machine: u.by_machine }[usageBreakdown];
   return groups.map((g) => {
@@ -1843,13 +1862,14 @@ function usageTable(u) {
   const whole = rows.reduce((s, r) => s + (r.value || 0), 0);
   const top = Math.max(0, ...rows.map((r) => r.value || 0));
   const heading = { model: "Model", account: "Account", machine: "Machine", time: u.hourly ? "Hour" : "Day" }[usageBreakdown];
-  const head = `<thead><tr>${time ? "" : "<th>#</th>"}<th>${heading}</th>${time ? "" : `<th class="num">${byCost() ? "Tokens" : "Cost"}</th>`}<th class="num">Share</th><th class="num">${byCost() ? "Cost" : "Tokens"}</th></tr></thead>`;
+  const head = `<thead><tr>${time ? "" : '<th class="rank">#</th>'}<th>${heading}</th>${time ? "" : `<th class="num">${byCost() ? "Tokens" : "Cost"}</th>`}<th class="num">Share</th><th class="num">${byCost() ? "Cost" : "Tokens"}</th></tr></thead>`;
   const body = rows.length ? rows.map((r, i) => {
     const g = r.group;
-    const other = !g ? "" : byCost() ? amount(g.tokens) : g.cost ? money(g.cost.total) : "Unpriced";
-    const value = r.value === null ? `<span class="unpriced">Unpriced</span>` : `${esc(metricText(r.value))}${g ? partial(g) : ""}`;
-    const bar = `<div class="usage-share ${r.series || ""}" style="width: ${top ? Math.max(1, ((r.value || 0) / top) * 100) : 0}%"></div>`;
-    return `<tr>${time ? "" : `<td class="rank">${i + 1}</td>`}<td class="name"><div class="usage-name">${r.label}</div>${bar}</td>${time ? "" : `<td class="num dim">${esc(other)}</td>`}<td class="num dim">${share(r.value, whole)}</td><td class="num">${value}</td></tr>`;
+    const other = !g ? "" : byCost() ? esc(amount(g.tokens)) : moneyOf(g);
+    const marked = g ? partial(g) : byCost() ? plus(r.unpriced) : "";
+    const value = r.value === null ? `<span class="unpriced">Unpriced</span>` : `${esc(metricText(r.value))}${marked}`;
+    const bar = `<div class="usage-share ${r.series || ""}" style="width: ${top && r.value ? Math.max(1, (r.value / top) * 100) : 0}%"></div>`;
+    return `<tr>${time ? "" : `<td class="rank">${i + 1}</td>`}<td class="name"><div class="usage-name">${r.label}</div>${bar}</td>${time ? "" : `<td class="num dim">${other}</td>`}<td class="num dim">${share(r.value, whole)}</td><td class="num">${value}</td></tr>`;
   }).join("") : `<tr><td colspan="5"><div class="empty">Nothing in this range.</div></td></tr>`;
   return `<table class="usage-table">${head}<tbody>${body}</tbody></table>`;
 }
@@ -1860,7 +1880,7 @@ function renderUsage() {
   fillSelect("usage-machine", "All machines", u.machines, (m, i) => (showAll ? m : `Machine ${i + 1}`));
   fillSelect("usage-provider", "All providers", u.providers, providerName);
   const t = u.total;
-  $("usage-sub").textContent = t.requests ? `${t.requests.toLocaleString()} ${t.requests === 1 ? "request" : "requests"} served` : "";
+  $("usage-sub").textContent = t.requests ? `${t.requests.toLocaleString()} ${t.requests === 1 ? "request" : "requests"}` : "";
   if (!t.requests) {
     usageGeom = null;
     return setHtml("usage-body", `<div class="card empty"><strong>No requests in this range</strong>conflux records each request the hub serves, and keeps 90 days.</div>`);
