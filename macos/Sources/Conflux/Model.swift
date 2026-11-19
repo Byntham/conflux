@@ -216,13 +216,17 @@ final class Model: ObservableObject {
             }
         case let .answered(status, body):
             dashboard = nil
-            if let node, !node.hubLink.connected || status == 503 {
+            if let node, !node.hubLink.connected {
                 phase = .hubUnreachable
             } else {
                 let error = (try? JSONSerialization.jsonObject(with: body) as? [String: Any])?["error"] as? String
-                phase = .problem(error ?? "conflux answered HTTP \(status).")
+                phase = .problem(withoutHubAddress(error ?? "conflux answered HTTP \(status)."))
             }
         }
+    }
+
+    private func withoutHubAddress(_ text: String) -> String {
+        node.map { text.replacingOccurrences(of: " (\($0.hub))", with: "") } ?? text
     }
 
     private func fetch(_ url: URL) async -> Fetched {
@@ -389,7 +393,7 @@ final class Model: ObservableObject {
             do {
                 try await work()
             } catch {
-                failure = error.localizedDescription
+                failure = withoutHubAddress(error.localizedDescription)
             }
             busy = nil
             await refresh()

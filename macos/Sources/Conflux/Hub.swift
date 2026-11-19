@@ -38,8 +38,6 @@ struct FoundHub: Decodable, Identifiable {
 struct Account: Decodable, Identifiable {
     let id: String
     let provider: String
-    let email: String?
-    let plan: String?
     let enabled: Bool
     let allowOverage: Bool
     let needsLogin: String?

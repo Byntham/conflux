@@ -265,7 +265,7 @@ struct PoolRow: View {
                 Button("Log in again in the dashboard", action: openDashboard)
                     .buttonStyle(LinkButton())
                     .font(.system(size: 13))
-            } else if awaitingData {
+            } else if windows.isEmpty && pool.accounts.contains(where: { $0.enabled && $0.billingBlocked == nil }) {
                 Text("No usage data yet")
                     .font(.system(size: 11))
                     .foregroundStyle(Palette.muted)
@@ -274,10 +274,6 @@ struct PoolRow: View {
         .opacity(pool.accounts.contains(where: \.enabled) ? 1 : 0.55)
     }
 
-    private var awaitingData: Bool {
-        let enabled = pool.accounts.filter(\.enabled)
-        return !enabled.isEmpty && enabled.allSatisfy { $0.sharedWindows.isEmpty }
-    }
 
     @ViewBuilder private var status: some View {
         let states = pool.accounts.map { $0.state(now: now) }.filter { $0 != .disabled }
