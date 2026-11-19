@@ -1026,7 +1026,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         ),
     );
     grok(&h, "s1")
-        .json(&json!({"model": "grok-4.7-build", "stream": true}))
+        .json(&json!({"model": "grok-4.7-build-20270115", "stream": true}))
         .send()
         .await
         .unwrap()
@@ -1081,6 +1081,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
             "input_cost_per_token_above_100k_tokens": 4e-6, "output_cost_per_token_above_100k_tokens": 1.2e-5,
             "input_cost_per_token_priority": 6e-6, "output_cost_per_token_priority": 1.8e-5
         },
+        "grok-4.7": {"litellm_provider": "xai", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0},
         "openrouter/xai/grok-4.7": {"litellm_provider": "openrouter", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0},
         "claude-sonnet-5-5-20261101": {"litellm_provider": "bedrock", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0},
         "xai/grok-4.7-build": {"litellm_provider": "openai", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0},
@@ -1155,11 +1156,18 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         .iter()
         .map(|m| m["model"].clone())
         .collect();
-    assert_eq!(models, [json!("grok-4.7-build"), json!("claude-sonnet-5-5-20261101")]);
+    assert_eq!(
+        models,
+        [json!("grok-4.7-build-20270115"), json!("claude-sonnet-5-5-20261101")]
+    );
     let node = usage_page("&machine=node-one").await;
     assert_eq!(
         (node["total"]["requests"].clone(), node["total"]["output"].clone()),
         (json!(1), json!(44))
+    );
+    assert_eq!(
+        node["machines"], all["machines"],
+        "a machine filter still lists every machine"
     );
     let grok_only = usage_page("&provider=grok").await;
     assert!(close(&grok_only["total"]["cost"]["total"], grok_cost), "{grok_only}");

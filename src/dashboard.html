@@ -460,8 +460,8 @@
   .usage-type-key b { font-weight: 500; color: var(--fg); }
   .usage-type-key i, .usage-type-bar i { display: inline-block; }
   .usage-type-key i { width: 9px; height: 9px; border-radius: 2px; }
-  .type-input { background: color-mix(in srgb, var(--fg) 36%, var(--bg)); }
-  .type-cache_read { background: color-mix(in srgb, var(--fg) 54%, var(--bg)); }
+  .type-input { background: color-mix(in srgb, var(--fg) 28%, var(--bg)); }
+  .type-cache_read { background: color-mix(in srgb, var(--fg) 52%, var(--bg)); }
   .type-cache_write { background: color-mix(in srgb, var(--fg) 72%, var(--bg)); }
   .usage-type-head { justify-content: flex-start; }
   .type-output { background: var(--fg); }
@@ -1656,10 +1656,11 @@ function usageStarts(range) {
   return starts.filter((ms, i) => !i || ms > starts[i - 1]);
 }
 
-async function loadUsage() {
+async function loadUsage(background = false) {
   const token = ++usageToken;
   usageLoadedAt = Date.now();
-  $("usage-body").classList.add("loading");
+  if (!background) $("usage-body").classList.add("loading");
+  if (!usage) setHtml("usage-body", `<div class="card empty">Loading usage…</div>`);
   const range = usageRange;
   const starts = usageStarts(range);
   const query = qs({ buckets: starts.map((ms) => Math.floor(ms / 1000)).join(","), machine: $("usage-machine").value, provider: $("usage-provider").value });
@@ -1673,7 +1674,7 @@ async function loadUsage() {
     if (token !== usageToken) return;
     $("usage-body").classList.remove("loading");
     if (usage) {
-      showError(e);
+      if (!background) showError(e);
       usageRange = usage.range;
       document.querySelectorAll("[data-usage-range]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.usageRange === usageRange)));
       $("usage-machine").value = usage.machine;
@@ -1857,7 +1858,7 @@ function usageNotes(u) {
   const notes = [];
   const fetched = u.prices_fetched_at && new Date(u.prices_fetched_at).getTime();
   if (!fetched && (!byCost() || u.total.cost)) notes.push("Prices haven't loaded yet, so costs show as unpriced.");
-  else if (new Date(u.now).getTime() - fetched > 2 * 24 * HOUR_MS) notes.push(`Prices are from ${esc(shortDay(fetched))}. The hub couldn't refresh them since.`);
+  else if (fetched && new Date(u.now).getTime() - fetched > 2 * 24 * HOUR_MS) notes.push(`Prices are from ${esc(shortDay(fetched))}. The hub couldn't refresh them since.`);
   if (fetched && u.unpriced_models.length) notes.push(`No public price for ${u.unpriced_models.map(esc).join(", ")}. Costs marked + leave these out.`);
   return notes.length ? `<div class="usage-notes">${notes.map((n) => `<span>${n}</span>`).join("")}</div>` : "";
 }
@@ -1938,7 +1939,8 @@ function renderUsage() {
   $("usage-sub").textContent = t.requests ? `${t.requests.toLocaleString()} ${t.requests === 1 ? "request" : "requests"}` : "";
   if (!t.requests) {
     usageGeom = null;
-    return setHtml("usage-body", `<div class="card empty"><strong>No requests in this range</strong>conflux records each request the hub serves, and keeps at least 90 days.</div>`);
+    const filtered = u.machine || u.provider;
+    return setHtml("usage-body", `<div class="card empty"><strong>No requests ${filtered ? "match these filters" : "in this range"}</strong>${filtered ? "Other machines or providers may have usage in this range." : "conflux records each request the hub serves, and keeps at least 90 days."}</div>`);
   }
   const total = metricOf(t);
   const providers = [...u.by_provider].sort((a, b) => (metricOf(b) ?? -1) - (metricOf(a) ?? -1));
@@ -2030,7 +2032,7 @@ async function refresh() {
   movingTo = d.hub.state && d.hub.state.state === "moving" ? d.hub.state.hub : null;
   render(d);
   setConnection(true);
-  if (!$("view-usage").hidden && Date.now() - usageLoadedAt > USAGE_REFRESH_MS) loadUsage();
+  if (!$("view-usage").hidden && Date.now() - usageLoadedAt > USAGE_REFRESH_MS) loadUsage(true);
 }
 
 function toast(message, bad = false, busy = false) {
@@ -2477,7 +2479,14 @@ $("thread-search").addEventListener("search", searchThreads);
 $("modal").addEventListener("close", () => clearInterval(loginTimer));
 $("modal").addEventListener("click", (ev) => { if (ev.target === $("modal")) closeModal(); });
 window.addEventListener("hashchange", showView);
-window.addEventListener("resize", () => { closeMenu(); if (latest) { renderChart(latest); renderPools(latest); renderUsage(); } });
+let usageWidth = window.innerWidth;
+window.addEventListener("resize", () => {
+  closeMenu();
+  if (!latest) return;
+  renderChart(latest);
+  renderPools(latest);
+  if (window.innerWidth !== usageWidth) { usageWidth = window.innerWidth; renderUsage(); }
+});
 $("usage-body").addEventListener("pointermove", showUsageTip);
 $("usage-body").addEventListener("pointerdown", showUsageTip);
 document.addEventListener("pointerdown", (ev) => { if (!ev.target.closest(".usage-chart")) hideUsageTip(); });

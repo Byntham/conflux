@@ -12,6 +12,7 @@ use crate::fsutil;
 use crate::requests::{Speed, TokenUsage};
 
 const REFRESH_EVERY: chrono::Duration = chrono::Duration::hours(24);
+const TRUST_SHORTER_AFTER: chrono::Duration = chrono::Duration::days(3);
 const RETRY_EVERY: Duration = Duration::from_secs(15 * 60);
 const MAX_DOCUMENT: usize = 64 * 1024 * 1024;
 const VENDORS: &[&str] = &["anthropic", "openai", "xai", "meta"];
@@ -302,9 +303,11 @@ impl Prices {
             anyhow::ensure!(bytes.len() <= MAX_DOCUMENT, "the price list is larger than expected");
         }
         let models = parse_litellm(&serde_json::from_slice(&bytes)?);
-        let known = self.table().models.len();
+        let current = self.table();
+        let known = current.models.len();
+        let aged = current.fetched_at.is_none_or(|t| Utc::now() - t > TRUST_SHORTER_AFTER);
         anyhow::ensure!(
-            !models.is_empty() && models.len() * 2 >= known,
+            !models.is_empty() && (aged || models.len() * 2 >= known),
             "the price list has {} models, against {known} before",
             models.len()
         );
