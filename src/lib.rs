@@ -1,5 +1,6 @@
 pub mod access;
 pub mod accounts;
+pub mod analytics;
 pub mod api;
 pub mod app;
 pub mod cli;
@@ -15,6 +16,7 @@ pub mod machines;
 pub mod management;
 pub mod node;
 pub mod oauth;
+pub mod pricing;
 pub mod proxy;
 pub mod refresh;
 pub mod requests;

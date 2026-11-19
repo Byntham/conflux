@@ -64,6 +64,12 @@ impl Paths {
     pub fn usage_history_file(&self) -> PathBuf {
         self.data_dir.join("usage-history.json")
     }
+    pub fn analytics_dir(&self) -> PathBuf {
+        self.data_dir.join("analytics")
+    }
+    pub fn prices_file(&self) -> PathBuf {
+        self.data_dir.join("prices.json")
+    }
     pub fn lock_file(&self) -> PathBuf {
         self.data_dir.join("hub.lock")
     }
@@ -162,6 +168,7 @@ pub struct Endpoints {
     pub meta_api: String,
     pub meta_auth: String,
     pub releases: String,
+    pub prices: String,
 }
 
 impl Default for Endpoints {
@@ -178,6 +185,8 @@ impl Default for Endpoints {
             meta_api: "https://api.meta.ai".into(),
             meta_auth: "https://auth.meta.com".into(),
             releases: "https://github.com/Byntham/conflux/releases".into(),
+            prices: "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
+                .into(),
         }
     }
 }
@@ -201,6 +210,7 @@ impl Endpoints {
         set(&mut e.meta_api, "CONFLUX_META_API");
         set(&mut e.meta_auth, "CONFLUX_META_AUTH");
         set(&mut e.releases, "CONFLUX_RELEASES");
+        set(&mut e.prices, "CONFLUX_PRICES");
         e
     }
 
@@ -218,6 +228,7 @@ impl Endpoints {
             meta_api: format!("{b}/meta"),
             meta_auth: format!("{b}/meta-auth"),
             releases: format!("{b}/releases"),
+            prices: format!("{b}/prices.json"),
         }
     }
 }

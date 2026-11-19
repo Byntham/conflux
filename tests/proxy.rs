@@ -939,6 +939,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
     let r = h
         .claude(json!({"model": "claude-sonnet-5-5"}))
         .header("x-conflux-node", "node-one")
+        .header("x-claude-code-session-id", "c1")
         .send()
         .await
         .unwrap();
@@ -983,7 +984,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
 
     h.add(Provider::Grok, "g").await;
     let incomplete = json!({"type": "response.incomplete", "response": {"service_tier": "ultrafast", "usage": {
-        "input_tokens": 120, "input_tokens_details": {"cached_tokens": 100}, "output_tokens": 9
+        "input_tokens": 120_000, "input_tokens_details": {"cached_tokens": 100_000}, "output_tokens": 9
     }}});
     h.reply(
         "at-g",
@@ -1001,8 +1002,68 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
-    assert_eq!((usage.input, usage.cache_read, usage.output), (20, 100, 9));
+    assert_eq!((usage.input, usage.cache_read, usage.output), (20_000, 100_000, 9));
     assert_eq!(usage.speed, conflux::requests::Speed::Ultrafast);
+
+    *h.fake.prices.lock().unwrap() = Some(json!({
+        "claude-sonnet-5-5": {
+            "input_cost_per_token": 2e-6, "output_cost_per_token": 1e-5,
+            "cache_read_input_token_cost": 1e-7, "cache_creation_input_token_cost": 2.5e-6,
+            "cache_creation_input_token_cost_above_1hr": 4e-6, "provider_specific_entry": {"fast": 2}
+        },
+        "xai/grok-4.7": {
+            "input_cost_per_token": 2e-6, "output_cost_per_token": 6e-6, "cache_read_input_token_cost": 5e-7,
+            "input_cost_per_token_above_100k_tokens": 4e-6, "output_cost_per_token_above_100k_tokens": 1.2e-5
+        },
+        "openrouter/xai/grok-4.7": {"input_cost_per_token": 1.0, "output_cost_per_token": 1.0}
+    }));
+    h.app.prices.refresh(&reqwest::Client::new()).await.unwrap();
+    let usage_page = |query: &str| {
+        let url = format!("{}/conflux/api/usage?range=24h{query}", h.base);
+        let http = h.http.clone();
+        async move {
+            http.get(url)
+                .send()
+                .await
+                .unwrap()
+                .json::<serde_json::Value>()
+                .await
+                .unwrap()
+        }
+    };
+    let mut all = serde_json::Value::Null;
+    for _ in 0..40 {
+        all = usage_page("").await;
+        if all["total"]["requests"] == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    let close = |v: &serde_json::Value, want: f64| (v.as_f64().unwrap() - want).abs() < 1e-12;
+    let claude_list = 3.0 * 2e-6 + 900.0 * 1e-7 + 5.0 * 2.5e-6 + 15.0 * 4e-6 + 44.0 * 1e-5;
+    let grok_cost = 20_000.0 * 4e-6 + 100_000.0 * 4e-6 * 0.25 + 9.0 * 1.2e-5;
+    assert_eq!(all["total"]["requests"], 2, "{all}");
+    assert_eq!(all["total"]["sessions"], 2, "{all}");
+    assert!(close(&all["total"]["cost"]["fast"], claude_list), "{all}");
+    assert!(
+        close(&all["total"]["cost"]["total"], 2.0 * claude_list + grok_cost),
+        "{all}"
+    );
+    assert_eq!(all["machines"], json!(["hub-under-test", "node-one"]));
+    let models: Vec<_> = all["by_model"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["model"].clone())
+        .collect();
+    assert_eq!(models, [json!("grok-4.7"), json!("claude-sonnet-5-5")]);
+    let node = usage_page("&machine=node-one").await;
+    assert_eq!(
+        (node["total"]["requests"].clone(), node["total"]["output"].clone()),
+        (json!(1), json!(44))
+    );
+    let grok_only = usage_page("&provider=grok").await;
+    assert!(close(&grok_only["total"]["cost"]["total"], grok_cost), "{grok_only}");
 }
 
 #[tokio::test]

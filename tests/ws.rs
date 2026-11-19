@@ -250,6 +250,17 @@ async fn the_row_is_logged_when_the_upstream_starts_answering() {
     let usage = h.app.requests.recent()[0].usage;
     assert_eq!((usage.input, usage.cache_read, usage.output), (10, 40, 3));
     assert_eq!(usage.speed, Speed::Fast);
+    let now = chrono::Utc::now();
+    let kept: Vec<_> = h
+        .app
+        .requests
+        .ledger()
+        .unwrap()
+        .read(now - chrono::Duration::hours(1), now)
+        .into_iter()
+        .map(|r| (r.usage.output, r.usage.speed))
+        .collect();
+    assert_eq!(kept, [(7, Speed::Standard), (3, Speed::Fast)]);
 }
 
 #[tokio::test]

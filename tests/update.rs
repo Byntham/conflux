@@ -296,6 +296,17 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
         },
     )
     .await;
+    let codex_usage: Value = reqwest::get(format!("{base}/conflux/api/usage?range=24h&provider=codex"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        (&codex_usage["total"]["requests"], &codex_usage["total"]["output"]),
+        (&json!(1), &json!(77)),
+        "a request that spans the update is counted once: {codex_usage}"
+    );
     let d: Value = reqwest::get(&dashboard).await.unwrap().json().await.unwrap();
     assert_eq!(
         d["usage_history"][preferred_id][0]["used"]["seven_day"], 40.0,

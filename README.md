@@ -29,7 +29,7 @@ One always-on machine, the **hub**, holds your Claude, ChatGPT, Grok, and Muse l
 - **Less wasted quota.** New sessions start on the available account whose weekly limit resets soonest.
 - **Automatic failover.** When an account runs out, conflux moves new requests to one that still has room.
 - **Stable sessions.** An active session stays on one account while it has room, so its prompt cache keeps working.
-- **One dashboard.** See each pool's quota, your machines, and recent requests from any device on your tailnet.
+- **One dashboard.** See each pool's quota, your machines, recent requests, and 90 days of token use and its API-price cost, from any device on your tailnet.
 - **Optional thread sync.** `conflux sync on` copies a machine's transcripts to the hub, where you can search them. It's off by default.
 
 > [!WARNING]

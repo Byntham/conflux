@@ -527,7 +527,7 @@ pub fn log_attempt(
     machine: &str,
     status: u16,
     started: Instant,
-) -> u64 {
+) -> RequestRecord {
     app.requests.add(RequestRecord {
         id: 0,
         at: Utc::now(),

@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
 use crate::accounts::Provider;
+use crate::analytics::{Ledger, Row};
 
 pub const LOG_CAPACITY: usize = 500;
 const MAX_LINE: usize = 16 * 1024 * 1024;
@@ -104,11 +105,24 @@ impl LogState {
 #[derive(Default)]
 pub struct RequestLog {
     state: Mutex<LogState>,
+    ledger: Option<Arc<Ledger>>,
 }
 
 impl RequestLog {
-    pub fn add(&self, r: RequestRecord) -> u64 {
-        self.state.lock().unwrap().push(r)
+    pub fn with_ledger(ledger: Arc<Ledger>) -> Self {
+        Self {
+            state: Mutex::default(),
+            ledger: Some(ledger),
+        }
+    }
+
+    pub fn ledger(&self) -> Option<Arc<Ledger>> {
+        self.ledger.clone()
+    }
+
+    pub fn add(&self, mut r: RequestRecord) -> RequestRecord {
+        r.id = self.state.lock().unwrap().push(r.clone());
+        r
     }
 
     pub fn set_usage(&self, id: u64, usage: TokenUsage) {
@@ -120,6 +134,13 @@ impl RequestLog {
             .lock()
             .unwrap()
             .change(id, |r| r.transport = transport.into());
+    }
+
+    pub fn finish(&self, record: &RequestRecord) {
+        self.set_usage(record.id, record.usage);
+        if let Some(ledger) = &self.ledger {
+            ledger.append(&Row::from(record));
+        }
     }
 
     pub fn export(&self, successor: mpsc::UnboundedSender<Value>) -> Value {
@@ -344,13 +365,13 @@ pub struct ResponseTap {
     scanner: BodyScanner,
     provider: Provider,
     usage: TokenUsage,
-    record: Option<u64>,
+    record: Option<RequestRecord>,
     log: Arc<RequestLog>,
     quota: Option<(Arc<crate::usage::Usage>, String)>,
 }
 
 impl ResponseTap {
-    pub fn new(scanner: BodyScanner, provider: Provider, record: Option<u64>, log: Arc<RequestLog>) -> Self {
+    pub fn new(scanner: BodyScanner, provider: Provider, record: Option<RequestRecord>, log: Arc<RequestLog>) -> Self {
         Self {
             scanner,
             provider,
@@ -389,8 +410,9 @@ impl Drop for ResponseTap {
         for v in events {
             self.take(v);
         }
-        if let Some(record) = self.record {
-            self.log.set_usage(record, self.usage);
+        if let Some(mut record) = self.record.take() {
+            record.usage = self.usage;
+            self.log.finish(&record);
         }
     }
 }
@@ -514,7 +536,7 @@ mod tests {
             latency_ms: 1,
             usage: TokenUsage::default(),
         };
-        let first = log.add(rec("first"));
+        let first = log.add(rec("first")).id;
         log.set_usage(
             first,
             TokenUsage {

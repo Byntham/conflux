@@ -46,6 +46,7 @@ pub struct Fake {
     pub body_lengths: Mutex<Vec<usize>>,
     pub stream_dropped: Arc<AtomicBool>,
     pub release: Mutex<Option<(String, std::path::PathBuf)>>,
+    pub prices: Mutex<Option<Value>>,
 }
 
 struct DropFlag(Arc<AtomicBool>);
@@ -187,6 +188,13 @@ async fn fake_handler(State(fake): State<Arc<Fake>>, req: Request) -> Response {
     fake.http_headers.lock().unwrap().push(req.headers().clone());
     if req.headers().get("upgrade").is_some() {
         return fake_ws(fake, req).await.into_response();
+    }
+    if path == "/prices.json" {
+        let prices = fake.prices.lock().unwrap().clone();
+        return match prices {
+            Some(doc) => Response::new(Body::from(doc.to_string())),
+            None => Response::builder().status(404).body(Body::empty()).unwrap(),
+        };
     }
     if let Some(rest) = path.strip_prefix("/releases/") {
         let release = fake.release.lock().unwrap().clone();

@@ -15,6 +15,7 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
 use crate::accounts::Store;
+use crate::analytics::{self, Ledger};
 use crate::api::{self, Logins};
 use crate::config::{Config, Endpoints, Paths};
 use crate::guests::{self, Access, ApprovedGuest, Guests};
@@ -23,6 +24,7 @@ use crate::hubstate::{HubState, HubStateStore};
 use crate::lifecycle::Lifecycle;
 use crate::machines::{self, Machine, Machines};
 use crate::oauth;
+use crate::pricing::Prices;
 use crate::refresh::Refresher;
 use crate::requests::RequestLog;
 use crate::router::Router;
@@ -58,6 +60,7 @@ pub struct App {
     pub management_key: String,
     pub api_call_http: reqwest::Client,
     pub requests: Arc<RequestLog>,
+    pub prices: Arc<Prices>,
     pub transcripts: Arc<Transcripts>,
     pub lifecycle: Arc<Lifecycle>,
     pub updater: Arc<Updater>,
@@ -117,6 +120,7 @@ impl App {
         ));
         usage.set_paused(moving);
         let router = Router::new(store.clone(), usage.clone());
+        let prices = Arc::new(Prices::new(ep.prices.clone(), Some(paths.prices_file())));
         let mut allowed_hosts = access::local_hosts(cfg.port);
         allowed_hosts.extend(tailnet.host_headers(cfg.port));
         let updater = Updater::new(&ep.releases);
@@ -140,7 +144,8 @@ impl App {
             ws_shutdown: tokio::sync::watch::channel(moving).0,
             management_key: management::load_or_create_key(&paths.management_key_file())?,
             api_call_http: management::api_call_client(),
-            requests: Arc::new(RequestLog::default()),
+            requests: Arc::new(RequestLog::with_ledger(Ledger::open(paths.analytics_dir())?)),
+            prices,
             transcripts: Transcripts::open(&paths.transcripts_dir()?)?,
             lifecycle,
             updater,
@@ -334,6 +339,7 @@ impl App {
                 "/conflux/transcripts",
                 post(transcripts::upload).layer(DefaultBodyLimit::max(TRANSCRIPT_BODY_LIMIT)),
             )
+            .route("/conflux/api/usage", get(analytics::usage))
             .route("/conflux/api/threads", get(transcripts::list))
             .route("/conflux/api/threads/{id}", get(transcripts::thread))
             .route("/conflux/api/transcripts/search", get(transcripts::search))
@@ -389,6 +395,7 @@ impl App {
             tokio::spawn(self.usage.clone().run_poller(self.store.clone())),
             tokio::spawn(self.transcripts.clone().run_maintenance()),
             tokio::spawn(self.clone().route_accounts()),
+            tokio::spawn(self.prices.clone().run(self.control_http.clone())),
         ]
     }
 

@@ -22,7 +22,7 @@ use crate::app::App;
 use crate::guests::ApprovedGuest;
 use crate::proxy::{self, Rejection};
 use crate::refresh::RefreshResult;
-use crate::requests::{self, TokenUsage};
+use crate::requests::{self, RequestRecord};
 use crate::router::{self, NoAccount, RouteRequest};
 
 pub const RESPONSES_WEBSOCKETS_BETA: &str = "responses_websockets=2026-02-06";
@@ -388,6 +388,9 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, upstrea
             }
         }
     }
+    if let Some(unfinished) = turn.record.take() {
+        app.requests.finish(&unfinished);
+    }
 }
 
 fn apply_rejection(app: &App, account: &AccountEntry, rejection: &Rejection) {
@@ -427,7 +430,7 @@ pub fn rate_limit_headers(event: &Value) -> HeaderMap {
 struct Turn {
     machine: String,
     started: Cell<Instant>,
-    record: Cell<Option<u64>>,
+    record: Cell<Option<RequestRecord>>,
 }
 
 fn inspect_event(app: &App, account: &AccountEntry, route: &RouteRequest, turn: &Turn, text: &str) -> bool {
@@ -436,11 +439,10 @@ fn inspect_event(app: &App, account: &AccountEntry, route: &RouteRequest, turn: 
     };
     let kind = v["type"].as_str();
     if requests::is_response_end(kind)
-        && let Some(record) = turn.record.take()
+        && let Some(mut record) = turn.record.take()
     {
-        let mut usage = TokenUsage::default();
-        requests::apply_event(Provider::Codex, &mut usage, &v);
-        app.requests.set_usage(record, usage);
+        requests::apply_event(Provider::Codex, &mut record.usage, &v);
+        app.requests.finish(&record);
     }
     match kind {
         Some("response.created") => {
@@ -453,8 +455,10 @@ fn inspect_event(app: &App, account: &AccountEntry, route: &RouteRequest, turn: 
                 200,
                 turn.started.get(),
             );
-            app.requests.set_transport(record, "ws");
-            turn.record.set(Some(record));
+            app.requests.set_transport(record.id, "ws");
+            if let Some(unfinished) = turn.record.replace(Some(record)) {
+                app.requests.finish(&unfinished);
+            }
             false
         }
         Some("codex.rate_limits") => {

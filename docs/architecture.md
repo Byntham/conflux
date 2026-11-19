@@ -150,6 +150,14 @@ The dashboard's routing switch calls `PATCH /conflux/api/machines/<hostname>`. F
 
 Each upload carries a byte offset. The hub (`src/transcripts.rs`) appends only when the offset matches its own, and returns the offset it expects next. It stores files as `<machine>/<tool>/<path>`, keeps a thread index, and serves `/conflux/api/threads` and `/conflux/api/transcripts/search`.
 
+## Usage analytics
+
+The hub appends one line to `analytics/<UTC date>.jsonl` in the data folder for each request it finishes serving. The line holds the time, machine, provider, account, model, session, status, and token counts. A Codex WebSocket writes one line per turn. Requests that failed over with a 401 or 429 are not written. The process that streams the response writes the line, so a request that spans a zero-downtime update is written once, by the old worker. Files older than 92 days are deleted when a new day's file is created.
+
+`src/pricing.rs` downloads LiteLLM's public price list once a day and keeps the first-party prices in `prices.json` in the data folder. A model name matches its exact entry, the provider's prefixed entry (`anthropic/`, `openai/`, `xai/`, `meta/`), or the same name without a date suffix or `-build`. A request pays the rates of the largest context tier its prompt exceeds. Fast mode pays the provider's `priority` or `ultrafast` rates, or Claude's `fast` multiplier. A 1 hour cache write pays the 1 hour rate.
+
+`/conflux/api/usage` reads the files for a range of 24 hours, 7, 30, or 90 days, prices each request with today's price list, and returns totals by provider, model, account, machine, and hour. The dashboard's Usage view draws them. Only the owner can call it. The history stays on the old hub after a hub move.
+
 ## HTTP API and dashboard
 
 - `/conflux/api/*` is the API that the CLI and the dashboard use (`src/api.rs`, `src/link.rs`, `src/hubmove.rs`). The CLI calls it on `127.0.0.1`. `conflux status` reads `/conflux/api/status`.
@@ -163,7 +171,7 @@ Each upload carries a byte offset. The hub (`src/transcripts.rs`) appends only w
 | Location | Contents |
 | --- | --- |
 | Config dir | `config.toml`, `management-key`, `joined.json`, `hub-state.json` |
-| Data dir | `accounts/`, `hub.lock`, `usage-history.json`, `transcript-offsets.json`, and `incoming/` or `retired-<id>/` during a hub move |
+| Data dir | `accounts/`, `analytics/`, `prices.json`, `hub.lock`, `usage-history.json`, `transcript-offsets.json`, and `incoming/` or `retired-<id>/` during a hub move |
 | `accounts/` | `<id>.json` credentials, `<id>.settings.json`, and a `<id>.journal/` directory for refresh claims and receipts |
 | Transcripts dir | `<machine>/<tool>/<path>` copies of each JSONL file, and a `.state/` directory with offsets and the index |
 
@@ -188,6 +196,8 @@ The config dir is `$XDG_CONFIG_HOME/conflux`, or `~/.config/conflux`. The data d
 | `src/refresh.rs` | Token refresh scheduling and crash-safe refresh |
 | `src/oauth.rs` | Login and refresh calls to the providers |
 | `src/requests.rs` | Request log and token usage scanning |
+| `src/analytics.rs` | Usage history on disk and `/conflux/api/usage` |
+| `src/pricing.rs` | API price list and per-request cost |
 | `src/api.rs` | `/conflux/api` handlers for status, logins, accounts, update |
 | `src/dashboard.rs`, `src/dashboard.html` | Dashboard page and its data |
 | `src/management.rs` | Key-protected `/v0/management` API |
