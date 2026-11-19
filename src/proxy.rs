@@ -382,7 +382,7 @@ pub fn classify_responses_429(
     model: Option<&str>,
     now: DateTime<Utc>,
 ) -> Rejection {
-    let plain = requests::decompressed(header_str(h, "content-encoding"), body, MAX_REJECTION_BODY);
+    let plain = requests::decompressed(header_str(h, "content-encoding"), body, MAX_REQUEST_BODY);
     let v: Value = serde_json::from_slice(&plain).unwrap_or(Value::Null);
     if is_usage_limit(provider, &v) {
         let until = codex_reset(&v, now)
@@ -583,10 +583,10 @@ pub async fn handle(State(app): State<Arc<App>>, req: Request) -> Response {
             );
         }
     };
-    let route = route_request(provider, &parts.headers, &body);
+    let inference = is_inference(provider, &path);
+    let route = route_request(provider, &parts.headers, if inference { &body } else { &[] });
     let machine = machine_name(&app, &parts.headers);
     let started = Instant::now();
-    let inference = is_inference(provider, &path);
     let logged = inference && parts.method == http::Method::POST;
     let log = |account: &AccountEntry, status: u16| {
         logged.then(|| log_attempt(&app, provider, account, &route, &machine, status, started))
