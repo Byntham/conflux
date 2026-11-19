@@ -83,18 +83,20 @@ struct Pool: Identifiable {
     }
 
     func windows(now: Date) -> [UsageWindow] {
-        let shared = accounts.filter { $0.enabled && $0.needsLogin == nil }.flatMap(\.sharedWindows)
-        var keys: [String] = []
-        for window in shared where !keys.contains(window.key) { keys.append(window.key) }
-        return keys.map { key in
-            let group = shared.filter { $0.key == key }
+        let members = accounts.filter {
+            $0.enabled && $0.needsLogin == nil && $0.billingBlocked == nil && !$0.sharedWindows.isEmpty
+        }
+        let shared = members.flatMap(\.sharedWindows).sorted { ($0.durationSecs ?? .max) < ($1.durationSecs ?? .max) }
+        return [false, true].compactMap { long -> UsageWindow? in
+            let group = shared.filter { (($0.durationSecs ?? 0) >= 2 * 86400) == long }
+            guard !group.isEmpty else { return nil }
             let used = group.map { window in
                 window.resetsAt.map { $0 <= now } == true ? 0 : min(100, max(0, window.usedPct))
             }
             let refill = zip(group, used).filter { $1 > 0 }.compactMap { $0.0.resetsAt }.filter { $0 > now }.min()
             return UsageWindow(
-                key: key,
-                usedPct: used.reduce(0, +) / Double(used.count),
+                key: group[0].key,
+                usedPct: used.reduce(0, +) / Double(members.count),
                 resetsAt: refill,
                 durationSecs: group[0].durationSecs,
                 modelScope: nil

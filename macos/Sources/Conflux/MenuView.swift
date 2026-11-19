@@ -78,7 +78,7 @@ struct MenuView: View {
         case .hubUnreachable:
             Notice(
                 title: "Can't reach the hub",
-                detail: "\(model.node?.hub ?? "The hub") isn't answering. To keep working, turn off routing below, then restart your coding tools."
+                detail: "The hub isn't answering. To keep working, turn off routing below, then restart your coding tools."
             )
         case .notApproved:
             if model.node?.access?.state == "pending" {
@@ -265,7 +265,7 @@ struct PoolRow: View {
                 Button("Log in again in the dashboard", action: openDashboard)
                     .buttonStyle(LinkButton())
                     .font(.system(size: 13))
-            } else if windows.isEmpty {
+            } else if windows.isEmpty && pool.accounts.contains(where: \.enabled) {
                 Text("No usage data yet")
                     .font(.system(size: 11))
                     .foregroundStyle(Palette.muted)
@@ -275,13 +275,13 @@ struct PoolRow: View {
     }
 
     @ViewBuilder private var status: some View {
-        let states = pool.accounts.map { $0.state(now: now) }
-        if states.count == 1 {
+        let states = pool.accounts.filter(\.enabled).map { $0.state(now: now) }
+        if states.isEmpty {
+            StatePill(state: .disabled, now: now)
+        } else if states.allSatisfy({ $0 == states[0] }) {
             StatePill(state: states[0], now: now)
         } else if states.allSatisfy(\.canServe) {
-            StatePill(state: .ready, now: now)
-        } else if states.allSatisfy({ $0 == .disabled }) {
-            StatePill(state: .disabled, now: now)
+            StatePill(state: states.first { $0 != .ready } ?? .ready, now: now)
         } else {
             let ready = states.filter(\.canServe).count
             let problem = states.contains(where: \.isProblem)
@@ -373,7 +373,7 @@ struct Meter: View {
                 .frame(width: 52, alignment: .trailing)
                 .lineLimit(1)
         }
-        .help("\(Int(left))% of the pooled \(name) limit left" + (window.resetsAt.map { ", the next account resets in \(Countdown.text($0, now: now))" } ?? ""))
+        .help("\(Int(left))% of the \(name) limit left, averaged across accounts" + (window.resetsAt.map { ". The next account resets in \(Countdown.text($0, now: now))" } ?? ""))
     }
 
     private func color(_ left: Double) -> Color {
