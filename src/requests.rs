@@ -15,6 +15,25 @@ const MAX_LINE: usize = 16 * 1024 * 1024;
 const MAX_WHOLE_BODY: usize = 8 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum Speed {
+    #[default]
+    Standard,
+    Fast,
+    Ultrafast,
+}
+
+impl Speed {
+    fn parse(v: &Value) -> Option<Self> {
+        Some(match v.as_str()? {
+            "fast" | "priority" => Self::Fast,
+            "ultrafast" => Self::Ultrafast,
+            _ => Self::Standard,
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct TokenUsage {
     pub input: u64,
     pub cache_read: u64,
@@ -22,6 +41,8 @@ pub struct TokenUsage {
     #[serde(default)]
     pub cache_write_1h: u64,
     pub output: u64,
+    #[serde(default)]
+    pub speed: Speed,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -284,19 +305,26 @@ fn apply_claude_usage(u: &mut TokenUsage, usage: &Value) {
     if usage["output_tokens"].is_u64() {
         u.output = n(&usage["output_tokens"]);
     }
+    if let Some(speed) = Speed::parse(&usage["speed"]) {
+        u.speed = speed;
+    }
 }
 
-fn apply_codex_usage(u: &mut TokenUsage, usage: &Value) {
+fn apply_codex_usage(u: &mut TokenUsage, response: &Value) {
+    let usage = &response["usage"];
     let cached = n(&usage["input_tokens_details"]["cached_tokens"]);
     u.input = n(&usage["input_tokens"]).saturating_sub(cached);
     u.cache_read = cached;
     u.output = n(&usage["output_tokens"]);
+    if let Some(speed) = Speed::parse(&response["service_tier"]) {
+        u.speed = speed;
+    }
 }
 
 pub fn is_response_end(kind: Option<&str>) -> bool {
     matches!(
         kind,
-        Some("response.completed" | "response.incomplete" | "response.failed")
+        Some("response.completed" | "response.incomplete" | "response.failed" | "response.cancelled")
     )
 }
 
@@ -304,8 +332,10 @@ pub fn apply_event(provider: Provider, u: &mut TokenUsage, v: &Value) {
     match (provider, v["type"].as_str()) {
         (Provider::Claude, Some("message_start")) => apply_claude_usage(u, &v["message"]["usage"]),
         (Provider::Claude, _) => apply_claude_usage(u, &v["usage"]),
-        (_, kind) if is_response_end(kind) => apply_codex_usage(u, &v["response"]["usage"]),
-        _ if v["usage"].is_object() => apply_codex_usage(u, &v["usage"]),
+        (_, kind) if is_response_end(kind) && v["response"]["usage"].is_object() => {
+            apply_codex_usage(u, &v["response"])
+        }
+        _ if v["usage"].is_object() => apply_codex_usage(u, v),
         _ => {}
     }
 }
@@ -445,7 +475,8 @@ mod tests {
                 cache_read: 80,
                 cache_write: 0,
                 cache_write_1h: 0,
-                output: 5
+                output: 5,
+                speed: Speed::Standard
             }
         );
     }

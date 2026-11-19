@@ -52,6 +52,12 @@ struct FrameKind<'a> {
     kind: Option<Cow<'a, str>>,
 }
 
+#[derive(Deserialize)]
+struct FrameModel<'a> {
+    #[serde(borrow)]
+    model: Option<Cow<'a, str>>,
+}
+
 #[derive(Default)]
 pub struct TurnTracker {
     running: bool,
@@ -70,10 +76,7 @@ impl TurnTracker {
 
     pub fn upstream_sent(&mut self, text: &str) {
         let kind = serde_json::from_str::<FrameKind>(text).ok().and_then(|f| f.kind);
-        if matches!(
-            kind.as_deref(),
-            Some("response.completed" | "response.failed" | "response.incomplete" | "response.cancelled" | "error")
-        ) {
+        if requests::is_response_end(kind.as_deref()) || kind.as_deref() == Some("error") {
             self.running = false;
         }
     }
@@ -221,7 +224,7 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, upstrea
         let _ = client.send(ClientMsg::Close(None)).await;
         return;
     }
-    let route = first_frame_route(&headers, &first);
+    let mut route = first_frame_route(&headers, &first);
     let url = ws_url(&upstream);
     let started = Instant::now();
     let mut cooldowns = app.router.watch_cooldowns();
@@ -337,8 +340,11 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, upstrea
                 };
                 turns.client_sent(&msg);
                 let closing = matches!(msg, ClientMsg::Close(_));
-                if matches!(msg, ClientMsg::Text(_)) {
+                if let ClientMsg::Text(t) = &msg {
                     turn.started.set(Instant::now());
+                    if let Ok(FrameModel { model: Some(model) }) = serde_json::from_str(t.as_str()) {
+                        route.model = Some(model.into_owned());
+                    }
                 }
                 if up_tx.send(to_upstream(msg)).await.is_err() || closing {
                     break;
@@ -428,18 +434,11 @@ fn inspect_event(app: &App, account: &AccountEntry, route: &RouteRequest, turn: 
     }
     match kind {
         Some("response.created") => {
-            let route = RouteRequest {
-                model: v["response"]["model"]
-                    .as_str()
-                    .map(str::to_string)
-                    .or(route.model.clone()),
-                ..route.clone()
-            };
             let record = proxy::log_attempt(
                 app,
                 Provider::Codex,
                 account,
-                &route,
+                route,
                 &turn.machine,
                 200,
                 turn.started.get(),

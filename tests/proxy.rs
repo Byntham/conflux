@@ -926,7 +926,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
     let sse = concat!(
         "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3,",
         "\"cache_read_input_tokens\":900,\"cache_creation_input_tokens\":20,\"cache_creation\":",
-        "{\"ephemeral_5m_input_tokens\":5,\"ephemeral_1h_input_tokens\":15},\"output_tokens\":1}}}\n\n",
+        "{\"ephemeral_5m_input_tokens\":5,\"ephemeral_1h_input_tokens\":15},\"output_tokens\":1,\"speed\":\"fast\"}}}\n\n",
         "event: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":44}}\n\n"
     );
     h.reply(
@@ -977,6 +977,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
     assert_eq!(record["usage"]["cache_read"], 900);
     assert_eq!(record["usage"]["cache_write"], 20);
     assert_eq!(record["usage"]["cache_write_1h"], 15);
+    assert_eq!(record["usage"]["speed"], "fast");
     assert_eq!(record["usage"]["output"], 44);
     assert!(h.fake.http_headers.lock().unwrap()[0].get("x-conflux-node").is_none());
 

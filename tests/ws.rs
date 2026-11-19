@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use common::{Harness, Reply, WsScript};
 use conflux::accounts::Provider;
+use conflux::requests::Speed;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
@@ -228,13 +229,14 @@ async fn the_row_is_logged_when_the_upstream_starts_answering() {
     assert_eq!(next_json(&mut ws).await.unwrap()["type"], "response.completed");
     assert_eq!(h.app.requests.recent()[0].usage.output, 7);
 
-    h.ws_script("at-c", WsScript::IncompleteTurn);
+    h.ws_script("at-c", WsScript::FailedTurn);
     let mut ws = open(&h, &[]).await.unwrap();
     ws.send(create("m")).await.unwrap();
     assert_eq!(next_json(&mut ws).await.unwrap()["type"], "response.created");
-    assert_eq!(next_json(&mut ws).await.unwrap()["type"], "response.incomplete");
+    assert_eq!(next_json(&mut ws).await.unwrap()["type"], "response.failed");
     let usage = h.app.requests.recent()[0].usage;
     assert_eq!((usage.input, usage.cache_read, usage.output), (10, 40, 3));
+    assert_eq!(usage.speed, Speed::Fast);
 }
 
 #[tokio::test]
