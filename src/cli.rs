@@ -452,13 +452,14 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::On => {
             setup::apply(&ClientPaths::from_env()?, &paths.config_dir, cfg.port)?;
             daemon.report_to_hub(&cfg).await;
-            println!("The coding tools now go through conflux.");
+            println!("Coding tools with an account in conflux now go through it. The others keep their own logins.");
             Ok(())
         }
         Command::Leave => {
             setup::restore(&ClientPaths::from_env()?, &paths.config_dir, cfg.port)?;
             service::uninstall()?;
             crate::fsutil::remove_durable(&setup::joined_path(&paths.config_dir))?;
+            crate::fsutil::remove_durable(&setup::lock_path(&paths.config_dir))?;
             println!("conflux is stopped and removed from the coding tools. Account data was left in place.");
             Ok(())
         }
@@ -592,6 +593,14 @@ async fn join(mut cfg: Config, paths: Paths, hub: &str, no_service: bool, force:
         }
     }
 
+    if !becoming_hub {
+        setup::set_providers(
+            &ClientPaths::from_env()?,
+            &paths.config_dir,
+            cfg.port,
+            Default::default(),
+        )?;
+    }
     if no_service {
         println!("Skipped the service. Start the daemon with `conflux serve`.");
     } else {
@@ -635,7 +644,9 @@ fn print_joined(cfg: &Config) {
                 "This machine is now the hub. Add accounts with `conflux login claude`, `conflux login codex`, `conflux login grok`, or `conflux login muse`."
             )
         }
-        Some(hub) => println!("The coding tools on this machine now go through {hub}."),
+        Some(hub) => {
+            println!("Coding tools with an account on {hub} now go through it. The others keep their own logins.")
+        }
     }
     println!("New or restarted coding tool sessions pick this up. Running ones keep their old settings.");
     if let Some(url) = dashboard_url(cfg) {

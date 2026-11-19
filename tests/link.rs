@@ -5,10 +5,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use common::{Harness, fake_tailscale, whois};
+use conflux::accounts::Provider;
 use conflux::config::{Config, Paths, Role};
 use conflux::link::{self, Waiting};
 use conflux::node::Node;
-use conflux::setup::ClientPaths;
+use conflux::setup::{self, ClientPaths};
 use serde_json::{Value, json};
 
 struct Machine {
@@ -66,12 +67,7 @@ async fn connects_as_a_node(hub: &Harness, machine: &mut Machine, name: &str) {
         .push(format!("{hub_host}:{hub_port}"));
     let routes = hub.app.routes().into_make_service_with_connect_info::<SocketAddr>();
     tokio::spawn(async move { axum::serve(hub_on_tailnet, routes).await.unwrap() });
-    let node_port = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
+    let node_port = machine.base.rsplit(':').next().unwrap().parse().unwrap();
     let node = Node::named(
         name.into(),
         hub_host,
@@ -131,6 +127,7 @@ async fn the_hub_finds_a_waiting_machine_and_links_it_as_a_node() {
     });
     let tailscale = fake_tailscale(Arc::new(Mutex::new(status)), Arc::default());
     let hub = Harness::on_tailnet(hub_listener, tailscale, "false").await;
+    hub.add(Provider::Claude, "a").await;
     let mut machine = waiting_machine(tokio::net::TcpListener::bind(("::1", port)).await.unwrap()).await;
 
     let found = discover(&hub).await;
@@ -150,8 +147,20 @@ async fn the_hub_finds_a_waiting_machine_and_links_it_as_a_node() {
     let linking = post_in_background(&hub, "link", "::1");
     connects_as_a_node(&hub, &mut machine, "fresh").await;
     assert_eq!(Config::load(&machine.paths).unwrap().hub.as_deref(), Some("[::1]"));
-    let claude = std::fs::read_to_string(&machine.clients.claude_settings).unwrap();
-    assert!(claude.contains(&format!("http://127.0.0.1:{port}")));
+    let routed = format!("http://127.0.0.1:{port}");
+    for _ in 0..200 {
+        let claude = std::fs::read_to_string(&machine.clients.claude_settings).unwrap_or_default();
+        if claude.contains(&routed) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(
+        std::fs::read_to_string(&machine.clients.claude_settings)
+            .unwrap()
+            .contains(&routed)
+    );
+    assert!(!machine.clients.codex_config.exists());
     let r = linking.await.unwrap();
     assert_eq!(r.status(), 200, "{}", r.text().await.unwrap());
     assert!(online(&hub, "fresh"));
@@ -315,8 +324,7 @@ async fn a_waiting_machine_finds_its_hub_and_links_itself_to_it() {
     assert_eq!(cfg.role, Role::Node);
     assert_eq!(cfg.hub.as_deref(), Some("127.0.0.1"));
     assert!(!cfg.route_once_approved);
-    let claude = std::fs::read_to_string(&machine.clients.claude_settings).unwrap();
-    assert!(claude.contains(&format!("http://127.0.0.1:{}", hub.port)));
+    assert!(setup::routing(&machine.paths.config_dir));
 
     let hub_again = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = hub_again.local_addr().unwrap().port();

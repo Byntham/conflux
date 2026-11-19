@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -254,6 +254,15 @@ impl AccountEntry {
 pub struct Store {
     dir: PathBuf,
     accounts: RwLock<BTreeMap<String, Arc<AccountEntry>>>,
+    providers: tokio::sync::watch::Sender<BTreeSet<Provider>>,
+}
+
+fn saved_providers(accounts: &BTreeMap<String, Arc<AccountEntry>>) -> BTreeSet<Provider> {
+    accounts
+        .values()
+        .filter(|e| e.credentials().generation > 0)
+        .map(|e| e.provider)
+        .collect()
 }
 
 impl Store {
@@ -273,6 +282,7 @@ impl Store {
         }
         Ok(Self {
             dir: accounts_dir.to_path_buf(),
+            providers: tokio::sync::watch::Sender::new(saved_providers(&map)),
             accounts: RwLock::new(map),
         })
     }
@@ -298,6 +308,19 @@ impl Store {
 
     pub fn all(&self) -> Vec<Arc<AccountEntry>> {
         self.accounts.read().unwrap().values().cloned().collect()
+    }
+
+    pub fn providers(&self) -> tokio::sync::watch::Receiver<BTreeSet<Provider>> {
+        self.providers.subscribe()
+    }
+
+    pub fn accounts_changed(&self) {
+        self.providers.send_if_modified(|known| {
+            let now = saved_providers(&self.accounts.read().unwrap());
+            let changed = *known != now;
+            *known = now;
+            changed
+        });
     }
 
     pub fn get(&self, id: &str) -> Option<Arc<AccountEntry>> {
@@ -342,6 +365,12 @@ impl Store {
         if removed.is_none() {
             return Ok(false);
         }
+        let deleted = self.delete_files(id);
+        self.accounts_changed();
+        deleted.map(|()| true)
+    }
+
+    fn delete_files(&self, id: &str) -> Result<()> {
         fsutil::remove_durable(&self.dir.join(format!("{id}.json")))?;
         fsutil::remove_durable(&self.dir.join(format!("{id}.settings.json")))?;
         let jdir = self.dir.join(format!("{id}.journal"));
@@ -349,7 +378,7 @@ impl Store {
             std::fs::remove_dir_all(&jdir)?;
             fsutil::sync_dir(&self.dir)?;
         }
-        Ok(true)
+        Ok(())
     }
 }
 

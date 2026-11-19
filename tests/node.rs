@@ -245,7 +245,10 @@ async fn next_command(socket: &mut ControlSocket) -> Value {
             .unwrap()
             .unwrap();
         if let Message::Text(text) = frame {
-            return serde_json::from_str(text.as_str()).unwrap();
+            let command: Value = serde_json::from_str(text.as_str()).unwrap();
+            if command["type"] != "providers" {
+                return command;
+            }
         }
     }
 }
@@ -268,11 +271,19 @@ fn fleet_routing(hub: &Harness) -> Vec<(String, Option<bool>)> {
 async fn the_dashboard_turns_routing_on_and_off_for_each_machine() {
     let tailnet = Tailnet::new();
     let hub = hub_on(&tailnet).await;
+    hub.add(Provider::Claude, "a").await;
     let n = start_node(hub.port).await;
     let node_config = Paths::under(n.dir.path()).config_dir;
     setup::apply(&n.clients, &node_config, n.port).unwrap();
     setup::restore(&n.clients, &node_config, n.port).unwrap();
+    let own_grok = "[ui]\nyolo = false\n";
+    std::fs::create_dir_all(n.clients.grok_config.parent().unwrap()).unwrap();
+    std::fs::write(&n.clients.grok_config, own_grok).unwrap();
     setup::apply(&hub.app.clients, &Paths::under(hub.dir.path()).config_dir, hub.port).unwrap();
+    assert_eq!(claude_base_url(&hub.app.clients), None);
+    tokio::spawn(hub.app.clone().route_accounts());
+    let hub_url = format!("http://127.0.0.1:{}", hub.port);
+    eventually(|| (claude_base_url(&hub.app.clients) == Some(hub_url.clone())).then_some(())).await;
     let before_update = json!({ "hostname": "node-one", "version": "0.1.0" });
     hub.app
         .machines
@@ -304,6 +315,31 @@ async fn the_dashboard_turns_routing_on_and_off_for_each_machine() {
     assert_eq!(
         fleet_routing(&hub),
         [("hub".to_string(), Some(true)), ("node".to_string(), Some(true))]
+    );
+    assert_eq!(std::fs::read_to_string(&n.clients.grok_config).unwrap(), own_grok);
+    assert!(!n.clients.codex_config.exists());
+
+    let grok = hub.add(Provider::Grok, "g").await;
+    let node_grok = format!("http://127.0.0.1:{}/grok/v1", n.port);
+    eventually(|| {
+        std::fs::read_to_string(&n.clients.grok_config)
+            .unwrap()
+            .contains(&node_grok)
+            .then_some(())
+    })
+    .await;
+    let r = hub
+        .http
+        .delete(format!("{}/conflux/api/accounts/{grok}", hub.base))
+        .header("content-type", "application/json")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200, "{}", r.text().await.unwrap());
+    eventually(|| (std::fs::read_to_string(&n.clients.grok_config).unwrap() == own_grok).then_some(())).await;
+    assert_eq!(
+        claude_base_url(&n.clients),
+        Some(format!("http://127.0.0.1:{}", n.port))
     );
 
     let r = set_routing(&hub, "hub-under-test", false).await;
@@ -957,6 +993,11 @@ async fn a_guest_uses_the_hub_only_while_the_owner_approves_it() {
         "{refused:?}"
     );
     assert_eq!(claude_base_url(&n.clients), None);
+    assert!(
+        setup::load_joined(&Paths::under(n.dir.path()).config_dir)
+            .unwrap()
+            .is_none()
+    );
 
     as_owner(
         &hub,
@@ -965,10 +1006,8 @@ async fn a_guest_uses_the_hub_only_while_the_owner_approves_it() {
     )
     .await;
     node_access(&n, "approved").await;
-    assert_eq!(
-        claude_base_url(&n.clients),
-        Some(format!("http://127.0.0.1:{}", n.port))
-    );
+    let routed = Some(format!("http://127.0.0.1:{}", n.port));
+    eventually(|| (claude_base_url(&n.clients) == routed).then_some(())).await;
     assert!(!Config::load(&Paths::under(n.dir.path())).unwrap().route_once_approved);
     assert_eq!(claude(&n).send().await.unwrap().status(), 200);
     let mut open_socket = codex_ws(&n).await.unwrap();
@@ -1011,7 +1050,7 @@ async fn a_guest_uses_the_hub_only_while_the_owner_approves_it() {
     )
     .await;
     node_access(&n, "approved").await;
-    assert!(claude_base_url(&n.clients).is_some());
+    eventually(|| claude_base_url(&n.clients)).await;
 
     *tailnet.status.lock().unwrap() = Value::Null;
     hub.app.forget_identities();

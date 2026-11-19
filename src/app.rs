@@ -65,7 +65,6 @@ pub struct App {
     pub ssh: String,
     pub installing: Mutex<HashSet<IpAddr>>,
     pub clients: ClientPaths,
-    pub routing_change: Mutex<()>,
     identities: Mutex<HashMap<IpAddr, (Instant, Caller)>>,
 }
 
@@ -149,7 +148,6 @@ impl App {
             ssh: std::env::var("CONFLUX_SSH").unwrap_or_else(|_| "ssh".into()),
             installing: Mutex::default(),
             clients: ClientPaths::from_env()?,
-            routing_change: Mutex::default(),
             identities: Mutex::default(),
         }))
     }
@@ -390,7 +388,31 @@ impl App {
             tokio::spawn(self.refresher.clone().run_scheduler()),
             tokio::spawn(self.usage.clone().run_poller(self.store.clone())),
             tokio::spawn(self.transcripts.clone().run_maintenance()),
+            tokio::spawn(self.clone().route_accounts()),
         ]
+    }
+
+    pub async fn route_accounts(self: Arc<Self>) {
+        let mut accounts = self.store.providers();
+        loop {
+            if self.redirect_hub().is_some() {
+                return;
+            }
+            let providers = accounts.borrow_and_update().clone();
+            let hub = self.clone();
+            let routed = tokio::task::spawn_blocking(move || {
+                crate::setup::set_providers(&hub.clients, &hub.paths.config_dir, hub.cfg.port, providers)
+            })
+            .await
+            .map_err(anyhow::Error::from)
+            .and_then(|r| r);
+            if let Err(e) = routed {
+                tracing::warn!("could not route this machine's coding tools to its accounts: {e:#}");
+            }
+            if accounts.changed().await.is_err() {
+                return;
+            }
+        }
     }
 }
 

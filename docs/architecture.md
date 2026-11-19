@@ -48,6 +48,8 @@ The hub and a waiting machine ask the release page for the latest version when t
 
 Claude Code, Codex, Grok Build, and Muse Code on every machine point at `http://127.0.0.1:<port>`. On the hub, that is the hub itself. On a node, it is the node's own conflux.
 
+A tool points at conflux only while the hub holds an account for its provider. The hub sends that list of providers to each node over its control socket when the node connects and whenever the list changes. Each machine then rewrites its tools' settings to match, in `setup::set_providers`.
+
 ```
 Claude Code / Codex / Grok Build / Muse Code
         |
@@ -167,7 +169,7 @@ Each upload carries a byte offset. The hub (`src/transcripts.rs`) appends only w
 
 The config dir is `$XDG_CONFIG_HOME/conflux`, or `~/.config/conflux`. The data dir is `$XDG_DATA_HOME/conflux`, or `~/.local/share/conflux`. The transcripts dir is `~/conflux/transcripts`. `CONFLUX_HOME` moves all three under `<home>/config` and `<home>/data`. `src/config.rs` has the details.
 
-`src/setup.rs` points the clients at conflux. In Claude Code's `settings.json`, it sets `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and `CLAUDE_CODE_PROMPT_CACHE_TTL=1h` under `env`. The last one keeps the main conversation on the 1 hour cache a subscription gets, because Claude Code treats the token as an API key. In Codex's `config.toml`, it adds a `conflux` model provider and selects it. If `~/.grok` exists, it sets `[endpoints] cli_chat_proxy_base_url` in Grok Build's `config.toml`. It adds an `[auth] auth_provider_command` that prints a dummy token only when Grok Build has no login of its own, because Grok Build writes that token over its saved login. If `~/.config/muse` exists, it sets `endpoint_transport` in Muse Code's `settings.json` to conflux with `auth = "none"`, so Muse Code sends no key and never needs a login of its own. It records the old values in `joined.json`, and `conflux off` or `conflux leave` puts them back. `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`, and `XDG_CONFIG_HOME` change where it looks.
+`src/setup.rs` points each client at conflux while the hub holds an account for its provider. In Claude Code's `settings.json`, it sets `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and `CLAUDE_CODE_PROMPT_CACHE_TTL=1h` under `env`. The last one keeps the main conversation on the 1 hour cache a subscription gets, because Claude Code treats the token as an API key. In Codex's `config.toml`, it adds a `conflux` model provider and selects it. If `~/.grok` exists, it sets `[endpoints] cli_chat_proxy_base_url` in Grok Build's `config.toml`. It adds an `[auth] auth_provider_command` that prints a dummy token only when Grok Build has no login of its own, because Grok Build writes that token over its saved login. If `~/.config/muse` exists, it sets `endpoint_transport` in Muse Code's `settings.json` to conflux with `auth = "none"`, so Muse Code sends no key and never needs a login of its own. It records the old values in `joined.json`, and `conflux off` or `conflux leave` puts them back. `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`, and `XDG_CONFIG_HOME` change where it looks.
 
 ## Module map
 

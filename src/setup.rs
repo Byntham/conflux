@@ -1,10 +1,13 @@
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use toml_edit::{DocumentMut, Item, Table, value};
 
+use crate::accounts::Provider;
 use crate::fsutil;
 
 pub const CLAUDE_TOKEN: &str = "conflux";
@@ -53,6 +56,8 @@ impl ClientPaths {
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct Joined {
     pub active: bool,
+    #[serde(default)]
+    pub providers: BTreeSet<Provider>,
     pub claude_base_url: Option<Value>,
     pub claude_auth_token: Option<Value>,
     pub claude_cache_ttl: Option<Value>,
@@ -71,7 +76,9 @@ pub struct Joined {
     #[serde(default)]
     pub muse_recorded: bool,
     #[serde(default)]
-    pub recorded: bool,
+    pub claude_recorded: bool,
+    #[serde(default)]
+    pub codex_recorded: bool,
 }
 
 pub fn joined_path(config_dir: &Path) -> PathBuf {
@@ -79,7 +86,47 @@ pub fn joined_path(config_dir: &Path) -> PathBuf {
 }
 
 pub fn load_joined(config_dir: &Path) -> Result<Option<Joined>> {
-    fsutil::read_json(&joined_path(config_dir))
+    let Some(mut saved) = fsutil::read_json::<Value>(&joined_path(config_dir))? else {
+        return Ok(None);
+    };
+    if let Some(fields) = saved.as_object_mut() {
+        let every = [Provider::Claude, Provider::Codex, Provider::Grok, Provider::Muse];
+        fields.entry("providers").or_insert_with(|| serde_json::json!(every));
+        let both = fields.get("recorded").cloned().unwrap_or(Value::Bool(false));
+        for tool in ["claude_recorded", "codex_recorded"] {
+            fields.entry(tool).or_insert_with(|| both.clone());
+        }
+    }
+    Ok(Some(serde_json::from_value(saved)?))
+}
+
+pub fn lock_path(config_dir: &Path) -> PathBuf {
+    config_dir.join("joined.lock")
+}
+
+fn save_joined(config_dir: &Path, joined: &Joined) -> Result<()> {
+    let mut saved = serde_json::to_value(joined)?;
+    saved["recorded"] = Value::Bool(
+        joined.active
+            || joined.claude_recorded
+            || joined.codex_recorded
+            || joined.grok_recorded
+            || joined.muse_recorded,
+    );
+    fsutil::ensure_private_dir(config_dir)?;
+    fsutil::write_json_durable(&joined_path(config_dir), &saved)
+}
+
+fn one_change_at_a_time<T>(config_dir: &Path, change: impl FnOnce() -> Result<T>) -> Result<T> {
+    fsutil::ensure_private_dir(config_dir)?;
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(lock_path(config_dir))
+        .context("open the routing lock")?;
+    lock.lock_exclusive().context("wait for the routing lock")?;
+    change()
 }
 
 pub fn routing(config_dir: &Path) -> bool {
@@ -111,13 +158,20 @@ fn read_claude(path: &Path) -> Result<Map<String, Value>> {
     }
 }
 
-fn write_claude(path: &Path, m: Map<String, Value>) -> Result<()> {
+fn write_changed(path: &Path, text: &str) -> Result<()> {
+    if std::fs::read(path).is_ok_and(|old| old == text.as_bytes()) {
+        return Ok(());
+    }
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
+    fsutil::write_durable(path, text.as_bytes())
+}
+
+fn write_claude(path: &Path, m: Map<String, Value>) -> Result<()> {
     let mut text = serde_json::to_string_pretty(&Value::Object(m))?;
     text.push('\n');
-    fsutil::write_durable(path, text.as_bytes())
+    write_changed(path, &text)
 }
 
 fn read_codex(path: &Path) -> Result<DocumentMut> {
@@ -130,11 +184,19 @@ fn read_codex(path: &Path) -> Result<DocumentMut> {
     }
 }
 
-fn write_codex(path: &Path, doc: &DocumentMut) -> Result<()> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
+fn read_codex_config(path: &Path) -> Result<DocumentMut> {
+    let doc = read_codex(path)?;
+    if doc.get("model_providers").is_some_and(|p| !p.is_table()) {
+        anyhow::bail!(
+            "`model_providers` in {} is not a [model_providers] table",
+            path.display()
+        );
     }
-    fsutil::write_durable(path, doc.to_string().as_bytes())
+    Ok(doc)
+}
+
+fn write_codex(path: &Path, doc: &DocumentMut) -> Result<()> {
+    write_changed(path, &doc.to_string())
 }
 
 fn grok_url(port: u16) -> String {
@@ -240,15 +302,14 @@ fn record_grok(joined: &mut Joined, doc: &DocumentMut) {
     joined.grok_recorded = true;
 }
 
-fn apply_grok(paths: &ClientPaths, joined: &Joined, mut doc: DocumentMut, port: u16) -> Result<()> {
-    set_in(&mut doc, "endpoints", "cli_chat_proxy_base_url", value(grok_url(port)));
+fn route_grok(paths: &ClientPaths, joined: &Joined, doc: &mut DocumentMut, port: u16) {
+    set_in(doc, "endpoints", "cli_chat_proxy_base_url", value(grok_url(port)));
     if grok_has_login(paths) {
-        restore_grok_auth(&mut doc, joined);
+        restore_grok_auth(doc, joined);
     } else {
-        set_in(&mut doc, "auth", "auth_provider_command", value(GROK_AUTH_COMMAND));
-        set_in(&mut doc, "auth", "auth_token_ttl", value(GROK_AUTH_TTL));
+        set_in(doc, "auth", "auth_provider_command", value(GROK_AUTH_COMMAND));
+        set_in(doc, "auth", "auth_token_ttl", value(GROK_AUTH_TTL));
     }
-    write_codex(&paths.grok_config, &doc)
 }
 
 fn restore_grok_auth(doc: &mut DocumentMut, joined: &Joined) {
@@ -271,16 +332,15 @@ fn restore_grok_auth(doc: &mut DocumentMut, joined: &Joined) {
     );
 }
 
-fn restore_grok(paths: &ClientPaths, joined: &Joined, mut doc: DocumentMut, port: u16) -> Result<()> {
+fn unroute_grok(joined: &Joined, doc: &mut DocumentMut, port: u16) {
     restore_in(
-        &mut doc,
+        doc,
         "endpoints",
         "cli_chat_proxy_base_url",
         &value(grok_url(port)),
         joined.grok_base_url.as_deref().map(value),
     );
-    restore_grok_auth(&mut doc, joined);
-    write_codex(&paths.grok_config, &doc)
+    restore_grok_auth(doc, joined);
 }
 
 fn muse_transport(port: u16) -> Value {
@@ -288,22 +348,6 @@ fn muse_transport(port: u16) -> Value {
         "base_url": format!("{}{}", base_url(port), crate::proxy::MUSE_PREFIX.trim_end_matches('/')),
         "auth": "none",
     })
-}
-
-fn apply_muse(paths: &ClientPaths, mut settings: Map<String, Value>, port: u16) -> Result<()> {
-    settings.entry("schema_version").or_insert(Value::from(1));
-    settings.insert("endpoint_transport".into(), muse_transport(port));
-    write_claude(&paths.muse_settings, settings)
-}
-
-fn restore_muse(path: &Path, joined: &Joined, mut settings: Map<String, Value>, port: u16) -> Result<()> {
-    restore_value(
-        &mut settings,
-        "endpoint_transport",
-        &muse_transport(port),
-        &joined.muse_transport,
-    );
-    write_claude(path, settings)
 }
 
 fn conflux_table(port: u16) -> Table {
@@ -320,112 +364,20 @@ fn ours_claude(port: u16) -> (Value, Value) {
     (Value::String(base_url(port)), Value::String(CLAUDE_TOKEN.into()))
 }
 
-pub fn apply(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Joined> {
-    let mut joined = load_joined(config_dir)?.unwrap_or_default();
+fn route_claude(settings: &mut Map<String, Value>, port: u16) -> Result<()> {
     let (url, token) = ours_claude(port);
-
-    let mut claude = read_claude(&paths.claude_settings)?;
-    let env = claude.entry("env").or_insert_with(|| Value::Object(Map::new()));
+    let env = settings.entry("env").or_insert_with(|| Value::Object(Map::new()));
     let env = env.as_object_mut().context("settings.json `env` is not an object")?;
-
-    let mut doc = read_codex(&paths.codex_config)?;
-    let providers_has_ours = doc.get("model_providers").and_then(|p| p.get(CODEX_PROVIDER)).is_some();
-    let grok = grok_installed(paths)
-        .then(|| read_grok(&paths.grok_config))
-        .transpose()?;
-
-    let muse = paths
-        .muse_settings
-        .parent()
-        .is_some_and(Path::is_dir)
-        .then(|| read_claude(&paths.muse_settings))
-        .transpose()?;
-
-    let mut newly_recorded = false;
-    if let Some(g) = grok.as_ref().filter(|_| !joined.grok_recorded) {
-        record_grok(&mut joined, g);
-        newly_recorded = true;
-    }
-    if let Some(m) = muse.as_ref().filter(|_| !joined.muse_recorded) {
-        joined.muse_transport = m.get("endpoint_transport").cloned();
-        joined.muse_recorded = true;
-        newly_recorded = true;
-    }
-    if !joined.recorded {
-        joined.claude_base_url = env.get("ANTHROPIC_BASE_URL").cloned();
-        joined.claude_auth_token = env.get("ANTHROPIC_AUTH_TOKEN").cloned();
-        joined.claude_cache_ttl = env.get(CLAUDE_CACHE_TTL_KEY).cloned();
-        joined.codex_model_provider = doc.get("model_provider").and_then(|v| v.as_str()).map(str::to_string);
-        joined.codex_table = providers_has_ours
-            .then(|| doc["model_providers"][CODEX_PROVIDER].as_table().map(|t| t.to_string()))
-            .flatten();
-        joined.recorded = true;
-        joined.active = false;
-        newly_recorded = true;
-    }
-    if newly_recorded {
-        fsutil::ensure_private_dir(config_dir)?;
-        fsutil::write_json_durable(&joined_path(config_dir), &joined)?;
-    }
-
     env.insert("ANTHROPIC_BASE_URL".into(), url);
     env.insert("ANTHROPIC_AUTH_TOKEN".into(), token);
     env.entry(CLAUDE_CACHE_TTL_KEY)
         .or_insert_with(|| Value::String(CLAUDE_CACHE_TTL.into()));
-    write_claude(&paths.claude_settings, claude)?;
-
-    doc["model_provider"] = value(CODEX_PROVIDER);
-    if doc.get("model_providers").is_none() {
-        let mut t = Table::new();
-        t.set_implicit(true);
-        doc["model_providers"] = Item::Table(t);
-    }
-    doc["model_providers"][CODEX_PROVIDER] = Item::Table(conflux_table(port));
-    write_codex(&paths.codex_config, &doc)?;
-    if let Some(g) = grok {
-        apply_grok(paths, &joined, g, port)?;
-    }
-    if let Some(m) = muse {
-        apply_muse(paths, m, port)?;
-    }
-
-    joined.active = true;
-    fsutil::ensure_private_dir(config_dir)?;
-    fsutil::write_json_durable(&joined_path(config_dir), &joined)?;
-    Ok(joined)
+    Ok(())
 }
 
-fn restore_value(env: &mut Map<String, Value>, key: &str, ours: &Value, previous: &Option<Value>) {
-    if env.get(key) != Some(ours) {
-        return;
-    }
-    match previous {
-        Some(v) => {
-            env.insert(key.into(), v.clone());
-        }
-        None => {
-            env.remove(key);
-        }
-    }
-}
-
-pub fn restore(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Option<Joined>> {
-    let Some(mut joined) = load_joined(config_dir)? else {
-        return Ok(None);
-    };
-    if !joined.recorded {
-        return Ok(Some(joined));
-    }
+fn unroute_claude(settings: &mut Map<String, Value>, joined: &Joined, port: u16) {
     let (url, token) = ours_claude(port);
-    let grok = (joined.grok_recorded && paths.grok_config.exists())
-        .then(|| read_grok(&paths.grok_config))
-        .transpose()?;
-    let muse = (joined.muse_recorded && paths.muse_settings.exists())
-        .then(|| read_claude(&paths.muse_settings))
-        .transpose()?;
-
-    let mut claude = read_claude(&paths.claude_settings)?;
-    if let Some(env) = claude.get_mut("env").and_then(Value::as_object_mut) {
+    if let Some(env) = settings.get_mut("env").and_then(Value::as_object_mut) {
         restore_value(env, "ANTHROPIC_BASE_URL", &url, &joined.claude_base_url);
         restore_value(env, "ANTHROPIC_AUTH_TOKEN", &token, &joined.claude_auth_token);
         restore_value(
@@ -435,12 +387,22 @@ pub fn restore(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Opti
             &joined.claude_cache_ttl,
         );
         if env.is_empty() {
-            claude.remove("env");
+            settings.remove("env");
         }
     }
-    write_claude(&paths.claude_settings, claude)?;
+}
 
-    let mut doc = read_codex(&paths.codex_config)?;
+fn route_codex(doc: &mut DocumentMut, port: u16) {
+    doc["model_provider"] = value(CODEX_PROVIDER);
+    if doc.get("model_providers").is_none() {
+        let mut t = Table::new();
+        t.set_implicit(true);
+        doc["model_providers"] = Item::Table(t);
+    }
+    doc["model_providers"][CODEX_PROVIDER] = Item::Table(conflux_table(port));
+}
+
+fn unroute_codex(doc: &mut DocumentMut, joined: &Joined, port: u16) {
     if doc.get("model_provider").and_then(|v| v.as_str()) == Some(CODEX_PROVIDER) {
         match &joined.codex_model_provider {
             Some(p) => doc["model_provider"] = value(p.as_str()),
@@ -473,20 +435,174 @@ pub fn restore(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Opti
             doc.remove("model_providers");
         }
     }
-    write_codex(&paths.codex_config, &doc)?;
-    if let Some(g) = grok {
-        restore_grok(paths, &joined, g, port)?;
+}
+
+fn restore_value(env: &mut Map<String, Value>, key: &str, ours: &Value, previous: &Option<Value>) {
+    if env.get(key) != Some(ours) {
+        return;
     }
-    if let Some(m) = muse {
-        restore_muse(&paths.muse_settings, &joined, m, port)?;
+    match previous {
+        Some(v) => {
+            env.insert(key.into(), v.clone());
+        }
+        None => {
+            env.remove(key);
+        }
+    }
+}
+
+pub fn apply(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Joined> {
+    one_change_at_a_time(config_dir, || {
+        let saved = load_joined(config_dir)?.unwrap_or_default();
+        let joined = Joined {
+            active: true,
+            ..saved.clone()
+        };
+        reconcile(paths, config_dir, port, saved, joined)
+    })
+}
+
+pub fn restore(paths: &ClientPaths, config_dir: &Path, port: u16) -> Result<Option<Joined>> {
+    if !joined_path(config_dir).exists() {
+        return Ok(None);
+    }
+    one_change_at_a_time(config_dir, || {
+        let Some(saved) = load_joined(config_dir)? else {
+            return Ok(None);
+        };
+        let joined = Joined {
+            active: false,
+            ..saved.clone()
+        };
+        reconcile(paths, config_dir, port, saved, joined).map(Some)
+    })
+}
+
+pub fn set_providers(paths: &ClientPaths, config_dir: &Path, port: u16, providers: BTreeSet<Provider>) -> Result<()> {
+    one_change_at_a_time(config_dir, || {
+        let saved = load_joined(config_dir)?.unwrap_or_default();
+        let joined = Joined {
+            providers,
+            ..saved.clone()
+        };
+        if joined != saved {
+            save_joined(config_dir, &joined)?;
+        }
+        reconcile(paths, config_dir, port, joined.clone(), joined).map(drop)
+    })
+}
+
+fn reconcile(paths: &ClientPaths, config_dir: &Path, port: u16, saved: Joined, mut joined: Joined) -> Result<Joined> {
+    let routed = |p: Provider| joined.active && joined.providers.contains(&p);
+    let [claude_on, codex_on, grok_on, muse_on] =
+        [Provider::Claude, Provider::Codex, Provider::Grok, Provider::Muse].map(routed);
+    let muse_installed = paths.muse_settings.parent().is_some_and(Path::is_dir);
+
+    let mut claude = (claude_on || joined.claude_recorded)
+        .then(|| read_claude(&paths.claude_settings))
+        .transpose()?;
+    let mut codex = (codex_on || joined.codex_recorded)
+        .then(|| read_codex_config(&paths.codex_config))
+        .transpose()?;
+    let mut grok = if grok_on {
+        grok_installed(paths)
+    } else {
+        joined.grok_recorded && paths.grok_config.exists()
+    }
+    .then(|| read_grok(&paths.grok_config))
+    .transpose()?;
+    let mut muse = if muse_on {
+        muse_installed
+    } else {
+        joined.muse_recorded && paths.muse_settings.exists()
+    }
+    .then(|| read_claude(&paths.muse_settings))
+    .transpose()?;
+
+    if let Some(m) = claude.as_ref().filter(|_| claude_on && !joined.claude_recorded) {
+        let env = m.get("env");
+        joined.claude_base_url = env.and_then(|e| e.get("ANTHROPIC_BASE_URL")).cloned();
+        joined.claude_auth_token = env.and_then(|e| e.get("ANTHROPIC_AUTH_TOKEN")).cloned();
+        joined.claude_cache_ttl = env.and_then(|e| e.get(CLAUDE_CACHE_TTL_KEY)).cloned();
+        joined.claude_recorded = true;
+    }
+    if let Some(doc) = codex.as_ref().filter(|_| codex_on && !joined.codex_recorded) {
+        joined.codex_model_provider = doc.get("model_provider").and_then(|v| v.as_str()).map(str::to_string);
+        joined.codex_table = doc
+            .get("model_providers")
+            .and_then(|p| p.get(CODEX_PROVIDER))
+            .and_then(Item::as_table)
+            .map(|t| t.to_string());
+        joined.codex_recorded = true;
+    }
+    if let Some(g) = grok.as_ref().filter(|_| grok_on && !joined.grok_recorded) {
+        record_grok(&mut joined, g);
+    }
+    if let Some(m) = muse.as_ref().filter(|_| muse_on && !joined.muse_recorded) {
+        joined.muse_transport = m.get("endpoint_transport").cloned();
+        joined.muse_recorded = true;
     }
 
-    joined.active = false;
-    joined.recorded = false;
-    joined.grok_recorded = false;
-    joined.muse_recorded = false;
-    fsutil::write_json_durable(&joined_path(config_dir), &joined)?;
-    Ok(Some(joined))
+    if let Some(m) = claude.as_mut() {
+        if claude_on {
+            route_claude(m, port)?;
+        } else {
+            unroute_claude(m, &joined, port);
+        }
+    }
+    if let Some(doc) = codex.as_mut() {
+        if codex_on {
+            route_codex(doc, port);
+        } else {
+            unroute_codex(doc, &joined, port);
+        }
+    }
+    if let Some(doc) = grok.as_mut() {
+        if grok_on {
+            route_grok(paths, &joined, doc, port);
+        } else {
+            unroute_grok(&joined, doc, port);
+        }
+    }
+    if let Some(m) = muse.as_mut() {
+        if muse_on {
+            m.entry("schema_version").or_insert(Value::from(1));
+            m.insert("endpoint_transport".into(), muse_transport(port));
+        } else {
+            restore_value(m, "endpoint_transport", &muse_transport(port), &joined.muse_transport);
+        }
+    }
+
+    let mut on_disk = saved;
+    let recorded = Joined {
+        active: on_disk.active,
+        ..joined.clone()
+    };
+    if recorded != on_disk {
+        save_joined(config_dir, &recorded)?;
+        on_disk = recorded;
+    }
+    if let Some(m) = claude {
+        write_claude(&paths.claude_settings, m)?;
+    }
+    if let Some(doc) = codex {
+        write_codex(&paths.codex_config, &doc)?;
+    }
+    if let Some(doc) = grok {
+        write_codex(&paths.grok_config, &doc)?;
+    }
+    if let Some(m) = muse {
+        write_claude(&paths.muse_settings, m)?;
+    }
+
+    joined.claude_recorded &= claude_on;
+    joined.codex_recorded &= codex_on;
+    joined.grok_recorded &= grok_on;
+    joined.muse_recorded &= muse_on;
+    if joined != on_disk {
+        save_joined(config_dir, &joined)?;
+    }
+    Ok(joined)
 }
 
 pub fn env_warnings() -> Vec<String> {
@@ -516,15 +632,16 @@ mod tests {
     use super::*;
 
     fn paths(dir: &Path) -> (ClientPaths, PathBuf) {
-        (
-            ClientPaths {
-                claude_settings: dir.join("claude/settings.json"),
-                codex_config: dir.join("codex/config.toml"),
-                grok_config: dir.join("grok/config.toml"),
-                muse_settings: dir.join("muse/settings.json"),
-            },
-            dir.join("conflux"),
-        )
+        let p = ClientPaths {
+            claude_settings: dir.join("claude/settings.json"),
+            codex_config: dir.join("codex/config.toml"),
+            grok_config: dir.join("grok/config.toml"),
+            muse_settings: dir.join("muse/settings.json"),
+        };
+        let conf = dir.join("conflux");
+        let every = [Provider::Claude, Provider::Codex, Provider::Grok, Provider::Muse];
+        set_providers(&p, &conf, 8317, every.into()).unwrap();
+        (p, conf)
     }
 
     const CODEX: &str = "model = \"gpt-6.1-sol\"\n\n[projects.\"/x\"]\ntrust_level = \"trusted\"\n";
@@ -625,6 +742,8 @@ mod tests {
             "grok_recorded",
             "muse_transport",
             "muse_recorded",
+            "claude_recorded",
+            "codex_recorded",
         ] {
             old.as_object_mut().unwrap().remove(key);
         }
@@ -638,6 +757,26 @@ mod tests {
 
         apply(&p, &conf, 8317).unwrap();
         restore(&p, &conf, 8317).unwrap();
+        assert_eq!(std::fs::read_to_string(&p.grok_config).unwrap(), mine);
+        assert_eq!(std::fs::read_to_string(&p.muse_settings).unwrap(), my_muse);
+        assert_eq!(std::fs::read_to_string(&p.claude_settings).unwrap().trim(), "{}");
+        assert_eq!(std::fs::read_to_string(&p.codex_config).unwrap().trim(), "");
+
+        apply(&p, &conf, 8317).unwrap();
+        let mut old: Value = serde_json::from_str(&std::fs::read_to_string(joined_path(&conf)).unwrap()).unwrap();
+        for key in ["providers", "claude_recorded", "codex_recorded"] {
+            old.as_object_mut().unwrap().remove(key);
+        }
+        std::fs::write(joined_path(&conf), old.to_string()).unwrap();
+        apply(&p, &conf, 8317).unwrap();
+        assert!(
+            std::fs::read_to_string(&p.claude_settings)
+                .unwrap()
+                .contains("127.0.0.1:8317")
+        );
+        set_providers(&p, &conf, 8317, BTreeSet::new()).unwrap();
+        assert_eq!(std::fs::read_to_string(&p.claude_settings).unwrap().trim(), "{}");
+        assert_eq!(std::fs::read_to_string(&p.codex_config).unwrap().trim(), "");
         assert_eq!(std::fs::read_to_string(&p.grok_config).unwrap(), mine);
         assert_eq!(std::fs::read_to_string(&p.muse_settings).unwrap(), my_muse);
     }
@@ -694,6 +833,27 @@ mod tests {
         restore(&p, &conf, 8317).unwrap();
         let after: Value = serde_json::from_str(&std::fs::read_to_string(&p.claude_settings).unwrap()).unwrap();
         assert_eq!(after["env"]["ANTHROPIC_AUTH_TOKEN"], "mine");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let d = tempfile::tempdir().unwrap();
+            let (p, conf) = paths(d.path());
+            set_providers(&p, &conf, 8317, BTreeSet::new()).unwrap();
+            apply(&p, &conf, 8317).unwrap();
+            let claude_dir = p.claude_settings.parent().unwrap();
+            std::fs::create_dir_all(claude_dir).unwrap();
+            std::fs::set_permissions(claude_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+            let claude_only = BTreeSet::from([Provider::Claude]);
+            assert!(set_providers(&p, &conf, 8317, claude_only.clone()).is_err());
+            std::fs::set_permissions(claude_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+            set_providers(&p, &conf, 8317, claude_only).unwrap();
+            assert!(
+                std::fs::read_to_string(&p.claude_settings)
+                    .unwrap()
+                    .contains("127.0.0.1:8317")
+            );
+        }
     }
 
     #[test]
@@ -710,14 +870,34 @@ mod tests {
             assert!(apply(&p, &conf, 8317).is_err(), "{broken}");
             assert!(!p.claude_settings.exists());
         }
+        std::fs::create_dir_all(p.codex_config.parent().unwrap()).unwrap();
+        for broken in [
+            "model_providers = \"x\"\n",
+            "[[model_providers]]\nname = \"a\"\n",
+            "model_providers = { conflux = { name = \"mine\" } }\n",
+        ] {
+            std::fs::write(&p.codex_config, broken).unwrap();
+            std::fs::write(&p.grok_config, "").unwrap();
+            assert!(apply(&p, &conf, 8317).is_err(), "{broken}");
+            assert!(!p.claude_settings.exists());
+        }
+        std::fs::remove_file(&p.codex_config).unwrap();
 
         std::fs::write(&p.grok_config, "").unwrap();
         apply(&p, &conf, 8317).unwrap();
         let routed = std::fs::read_to_string(&p.claude_settings).unwrap();
+        let routed_grok = std::fs::read_to_string(&p.grok_config).unwrap();
         std::fs::write(&p.grok_config, "not = [toml").unwrap();
         assert!(restore(&p, &conf, 8317).is_err());
         assert_eq!(std::fs::read_to_string(&p.claude_settings).unwrap(), routed);
         assert!(routing(&conf));
+
+        let claude_only = BTreeSet::from([Provider::Claude]);
+        assert!(set_providers(&p, &conf, 8317, claude_only.clone()).is_err());
+        std::fs::write(&p.grok_config, routed_grok).unwrap();
+        set_providers(&p, &conf, 8317, claude_only).unwrap();
+        assert_eq!(std::fs::read_to_string(&p.grok_config).unwrap().trim(), "");
+        assert_eq!(std::fs::read_to_string(&p.claude_settings).unwrap(), routed);
     }
 
     #[test]

@@ -83,10 +83,12 @@ Makes this machine the hub, or a node of a hub.
 `join` with a name then does these things:
 
 1. It installs conflux as a background service and starts it. See [Logs and the background service](troubleshooting.md#logs-and-the-background-service) for what it installs on each system.
-2. It points Claude Code at conflux. It sets `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` under `env` in `~/.claude/settings.json`. It also sets `CLAUDE_CODE_PROMPT_CACHE_TTL` to `1h`, unless you already set it. Claude Code treats the token as an API key, so without it the main conversation caches for 5 minutes instead of a subscription's 1 hour.
-3. It points Codex at conflux. It sets `model_provider = "conflux"` and adds a `[model_providers.conflux]` table in `~/.codex/config.toml`.
-4. If `~/.grok` exists, it points Grok Build at conflux. It sets `cli_chat_proxy_base_url` under `[endpoints]` in `~/.grok/config.toml`. If Grok Build has no login of its own on this machine, it also sets `auth_provider_command` under `[auth]`, so Grok Build starts without one. A machine where you ran `grok login` keeps that login, and conflux replaces its token with a pooled account's. If you run `grok login` on a machine that conflux set up without one, run `conflux on` right after it, before you start Grok Build, so conflux removes its `auth_provider_command` and Grok Build keeps the new login.
-5. If `~/.config/muse` exists, it points Muse Code at conflux. It sets `endpoint_transport` in `~/.config/muse/settings.json` to conflux's address with `auth` set to `none`, so Muse Code sends no key of its own and needs no login on this machine.
+2. If the hub has a Claude account, it points Claude Code at conflux. It sets `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` under `env` in `~/.claude/settings.json`. It also sets `CLAUDE_CODE_PROMPT_CACHE_TTL` to `1h`, unless you already set it. Claude Code treats the token as an API key, so without it the main conversation caches for 5 minutes instead of a subscription's 1 hour.
+3. If the hub has a Codex account, it points Codex at conflux. It sets `model_provider = "conflux"` and adds a `[model_providers.conflux]` table in `~/.codex/config.toml`.
+4. If `~/.grok` exists and the hub has a Grok account, it points Grok Build at conflux. It sets `cli_chat_proxy_base_url` under `[endpoints]` in `~/.grok/config.toml`. If Grok Build has no login of its own on this machine, it also sets `auth_provider_command` under `[auth]`, so Grok Build starts without one. A machine where you ran `grok login` keeps that login, and conflux replaces its token with a pooled account's. If you run `grok login` on a machine that conflux set up without one, run `conflux on` right after it, before you start Grok Build, so conflux removes its `auth_provider_command` and Grok Build keeps the new login.
+5. If `~/.config/muse` exists and the hub has a Muse account, it points Muse Code at conflux. It sets `endpoint_transport` in `~/.config/muse/settings.json` to conflux's address with `auth` set to `none`, so Muse Code sends no key of its own and needs no login on this machine.
+
+conflux changes a tool's settings only while the hub holds an account for its provider. A tool with no account in conflux keeps its own login. When you add the first account for a provider, every machine with routing on points that tool at conflux. When you remove the last one, they point it back. While routing is on, conflux sets these values again whenever the hub's list arrives. To use a tool's own login, remove its accounts or run `conflux off`. Like the dashboard's routing switch, this automatic switch edits only the default folders. It does not reach tools you set up with `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`, or `XDG_CONFIG_HOME`.
 
 Before it changes these files, conflux saves the values it replaces. `conflux off` and `conflux leave` put them back. If `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`, or `XDG_CONFIG_HOME` is set, conflux edits the files there instead. If you install Grok Build or Muse Code after `join`, run `conflux on` again.
 
@@ -126,7 +128,7 @@ To turn routing off or on for another machine, open Machines on the dashboard, c
 
 ### `conflux on`
 
-Points the coding tools at conflux again after `conflux off`. It saves the current values first, so a later `off` restores what was there just before `on`.
+Points the coding tools at conflux again after `conflux off`, for each provider the hub holds an account for. It saves the current values first, so a later `off` restores what was there just before `on`.
 
 ### `conflux leave`
 

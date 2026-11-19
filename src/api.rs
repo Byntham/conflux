@@ -250,13 +250,10 @@ pub async fn update_machine(
     let done = json!({ "machine": hostname, "routing": on });
     if hostname == app.hostname {
         let hub = app.clone();
-        tokio::task::spawn_blocking(move || {
-            let _one_change_at_a_time = hub.routing_change.lock().unwrap();
-            setup::set_routing(&hub.clients, &hub.paths.config_dir, hub.cfg.port, on)
-        })
-        .await
-        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
+        tokio::task::spawn_blocking(move || setup::set_routing(&hub.clients, &hub.paths.config_dir, hub.cfg.port, on))
+            .await
+            .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
         return Ok(Json(done));
     }
     let named: Vec<_> = app

@@ -271,6 +271,21 @@ impl Node {
                 }
                 false
             }
+            (Some("providers"), _, _) if self.is_guest() && self.access.lock().unwrap()["state"] != "approved" => false,
+            (Some("providers"), _, _) => {
+                let providers = command["providers"].as_array().map(|listed| {
+                    listed
+                        .iter()
+                        .filter_map(|p| serde_json::from_value(p.clone()).ok())
+                        .collect()
+                });
+                if let Some(providers) = providers
+                    && let Err(e) = setup::set_providers(&self.clients, &self.paths.config_dir, self.port, providers)
+                {
+                    tracing::warn!("could not route the hub's providers: {e:#}");
+                }
+                false
+            }
             (Some("access"), _, _) => {
                 if let Err(e) = self.route_while_approved(command["state"] == "approved") {
                     tracing::warn!("could not change routing after the hub's decision: {e:#}");
