@@ -1084,7 +1084,9 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         "openrouter/xai/grok-4.7": {"litellm_provider": "openrouter", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0},
         "claude-sonnet-5-5-20261101": {"litellm_provider": "bedrock", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0},
         "xai/grok-4.7-build": {"litellm_provider": "openai", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0},
-        "openai/grok-4.7-build": {"litellm_provider": "openai", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0}
+        "openai/grok-4.7-build": {"litellm_provider": "openai", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0},
+        "gpt-6.2-sol": {"litellm_provider": "openai", "input_cost_per_token": 2e-6, "output_cost_per_token": 1e-5},
+        "meta/muse-spark-1.3": {"litellm_provider": "meta", "input_cost_per_token": 1.25e-6, "output_cost_per_token": 4.25e-6}
     }));
     std::fs::create_dir_all(h.dir.path().join("data/prices.json")).unwrap();
     h.app.prices.refresh(&reqwest::Client::new()).await.unwrap();
@@ -1199,6 +1201,44 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         ],
         "{split}"
     );
+
+    h.add(Provider::Codex, "c").await;
+    h.add(Provider::Muse, "m").await;
+    let answer = json!({"usage": {"input_tokens": 1000, "output_tokens": 100}}).to_string();
+    h.reply("at-c", Reply::Json(200, vec![], answer.clone()));
+    h.reply("at-m", Reply::Json(200, vec![], answer));
+    h.http
+        .post(format!("{}/v1/responses", h.base))
+        .header("user-agent", "codex_cli_rs/0.200.0")
+        .json(&json!({"model": "gpt-6.2-sol"}))
+        .send()
+        .await
+        .unwrap()
+        .bytes()
+        .await
+        .unwrap();
+    muse(&h, "/muse/v1/responses")
+        .json(&json!({"model": "muse-spark-1.3", "stream": true}))
+        .send()
+        .await
+        .unwrap()
+        .bytes()
+        .await
+        .unwrap();
+    for (provider, want) in [
+        ("codex", 1000.0 * 2e-6 + 100.0 * 1e-5),
+        ("muse", 1000.0 * 1.25e-6 + 100.0 * 4.25e-6),
+    ] {
+        let mut got = serde_json::Value::Null;
+        for _ in 0..40 {
+            got = usage_page(&format!("&provider={provider}")).await;
+            if got["total"]["requests"] == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        assert!(close(&got["total"]["cost"]["total"], want), "{provider}: {got}");
+    }
 
     let status = async || {
         let url = format!("{}/conflux/api/usage?buckets={since}", h.base);

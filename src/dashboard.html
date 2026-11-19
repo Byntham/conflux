@@ -1635,18 +1635,20 @@ function usageStarts(range) {
   const now = new Date();
   if (range === "24h") {
     const floor = now.getTime() - 24 * HOUR_MS;
-    const hourOf = (ms) => {
+    const offset = (ms) => new Date(ms).getTimezoneOffset();
+    const hourStart = (ms) => {
       const d = new Date(ms);
-      return new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours()).getTime();
+      let lo = new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours()).getTime();
+      if (offset(lo) === offset(ms)) return lo;
+      let hi = ms;
+      while (hi - lo > 60000) {
+        const mid = lo + Math.max(60000, Math.floor((hi - lo) / 120000) * 60000);
+        if (offset(mid) === offset(ms)) hi = mid; else lo = mid;
+      }
+      return hi;
     };
     const tops = [];
-    let t = hourOf(now.getTime());
-    if (now.getTime() - t >= HOUR_MS) t += HOUR_MS;
-    while (t > floor) {
-      tops.unshift(t);
-      const top = hourOf(t - 1);
-      t = t - top >= 2 * HOUR_MS ? t - HOUR_MS : top;
-    }
+    for (let t = hourStart(now.getTime()); t > floor; t = hourStart(t - 1)) tops.unshift(t);
     return [floor, ...tops];
   }
   const days = USAGE_DAYS[range];
@@ -1794,7 +1796,7 @@ function usageChart(u, width) {
     for (const i of first && below[0] > 0 ? [0, done] : [done]) parts.push(`<circle class="so-far" cx="${x(i)}" cy="${y(below[i])}" r="4"/>`);
   }
   const labelEvery = u.hourly ? (narrow ? 8 : 6) : Math.max(1, Math.ceil(n / (narrow ? 3 : 5)));
-  const tick = (i) => (u.hourly ? `${i ? "" : `${shortDay(u.starts[i])}, `}${shortHour(u.starts[i])}` : i === n - 1 ? "Today" : shortDay(u.starts[i]));
+  const tick = (i) => (u.hourly ? (i ? shortHour(u.starts[i]) : shortDay(u.starts[i])) : i === n - 1 ? "Today" : shortDay(u.starts[i]));
   for (let i = 0; i < n; i += labelEvery) parts.push(`<text x="${x(i)}" y="${height - 5}" text-anchor="${i ? "middle" : "start"}">${esc(tick(i))}</text>`);
   if ((n - 1) % labelEvery >= labelEvery / 2) parts.push(`<text x="${x(n - 1)}" y="${height - 5}" text-anchor="end">${esc(tick(n - 1))}</text>`);
   parts.push(`<line class="cross" x1="0" x2="0" y1="${padT}" y2="${padT + plotH}" visibility="hidden"/>`);
@@ -1855,7 +1857,9 @@ function usageNotes(u) {
 
 function usageProvider(g, total, pricedOnly) {
   const v = metricOf(g);
-  const counted = byCost() && g.unpriced_tokens ? `${amount(g.unpriced_tokens)} of ${amount(g.tokens)} tokens unpriced` : `${amount(g.tokens)} tokens`;
+  const counted = byCost() && g.unpriced_tokens
+    ? `${amount(g.tokens)} tokens, ${Math.max(1, Math.round((g.unpriced_tokens * 100) / g.tokens))}% unpriced`
+    : `${amount(g.tokens)} tokens`;
   const other = byCost() ? esc(counted) : moneyOf(g);
   return `<div class="usage-provider">
     <div class="usage-provider-name"><span class="dot ${esc(g.provider)}"></span><span class="truncate">${esc(providerName(g.provider))}</span><small>${g.sessions.toLocaleString()} ${g.sessions === 1 ? "session" : "sessions"}</small></div>
@@ -1912,7 +1916,7 @@ function usageTable(u) {
     const other = !g ? "" : byCost() ? esc(amount(g.tokens)) : moneyOf(g);
     const marked = g ? partial(g) : byCost() ? plus(r.unpriced) : "";
     const value = r.value === null ? `<span class="unpriced">Unpriced</span>` : `${esc(metricText(r.value))}${marked}`;
-    const bar = `<div class="usage-share ${r.series || ""}" style="width: ${whole && r.value ? `max(2px, ${(r.value / whole) * 100}%)` : "0"}"></div>`;
+    const bar = time ? "" : `<div class="usage-share ${r.series || ""}" style="width: ${whole && r.value ? `max(2px, ${(r.value / whole) * 100}%)` : "0"}"></div>`;
     return `<tr>${ranked ? `<td class="rank">${i + 1}</td>` : ""}<td class="name"><div class="usage-name">${r.label}</div>${bar}</td>${time ? "" : `<td class="num dim">${other}</td>`}<td class="num dim">${share(r.value, whole)}</td><td class="num">${value}</td></tr>`;
   }).join("") : `<tr><td colspan="5"><div class="empty">Nothing in this range.</div></td></tr>`;
   return `<table class="usage-table">${head}<tbody>${body}</tbody></table>`;
