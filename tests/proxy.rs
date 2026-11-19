@@ -1086,6 +1086,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         "xai/grok-4.7-build": {"litellm_provider": "openai", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0},
         "openai/grok-4.7-build": {"litellm_provider": "openai", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0}
     }));
+    std::fs::create_dir_all(h.dir.path().join("data/prices.json")).unwrap();
     h.app.prices.refresh(&reqwest::Client::new()).await.unwrap();
     let since = (chrono::Utc::now() - chrono::Duration::hours(1)).timestamp();
     let usage_page = |query: &str| {
@@ -1123,6 +1124,22 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         "{all}"
     );
     assert_eq!(all["machines"], json!(["hub-under-test", "node-one"]));
+    assert!(
+        all["prices_fetched_at"].is_string(),
+        "prices apply even when saving them fails"
+    );
+    let now = chrono::Utc::now().timestamp();
+    let many = (0..401).map(|i| (since + i).to_string()).collect::<Vec<_>>().join(",");
+    for bad in [
+        format!("{},{}", since, since - 60),
+        format!("{}", now - 93 * 86400),
+        format!("{since},{}", now + 2 * 3600),
+        many,
+        "soon".into(),
+    ] {
+        let url = format!("{}/conflux/api/usage?buckets={bad}", h.base);
+        assert_eq!(h.http.get(url).send().await.unwrap().status(), 400, "{bad}");
+    }
     let models: Vec<_> = all["by_model"]
         .as_array()
         .unwrap()

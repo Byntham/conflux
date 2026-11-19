@@ -301,7 +301,7 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
     let usage_url = format!("{base}/conflux/api/usage?buckets={since}&provider=codex");
     eventually("the request to reach the usage history", async || {
         let v: Value = reqwest::get(&usage_url).await.ok()?.json().await.ok()?;
-        (v["total"]["requests"] != 0).then_some(())
+        (v["total"]["requests"].as_u64()? > 0).then_some(())
     })
     .await;
     tokio::time::sleep(Duration::from_millis(500)).await;
