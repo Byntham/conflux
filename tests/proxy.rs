@@ -982,7 +982,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
     assert!(h.fake.http_headers.lock().unwrap()[0].get("x-conflux-node").is_none());
 
     h.add(Provider::Grok, "g").await;
-    let incomplete = json!({"type": "response.incomplete", "response": {"usage": {
+    let incomplete = json!({"type": "response.incomplete", "response": {"service_tier": "ultrafast", "usage": {
         "input_tokens": 120, "input_tokens_details": {"cached_tokens": 100}, "output_tokens": 9
     }}});
     h.reply(
@@ -1002,6 +1002,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
     assert_eq!((usage.input, usage.cache_read, usage.output), (20, 100, 9));
+    assert_eq!(usage.speed, conflux::requests::Speed::Ultrafast);
 }
 
 #[tokio::test]

@@ -56,8 +56,21 @@ async fn relays_frames_with_account_auth_and_beta() {
 
     ws.send(create("gpt-6.2-sol")).await.unwrap();
     assert_eq!(next_json(&mut ws).await.unwrap()["response"]["id"], "resp_at-c_2");
+    while next_json(&mut ws).await.unwrap()["type"] != "response.completed" {}
+    let nested = json!({"type": "response.create", "response": {"model": "gpt-6.2-astra"}});
+    ws.send(Message::Binary(nested.to_string().into_bytes().into()))
+        .await
+        .unwrap();
+    assert_eq!(next_json(&mut ws).await.unwrap()["response"]["id"], "resp_at-c_3");
     let models: Vec<_> = h.app.requests.recent().into_iter().map(|r| r.model).collect();
-    assert_eq!(models, [Some("gpt-6.2-sol".into()), Some("gpt-6.1-sol".into())]);
+    assert_eq!(
+        models,
+        [
+            Some("gpt-6.2-astra".into()),
+            Some("gpt-6.2-sol".into()),
+            Some("gpt-6.1-sol".into())
+        ]
+    );
 
     let headers = h.fake.ws_headers.lock().unwrap()[0].clone();
     assert_eq!(

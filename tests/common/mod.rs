@@ -138,7 +138,7 @@ async fn fake_ws(fake: Arc<Fake>, req: Request) -> Response {
     upgrade.on_upgrade(move |mut socket| async move {
         let mut n = 0;
         while let Some(Ok(msg)) = socket.recv().await {
-            let Message::Text(_) = msg else { continue };
+            let (Message::Text(_) | Message::Binary(_)) = msg else { continue };
             n += 1;
             if let WsScript::SlowTurn = script {
                 let id = format!("resp_{token}_{n}");

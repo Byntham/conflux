@@ -53,9 +53,22 @@ struct FrameKind<'a> {
 }
 
 #[derive(Deserialize)]
+struct NestedModel<'a> {
+    #[serde(borrow)]
+    model: Option<Cow<'a, str>>,
+}
+
+#[derive(Deserialize)]
 struct FrameModel<'a> {
     #[serde(borrow)]
     model: Option<Cow<'a, str>>,
+    #[serde(borrow)]
+    response: Option<NestedModel<'a>>,
+}
+
+fn frame_model(frame: &[u8]) -> Option<String> {
+    let f: FrameModel = serde_json::from_slice(frame).ok()?;
+    f.model.or(f.response.and_then(|r| r.model)).map(Cow::into_owned)
 }
 
 #[derive(Default)]
@@ -121,13 +134,9 @@ async fn close_with(client: &mut WebSocket, text: String) {
 
 pub fn first_frame_route(headers: &HeaderMap, first: &str) -> RouteRequest {
     let v: Value = serde_json::from_str(first).unwrap_or(Value::Null);
-    let model = v["model"]
-        .as_str()
-        .or_else(|| v["response"]["model"].as_str())
-        .map(str::to_string);
     RouteRequest {
         provider: Provider::Codex,
-        model,
+        model: frame_model(first.as_bytes()),
         session: proxy::codex_session(headers, &v),
     }
 }
@@ -340,10 +349,15 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, upstrea
                 };
                 turns.client_sent(&msg);
                 let closing = matches!(msg, ClientMsg::Close(_));
-                if let ClientMsg::Text(t) = &msg {
+                let frame = match &msg {
+                    ClientMsg::Text(t) => Some(t.as_str().as_bytes()),
+                    ClientMsg::Binary(b) => Some(&b[..]),
+                    _ => None,
+                };
+                if let Some(frame) = frame {
                     turn.started.set(Instant::now());
-                    if let Ok(FrameModel { model: Some(model) }) = serde_json::from_str(t.as_str()) {
-                        route.model = Some(model.into_owned());
+                    if let Some(model) = frame_model(frame) {
+                        route.model = Some(model);
                     }
                 }
                 if up_tx.send(to_upstream(msg)).await.is_err() || closing {
