@@ -30,6 +30,7 @@ pub enum WsScript {
     Normal,
     QuotaMidStream,
     SlowTurn,
+    IncompleteTurn,
     RejectHandshake429,
     RejectHandshake401,
 }
@@ -137,8 +138,9 @@ async fn fake_ws(fake: Arc<Fake>, req: Request) -> Response {
     upgrade.on_upgrade(move |mut socket| async move {
         let mut n = 0;
         while let Some(Ok(msg)) = socket.recv().await {
-            let Message::Text(_) = msg else { continue };
+            let Message::Text(text) = msg else { continue };
             n += 1;
+            let model = serde_json::from_str::<Value>(text.as_str()).unwrap_or_default()["model"].clone();
             if let WsScript::SlowTurn = script {
                 let id = format!("resp_{token}_{n}");
                 let created = json!({"type": "response.created", "response": {"id": id}});
@@ -157,8 +159,14 @@ async fn fake_ws(fake: Arc<Fake>, req: Request) -> Response {
                     "type": "error", "status": 429,
                     "error": {"type": "usage_limit_reached", "message": "limit", "resets_in_seconds": 600}
                 })],
-                _ => vec![
+                WsScript::IncompleteTurn => vec![
                     json!({"type": "response.created", "response": {"id": format!("resp_{token}_{n}")}}),
+                    json!({"type": "response.incomplete", "response": {"id": format!("resp_{token}_{n}"), "usage": {
+                        "input_tokens": 50, "input_tokens_details": {"cached_tokens": 40}, "output_tokens": 3
+                    }}}),
+                ],
+                _ => vec![
+                    json!({"type": "response.created", "response": {"id": format!("resp_{token}_{n}"), "model": model}}),
                     json!({"type": "codex.rate_limits", "rate_limits": {
                         "primary": {"used_percent": 33.0, "window_minutes": 300, "reset_after_seconds": 100}}}),
                     json!({"type": "response.completed", "response": {"id": format!("resp_{token}_{n}"), "token": token}}),

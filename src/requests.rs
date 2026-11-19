@@ -19,6 +19,8 @@ pub struct TokenUsage {
     pub input: u64,
     pub cache_read: u64,
     pub cache_write: u64,
+    #[serde(default)]
+    pub cache_write_1h: u64,
     pub output: u64,
 }
 
@@ -276,6 +278,9 @@ fn apply_claude_usage(u: &mut TokenUsage, usage: &Value) {
     if usage["cache_creation_input_tokens"].is_u64() {
         u.cache_write = n(&usage["cache_creation_input_tokens"]);
     }
+    if usage["cache_creation"]["ephemeral_1h_input_tokens"].is_u64() {
+        u.cache_write_1h = n(&usage["cache_creation"]["ephemeral_1h_input_tokens"]);
+    }
     if usage["output_tokens"].is_u64() {
         u.output = n(&usage["output_tokens"]);
     }
@@ -288,11 +293,18 @@ fn apply_codex_usage(u: &mut TokenUsage, usage: &Value) {
     u.output = n(&usage["output_tokens"]);
 }
 
+pub fn is_response_end(kind: Option<&str>) -> bool {
+    matches!(
+        kind,
+        Some("response.completed" | "response.incomplete" | "response.failed")
+    )
+}
+
 pub fn apply_event(provider: Provider, u: &mut TokenUsage, v: &Value) {
     match (provider, v["type"].as_str()) {
         (Provider::Claude, Some("message_start")) => apply_claude_usage(u, &v["message"]["usage"]),
         (Provider::Claude, _) => apply_claude_usage(u, &v["usage"]),
-        (_, Some("response.completed")) => apply_codex_usage(u, &v["response"]["usage"]),
+        (_, kind) if is_response_end(kind) => apply_codex_usage(u, &v["response"]["usage"]),
         _ if v["usage"].is_object() => apply_codex_usage(u, &v["usage"]),
         _ => {}
     }
@@ -432,6 +444,7 @@ mod tests {
                 input: 20,
                 cache_read: 80,
                 cache_write: 0,
+                cache_write_1h: 0,
                 output: 5
             }
         );

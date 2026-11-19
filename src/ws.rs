@@ -418,27 +418,34 @@ fn inspect_event(app: &App, account: &AccountEntry, route: &RouteRequest, turn: 
     let Ok(v) = serde_json::from_str::<Value>(text) else {
         return false;
     };
-    match v["type"].as_str() {
+    let kind = v["type"].as_str();
+    if requests::is_response_end(kind)
+        && let Some(record) = turn.record.take()
+    {
+        let mut usage = TokenUsage::default();
+        requests::apply_event(Provider::Codex, &mut usage, &v);
+        app.requests.set_usage(record, usage);
+    }
+    match kind {
         Some("response.created") => {
+            let route = RouteRequest {
+                model: v["response"]["model"]
+                    .as_str()
+                    .map(str::to_string)
+                    .or(route.model.clone()),
+                ..route.clone()
+            };
             let record = proxy::log_attempt(
                 app,
                 Provider::Codex,
                 account,
-                route,
+                &route,
                 &turn.machine,
                 200,
                 turn.started.get(),
             );
             app.requests.set_transport(record, "ws");
             turn.record.set(Some(record));
-            false
-        }
-        Some("response.completed") => {
-            if let Some(record) = turn.record.take() {
-                let mut usage = TokenUsage::default();
-                requests::apply_event(Provider::Codex, &mut usage, &v);
-                app.requests.set_usage(record, usage);
-            }
             false
         }
         Some("codex.rate_limits") => {

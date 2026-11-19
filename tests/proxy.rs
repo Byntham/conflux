@@ -925,7 +925,8 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
     h.add(Provider::Claude, "a").await;
     let sse = concat!(
         "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3,",
-        "\"cache_read_input_tokens\":900,\"cache_creation_input_tokens\":20,\"output_tokens\":1}}}\n\n",
+        "\"cache_read_input_tokens\":900,\"cache_creation_input_tokens\":20,\"cache_creation\":",
+        "{\"ephemeral_5m_input_tokens\":5,\"ephemeral_1h_input_tokens\":15},\"output_tokens\":1}}}\n\n",
         "event: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":44}}\n\n"
     );
     h.reply(
@@ -975,8 +976,31 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
     assert_eq!(record["machine"], "node-one");
     assert_eq!(record["usage"]["cache_read"], 900);
     assert_eq!(record["usage"]["cache_write"], 20);
+    assert_eq!(record["usage"]["cache_write_1h"], 15);
     assert_eq!(record["usage"]["output"], 44);
     assert!(h.fake.http_headers.lock().unwrap()[0].get("x-conflux-node").is_none());
+
+    h.add(Provider::Grok, "g").await;
+    let incomplete = json!({"type": "response.incomplete", "response": {"usage": {
+        "input_tokens": 120, "input_tokens_details": {"cached_tokens": 100}, "output_tokens": 9
+    }}});
+    h.reply(
+        "at-g",
+        Reply::Raw(
+            vec![("content-type", "text/event-stream".into())],
+            format!("event: response.incomplete\ndata: {incomplete}\n\n").into_bytes(),
+        ),
+    );
+    grok(&h, "s1").send().await.unwrap().bytes().await.unwrap();
+    let mut usage = Default::default();
+    for _ in 0..40 {
+        usage = h.app.requests.recent()[0].usage;
+        if usage.output == 9 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!((usage.input, usage.cache_read, usage.output), (20, 100, 9));
 }
 
 #[tokio::test]
