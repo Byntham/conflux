@@ -269,10 +269,11 @@ impl Refresher {
             .and_then(|_| e.apply_ok(creds));
         drop(_op);
         drop(gate);
-        if let Err(err) = result {
+        if result.is_err() {
             self.store.forget_if_unsaved(&e.id);
-            return Err(err);
         }
+        self.store.accounts_changed();
+        result?;
         Ok(e)
     }
 

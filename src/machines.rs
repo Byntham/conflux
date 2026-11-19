@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::sync::{Notify, mpsc};
 
+use crate::accounts::Provider;
 use crate::app::App;
 use crate::guests::Access;
 use crate::tailnet::{Caller, Identity};
@@ -289,6 +290,10 @@ pub fn access(state: Access, owner: Option<&str>) -> Value {
     json!({ "type": "access", "state": state, "owner": owner })
 }
 
+pub fn providers(providers: &BTreeSet<Provider>) -> Value {
+    json!({ "type": "providers", "providers": providers })
+}
+
 pub fn set_routing(on: bool) -> Value {
     json!({ "type": "routing", "on": on })
 }
@@ -329,7 +334,9 @@ async fn serve_control(app: Arc<App>, mut node: WebSocket, address: IpAddr, peer
     let (key, link, mut commands) = app.machines.connect(first, address, peer.as_ref());
     let guest = peer.filter(|p| !p.owner).map(|p| p.node);
     let mut access_changed = app.guests.watch();
+    let mut accounts = app.store.providers();
     let mut told = None;
+    let mut told_providers = None;
     if let Some(hub) = app.redirect_hub()
         && node
             .send(Message::Text(hub_moved(&hub).to_string().into()))
@@ -356,11 +363,28 @@ async fn serve_control(app: Arc<App>, mut node: WebSocket, address: IpAddr, peer
                 told = Some(now);
             }
         }
+        let now = accounts.borrow_and_update().clone();
+        let may_know = app.redirect_hub().is_none() && (guest.is_none() || told == Some(Access::Approved));
+        if may_know && told_providers.as_ref() != Some(&now) {
+            if node
+                .send(Message::Text(providers(&now).to_string().into()))
+                .await
+                .is_err()
+            {
+                break;
+            }
+            told_providers = Some(now);
+        }
         tokio::select! {
             () = &mut drain => break,
             command = commands.recv() => {
                 let Some(command) = command else { break };
                 if node.send(Message::Text(command.to_string().into())).await.is_err() {
+                    break;
+                }
+            }
+            changed = accounts.changed() => {
+                if changed.is_err() {
                     break;
                 }
             }

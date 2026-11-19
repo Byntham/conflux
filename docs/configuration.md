@@ -9,7 +9,7 @@ conflux uses the same paths on Linux, macOS, and Windows. On Windows, `~` is you
 | Path | What it holds |
 | --- | --- |
 | `~/.config/conflux/config.toml` | This machine's settings. See below. |
-| `~/.config/conflux/joined.json` | The Claude Code, Codex, Grok Build, and Muse Code settings that `join` replaced, so `off` and `leave` can restore them. |
+| `~/.config/conflux/joined.json` | The Claude Code, Codex, Grok Build, and Muse Code settings that `join` replaced, so `off` and `leave` can restore them, and the providers the hub holds accounts for. |
 | `~/.config/conflux/management-key` | The key that `conflux t3-key` prints. Hub only. |
 | `~/.local/share/conflux/accounts/` | One set of files per account, with its OAuth tokens in plain text. Hub only. |
 | `~/.local/share/conflux/retired-*/` | The accounts an old hub kept after a hub move. Delete it once the move has worked. |
