@@ -12,7 +12,7 @@ conflux uses the same paths on Linux, macOS, and Windows. On Windows, `~` is you
 | `~/.config/conflux/joined.json` | The Claude Code, Codex, Grok Build, and Muse Code settings that `join` replaced, so `off` and `leave` can restore them, and the providers the hub holds accounts for. |
 | `~/.config/conflux/management-key` | The key that `conflux t3-key` prints. Hub only. |
 | `~/.local/share/conflux/accounts/` | One set of files per account, with its OAuth tokens in plain text. Hub only. |
-| `~/.local/share/conflux/analytics/` | One file per day of the requests the hub served, for the Usage page. Kept for at least 90 days. Hub only. |
+| `~/.local/share/conflux/analytics/` | One file per day of the requests the hub served, with each request's machine, account email, model, and token counts, for the Usage page. Kept for at least 90 days. Hub only. |
 | `~/.local/share/conflux/prices.json` | Public API prices from LiteLLM, refreshed daily, for the Usage page's cost estimate. Hub only. |
 | `~/.local/share/conflux/retired-*/` | The accounts an old hub kept after a hub move. Delete it once the move has worked. |
 | `~/conflux/transcripts/` | Transcripts that machines copied with `conflux sync on`. Hub only. |

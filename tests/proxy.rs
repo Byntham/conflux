@@ -1203,7 +1203,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
     );
 
     h.add(Provider::Codex, "c").await;
-    h.add(Provider::Muse, "m").await;
+    let muse_account = h.add(Provider::Muse, "m").await;
     let answer = json!({"usage": {"input_tokens": 1000, "output_tokens": 100}}).to_string();
     h.reply("at-c", Reply::Json(200, vec![], answer.clone()));
     h.reply("at-m", Reply::Json(200, vec![], answer));
@@ -1239,6 +1239,19 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         }
         assert!(close(&got["total"]["cost"]["total"], want), "{provider}: {got}");
     }
+    let removed = h
+        .http
+        .delete(format!("{}/conflux/api/accounts/{muse_account}", h.base))
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert!(removed.status().is_success(), "{}", removed.status());
+    let after = usage_page("&provider=muse").await;
+    assert_eq!(
+        after["by_account"][0]["email"], "m@example.com",
+        "a removed account keeps its label: {after}"
+    );
 
     let status = async || {
         let url = format!("{}/conflux/api/usage?buckets={since}", h.base);

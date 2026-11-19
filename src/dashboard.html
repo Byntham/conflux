@@ -1754,6 +1754,10 @@ function controls(values) {
 
 
 function usageChart(u, width) {
+  if (byCost() && !u.total.cost) {
+    usageGeom = null;
+    return `<div class="usage-chart"><h2>${u.hourly ? "Hourly" : "Daily"} cost</h2><div class="chart-empty">None of these tokens has a public price. Switch to Tokens to see them over time.</div></div>`;
+  }
   const s = usageSeries(u);
   const narrow = width < 520;
   const height = narrow ? 180 : 260;
@@ -1812,10 +1816,10 @@ function bucketValue(value, unpriced) {
 }
 
 function hideUsageTip() {
-  const chart = document.querySelector(".usage-chart");
-  if (!chart) return;
-  chart.querySelector(".usage-tip").hidden = true;
-  chart.querySelector(".cross").setAttribute("visibility", "hidden");
+  const tip = document.querySelector(".usage-chart .usage-tip");
+  if (!tip) return;
+  tip.hidden = true;
+  document.querySelector(".usage-chart .cross").setAttribute("visibility", "hidden");
 }
 
 function showUsageTip(ev) {
@@ -2473,7 +2477,7 @@ window.addEventListener("hashchange", showView);
 window.addEventListener("resize", () => { closeMenu(); if (latest) { renderChart(latest); renderPools(latest); renderUsage(); } });
 $("usage-body").addEventListener("pointermove", showUsageTip);
 $("usage-body").addEventListener("pointerdown", showUsageTip);
-$("usage-body").addEventListener("pointerleave", hideUsageTip);
+$("usage-body").addEventListener("pointerleave", (ev) => { if (ev.pointerType !== "touch") hideUsageTip(); });
 $("usage-machine").onchange = loadUsage;
 $("usage-provider").onchange = loadUsage;
 $("pool").addEventListener("pointermove", showPoolTip);
