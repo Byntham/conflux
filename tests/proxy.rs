@@ -368,6 +368,21 @@ async fn grok_requests_use_grok_accounts_and_fail_over_on_quota() {
         .unwrap();
     assert_eq!(r.status(), 429);
     assert!(h.app.router.cooldowns(&second_id).is_empty());
+    let until = Utc::now() + chrono::Duration::minutes(5);
+    h.app.router.cool(
+        &second_id,
+        &conflux::router::model_scope("grok-4.7"),
+        until,
+        "throttled",
+    );
+    let r = h
+        .http
+        .post(format!("{}/grok/v1/storage", h.base))
+        .json(&json!({"model": "grok-4.7"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
     let log = h.app.requests.recent();
     let rows: Vec<_> = log.iter().map(|r| (r.model.as_deref(), r.session.as_deref())).collect();
     assert_eq!(
