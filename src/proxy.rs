@@ -28,6 +28,7 @@ pub const GROK_PREFIX: &str = "/grok/v1/";
 pub const MUSE_PREFIX: &str = "/muse/v1/";
 pub const MUSE_CODE_PREFIX: &str = "/muse-code/";
 const MUSE_PATHS: &[&str] = &["responses"];
+const GROK_INFERENCE_PATHS: &[&str] = &["responses", "chat"];
 const MUSE_CODE_PATHS: &[&str] = &["models", "search", "browser_open", "feedback"];
 
 fn first_segment_in(path: &str, prefix: &str, allowed: &[&str]) -> bool {
@@ -55,6 +56,14 @@ pub fn provider_for(path: &str, user_agent: &str) -> Option<Provider> {
         })
     } else {
         None
+    }
+}
+
+fn is_inference(provider: Provider, path: &str) -> bool {
+    match provider {
+        Provider::Grok => first_segment_in(path, GROK_PREFIX, GROK_INFERENCE_PATHS),
+        Provider::Muse => path.starts_with(MUSE_PREFIX),
+        Provider::Claude | Provider::Codex => true,
     }
 }
 
@@ -235,12 +244,8 @@ fn header_or_cache_key(h: &HeaderMap, header: &str, body: &Value) -> Option<Stri
 }
 
 pub fn route_request(provider: Provider, h: &HeaderMap, body: &[u8]) -> RouteRequest {
-    let encoded = h.get(header::CONTENT_ENCODING).is_some();
-    let json: Value = if encoded {
-        Value::Null
-    } else {
-        serde_json::from_slice(body).unwrap_or(Value::Null)
-    };
+    let plain = requests::decompressed(header_str(h, "content-encoding"), body, MAX_REQUEST_BODY);
+    let json: Value = serde_json::from_slice(&plain).unwrap_or(Value::Null);
     RouteRequest {
         provider,
         model: json["model"].as_str().map(str::to_string),
@@ -378,7 +383,7 @@ pub fn classify_responses_429(
     model: Option<&str>,
     now: DateTime<Utc>,
 ) -> Rejection {
-    let plain = requests::decompressed(header_str(h, "content-encoding"), body);
+    let plain = requests::decompressed(header_str(h, "content-encoding"), body, MAX_REJECTION_BODY);
     let v: Value = serde_json::from_slice(&plain).unwrap_or(Value::Null);
     if is_usage_limit(provider, &v) {
         let until = codex_reset(&v, now)
@@ -582,9 +587,9 @@ pub async fn handle(State(app): State<Arc<App>>, req: Request) -> Response {
     let route = route_request(provider, &parts.headers, &body);
     let machine = machine_name(&app, &parts.headers);
     let started = Instant::now();
+    let logged = parts.method == http::Method::POST && is_inference(provider, &path);
     let log = |account: &AccountEntry, status: u16| {
-        (parts.method == http::Method::POST)
-            .then(|| log_attempt(&app, provider, account, &route, &machine, status, started))
+        logged.then(|| log_attempt(&app, provider, account, &route, &machine, status, started))
     };
     let attempt = Attempt {
         app: &app,

@@ -335,6 +335,40 @@ async fn grok_requests_use_grok_accounts_and_fail_over_on_quota() {
     let v: serde_json::Value = r.json().await.unwrap();
     assert_eq!(v["token"], second);
     assert_eq!(h.hits_for("at-c"), 0);
+
+    let body = zstd::encode_all(json!({"model": "grok-4.7", "stream": true}).to_string().as_bytes(), 0).unwrap();
+    let r = h
+        .http
+        .post(format!("{}/grok/v1/responses", h.base))
+        .header("x-grok-session-id", "s3")
+        .header("content-type", "application/json")
+        .header("content-encoding", "zstd")
+        .body(body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    for path in ["storage", "sessions/s3/turn-deltas", "traces"] {
+        let r = h
+            .http
+            .post(format!("{}/grok/v1/{path}", h.base))
+            .json(&json!({"model": "grok-4.7"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 200, "{path}");
+    }
+    let log = h.app.requests.recent();
+    let rows: Vec<_> = log.iter().map(|r| (r.model.as_deref(), r.session.as_deref())).collect();
+    assert_eq!(
+        rows,
+        [
+            (Some("grok-4.7"), Some("s3")),
+            (Some("grok-4.7"), Some("s2")),
+            (Some("grok-4.7"), Some("s1")),
+            (Some("grok-4.7"), Some("s1")),
+        ]
+    );
 }
 
 #[tokio::test]
@@ -605,6 +639,7 @@ async fn muse_requests_route_report_quota_and_fail_over() {
             .unwrap();
         assert_eq!(r.status(), 200, "{path}");
     }
+    assert_eq!(h.app.requests.recent().len(), 2);
 }
 
 #[tokio::test]
