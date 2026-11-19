@@ -229,7 +229,7 @@ struct Accounts: View {
                     Text("Pools")
                     Spacer()
                     Text("Left").frame(width: 34, alignment: .trailing)
-                    Text("Resets in").frame(width: 52, alignment: .trailing)
+                    Text("Next refill").frame(width: 80, alignment: .trailing)
                 }
                 .font(.system(size: 11))
                 .foregroundStyle(Palette.muted)
@@ -258,8 +258,8 @@ struct PoolRow: View {
                 status
             }
             let windows = pool.windows(now: now)
-            ForEach(windows) { window in
-                Meter(window: window, now: now)
+            ForEach(windows) { bar in
+                Meter(window: bar.window, refillPct: bar.refillPct, now: now)
             }
             if pool.accounts.contains(where: { $0.needsLogin != nil }) {
                 Button("Log in again in the dashboard", action: openDashboard)
@@ -348,6 +348,7 @@ struct Pill: View {
 
 struct Meter: View {
     let window: UsageWindow
+    let refillPct: Double
     let now: Date
 
     var body: some View {
@@ -370,13 +371,18 @@ struct Meter: View {
                 .font(.system(size: 11).monospacedDigit())
                 .foregroundStyle(left <= 0 ? Palette.bad : left <= 20 ? Palette.warn : .primary)
                 .frame(width: 34, alignment: .trailing)
-            Text(window.resetsAt.map { Countdown.text($0, now: now) } ?? "")
+            Text(refill.map { "+\($0.gain)% \($0.wait)" } ?? "")
                 .font(.system(size: 11).monospacedDigit())
                 .foregroundStyle(Palette.muted)
-                .frame(width: 52, alignment: .trailing)
+                .frame(width: 80, alignment: .trailing)
                 .lineLimit(1)
         }
-        .help("\(Int(left))% of the \(name) limit left, averaged across accounts" + (window.resetsAt.map { ". The next account resets in \(Countdown.text($0, now: now))" } ?? ""))
+        .help("\(Int(left))% of the \(name) limit left, averaged across accounts" + (refill.map { ". In \($0.wait), an account resets and adds \($0.gain)% back" } ?? ""))
+    }
+
+    private var refill: (gain: Int, wait: String)? {
+        guard let at = window.resetsAt, refillPct > 0 else { return nil }
+        return (max(1, Int(refillPct.rounded())), Countdown.text(at, now: now))
     }
 
     private func color(_ left: Double) -> Color {

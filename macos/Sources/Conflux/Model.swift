@@ -87,7 +87,7 @@ struct Pool: Identifiable {
         }
     }
 
-    func windows(now: Date) -> [UsageWindow] {
+    func windows(now: Date) -> [PoolWindow] {
         let members = accounts.filter {
             $0.enabled && $0.needsLogin == nil && $0.billingBlocked == nil && !$0.sharedWindows.isEmpty
         }
@@ -102,16 +102,29 @@ struct Pool: Identifiable {
             let used = group.map { window in
                 window.resetsAt.map { $0 <= now } == true ? 0 : min(100, max(0, window.usedPct))
             }
-            let refill = zip(group, used).filter { $1 > 0 }.compactMap { $0.0.resetsAt }.filter { $0 > now }.min()
-            return UsageWindow(
-                key: name,
-                usedPct: used.reduce(0, +) / Double(members.count),
-                resetsAt: refill,
-                durationSecs: group[0].durationSecs,
-                modelScope: nil
+            let refillAt = zip(group, used).filter { $1 > 0 }.compactMap { $0.0.resetsAt }.filter { $0 > now }.min()
+            let refill = refillAt.map { at in
+                zip(group, used).filter { $0.0.resetsAt == at }.map { $0.1 }.reduce(0, +)
+            } ?? 0
+            return PoolWindow(
+                window: UsageWindow(
+                    key: name,
+                    usedPct: used.reduce(0, +) / Double(members.count),
+                    resetsAt: refillAt,
+                    durationSecs: group[0].durationSecs,
+                    modelScope: nil
+                ),
+                refillPct: refill / Double(members.count)
             )
         }
     }
+}
+
+struct PoolWindow: Identifiable {
+    let window: UsageWindow
+    let refillPct: Double
+
+    var id: String { window.key }
 }
 
 @MainActor
