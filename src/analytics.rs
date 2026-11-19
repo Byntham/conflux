@@ -114,13 +114,16 @@ impl Ledger {
         let mut day = since.date_naive();
         while day <= until.date_naive() {
             match std::fs::File::open(day_file(&self.dir, day)) {
-                Ok(file) => rows.extend(
-                    BufReader::new(file)
-                        .split(b'\n')
-                        .map_while(Result::ok)
-                        .filter_map(|line| serde_json::from_slice::<Row>(&line).ok())
-                        .filter(|r| r.at >= since && r.at <= until),
-                ),
+                Ok(file) => {
+                    for line in BufReader::new(file).split(b'\n') {
+                        if let Ok(r) = serde_json::from_slice::<Row>(&line?)
+                            && r.at >= since
+                            && r.at <= until
+                        {
+                            rows.push(r);
+                        }
+                    }
+                }
                 Err(e) if missing(&e) => {}
                 Err(e) => return Err(e),
             }

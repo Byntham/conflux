@@ -202,10 +202,11 @@ pub fn parse_litellm(doc: &Value) -> HashMap<String, ModelRate> {
     };
     for (name, entry) in entries {
         let key = name.trim().to_lowercase();
-        let first_party = match key.split_once('/') {
+        let named = match key.split_once('/') {
             None => true,
             Some((vendor, rest)) => VENDORS.contains(&vendor) && !rest.contains('/'),
         };
+        let first_party = named && entry["litellm_provider"].as_str().is_some_and(|p| VENDORS.contains(&p));
         if first_party && let Some(rate) = read_model(entry) {
             models.insert(key, rate);
         }

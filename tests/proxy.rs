@@ -1072,16 +1072,17 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
 
     *h.fake.prices.lock().unwrap() = Some(json!({
         "claude-sonnet-5-5": {
-            "input_cost_per_token": 2e-6, "output_cost_per_token": 1e-5,
+            "litellm_provider": "anthropic", "input_cost_per_token": 2e-6, "output_cost_per_token": 1e-5,
             "cache_read_input_token_cost": 1e-7, "cache_creation_input_token_cost": 2.5e-6,
             "cache_creation_input_token_cost_above_1hr": 4e-6, "provider_specific_entry": {"fast": 2}
         },
         "xai/grok-4.7": {
-            "input_cost_per_token": 2e-6, "output_cost_per_token": 6e-6, "cache_read_input_token_cost": 5e-7,
+            "litellm_provider": "xai", "input_cost_per_token": 2e-6, "output_cost_per_token": 6e-6, "cache_read_input_token_cost": 5e-7,
             "input_cost_per_token_above_100k_tokens": 4e-6, "output_cost_per_token_above_100k_tokens": 1.2e-5,
             "input_cost_per_token_priority": 6e-6, "output_cost_per_token_priority": 1.8e-5
         },
-        "openrouter/xai/grok-4.7": {"input_cost_per_token": 1.0, "output_cost_per_token": 1.0}
+        "openrouter/xai/grok-4.7": {"litellm_provider": "openrouter", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0},
+        "claude-sonnet-5-5-20261101": {"litellm_provider": "bedrock", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0}
     }));
     h.app.prices.refresh(&reqwest::Client::new()).await.unwrap();
     let since = (chrono::Utc::now() - chrono::Duration::hours(1)).timestamp();
@@ -1178,6 +1179,20 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
             (json!(1), json!("grok"))
         ],
         "{split}"
+    );
+
+    std::fs::remove_dir_all(&analytics).unwrap();
+    std::fs::write(&analytics, "").unwrap();
+    let broken = h
+        .http
+        .get(format!("{}/conflux/api/usage?buckets={since}", h.base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        broken.status(),
+        500,
+        "unreadable history is an error, not an empty range"
     );
 }
 
