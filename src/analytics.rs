@@ -28,6 +28,8 @@ pub struct Row {
     pub machine: String,
     pub provider: Provider,
     pub account: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
     pub model: Option<String>,
     pub session: Option<String>,
     pub usage: TokenUsage,
@@ -40,6 +42,7 @@ impl From<&RequestRecord> for Row {
             machine: r.machine.clone(),
             provider: r.provider,
             account: r.account.clone(),
+            email: r.email.clone(),
             model: r.model.clone(),
             session: r.session.clone(),
             usage: r.usage,
@@ -239,7 +242,11 @@ pub fn summarize(rows: &[Row], prices: &Table, filter: &Filter, email: impl Fn(&
     let mut buckets: BTreeMap<(usize, Provider), (u64, f64, u64)> = BTreeMap::new();
     let mut rates: HashMap<(Provider, &str), Option<&ModelRate>> = HashMap::new();
     let mut unpriced_models = HashSet::new();
+    let mut recorded_emails: HashMap<&str, &str> = HashMap::new();
     for row in rows {
+        if let Some(e) = &row.email {
+            recorded_emails.insert(row.account.as_str(), e.as_str());
+        }
         machines.insert(row.machine.as_str());
         providers.insert(row.provider);
         if filter.machine.is_some_and(|m| m != row.machine) || filter.provider.is_some_and(|p| p != row.provider) {
@@ -295,7 +302,7 @@ pub fn summarize(rows: &[Row], prices: &Table, filter: &Filter, email: impl Fn(&
         "total": total.view(),
         "by_provider": grouped(by_provider, |p| json!({ "provider": p })),
         "by_model": grouped(by_model, |(p, m)| json!({ "provider": p, "model": m })),
-        "by_account": grouped(by_account, |(p, a)| json!({ "provider": p, "account": a, "email": email(a) })),
+        "by_account": grouped(by_account, |(p, a)| json!({ "provider": p, "account": a, "email": email(a).or_else(|| recorded_emails.get(a).map(|e| e.to_string())) })),
         "by_machine": grouped(by_machine, |m| json!({ "machine": m })),
         "buckets": buckets
             .into_iter()

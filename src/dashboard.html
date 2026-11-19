@@ -486,6 +486,7 @@
     #request-log td { overflow: hidden; text-overflow: ellipsis; }
   }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+  @media (max-width: 1200px) { .usage-board { grid-template-columns: minmax(0, 1fr); gap: 22px; } }
   @media (max-width: 1080px) {
     .stats { grid-template-columns: repeat(6, minmax(0, 1fr)); row-gap: 16px; }
     .stat { grid-column: span 2; }
@@ -493,7 +494,6 @@
     .accounts { grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); }
     .meter { grid-template-columns: minmax(0, 1fr) auto 42px; grid-template-areas: "name reset pct" "track track track"; gap: 5px 8px; }
     .meter-name { grid-area: name; } .meter-reset { grid-area: reset; } .meter-pct { grid-area: pct; } .track { grid-area: track; }
-    .usage-board { grid-template-columns: minmax(0, 1fr); gap: 22px; }
   }
   @media (max-width: 760px) {
     .app { display: block; }
@@ -1638,7 +1638,7 @@ function usageStarts(range) {
     const offset = (ms) => new Date(ms).getTimezoneOffset();
     const hourStart = (ms) => {
       const d = new Date(ms);
-      let lo = new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours()).getTime();
+      let lo = ms - (d.getMinutes() * 60000 + d.getSeconds() * 1000 + d.getMilliseconds());
       if (offset(lo) === offset(ms)) return lo;
       let hi = ms;
       while (hi - lo > 60000) {
@@ -1648,7 +1648,7 @@ function usageStarts(range) {
       return hi;
     };
     const tops = [];
-    for (let t = hourStart(now.getTime()); t > floor; t = hourStart(t - 1)) tops.unshift(t);
+    for (let t = hourStart(now.getTime()); t > floor; t = Math.min(hourStart(t - 1), t - 60000)) tops.unshift(t);
     return [floor, ...tops];
   }
   const days = USAGE_DAYS[range];
@@ -1858,7 +1858,7 @@ function usageNotes(u) {
 function usageProvider(g, total, pricedOnly) {
   const v = metricOf(g);
   const counted = byCost() && g.unpriced_tokens
-    ? `${amount(g.tokens)} tokens, ${Math.max(1, Math.round((g.unpriced_tokens * 100) / g.tokens))}% unpriced`
+    ? `${amount(g.tokens)} tokens, ${Math.min(g.tokens > g.unpriced_tokens ? 99 : 100, Math.max(1, Math.round((g.unpriced_tokens * 100) / g.tokens)))}% unpriced`
     : `${amount(g.tokens)} tokens`;
   const other = byCost() ? esc(counted) : moneyOf(g);
   return `<div class="usage-provider">
@@ -1937,7 +1937,7 @@ function renderUsage() {
   const providers = [...u.by_provider].sort((a, b) => (metricOf(b) ?? -1) - (metricOf(a) ?? -1));
   const estimate = `${byCost() ? "" : " · processed tokens"} · <span class="estimate" tabindex="0" data-tip="Dollar figures use public API rates. Subscriptions bill differently.">API estimate${icon("info")}</span>`;
   const narrow = window.innerWidth <= 760;
-  const stackedBoard = window.innerWidth <= 1080;
+  const stackedBoard = window.innerWidth <= 1200;
   const width = Math.max(240, $("usage-body").clientWidth - (narrow ? 30 : 44) - (stackedBoard ? 0 : 348));
   const focused = document.activeElement?.dataset?.usageBreak;
   setHtml("usage-body", `
@@ -2265,7 +2265,7 @@ function confirmMakeHub(name) {
   const m = latest.machines.find((x) => x.hostname === name && !x.guest);
   if (!m) return;
   const battery = m.has_battery ? `<p>${secret(name, esc(name), "click")} has a battery. If it leaves home or changes its IP address, your other machines lose the hub.</p>` : "";
-  openModal(`<h2>Make ${secret(name, esc(name), "click")} the hub?</h2><p>Your accounts move to ${secret(name, esc(name), "click")}, and this machine becomes its node. Requests pause for a few seconds. Codex sessions reconnect.</p>${battery}<div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn primary" id="confirm-make-hub">${m.has_battery ? "Make hub anyway" : "Make hub"}</button></div>`);
+  openModal(`<h2>Make ${secret(name, esc(name), "click")} the hub?</h2><p>Your accounts move to ${secret(name, esc(name), "click")}, and this machine becomes its node. Requests pause for a few seconds. Codex sessions reconnect. Usage history stays on this machine.</p>${battery}<div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn primary" id="confirm-make-hub">${m.has_battery ? "Make hub anyway" : "Make hub"}</button></div>`);
   $("confirm-make-hub").onclick = async (ev) => {
     ev.currentTarget.disabled = true;
     try {
