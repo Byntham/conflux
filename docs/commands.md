@@ -40,13 +40,13 @@ On a machine that is waiting to be linked, `status` says so and tells you how to
 
 On the hub's owner's machines, `status` also lists machines that wait for your approval. See [`conflux guest`](#conflux-guest-approvedenyremove-machine). On a guest machine, it says whether the hub's owner has approved it yet.
 
-### `conflux login claude`, `conflux login codex`, `conflux login grok`
+### `conflux login claude`, `conflux login codex`, `conflux login grok`, `conflux login muse`
 
 Adds an account to the pool. If the account is already in the pool, this logs it in again and keeps its settings.
 
 For `claude`, conflux prints a link. Open it in a browser signed in to the Claude account and approve access. The browser then shows a connection error, which is expected. Paste the whole URL from the address bar into the terminal.
 
-For `codex` and `grok`, conflux prints a link and a code. Open the link in a browser signed in to the ChatGPT or xAI account and enter the code. conflux waits and finishes on its own.
+For `codex`, `grok`, and `muse`, conflux prints a link and a code. Open the link in a browser signed in to the ChatGPT, xAI, or Meta account and enter the code. conflux waits and finishes on its own.
 
 The browser does not have to be on the hub or on the machine where you run the command.
 
@@ -86,8 +86,9 @@ Makes this machine the hub, or a node of a hub.
 2. It points Claude Code at conflux. It sets `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` under `env` in `~/.claude/settings.json`. It also sets `CLAUDE_CODE_PROMPT_CACHE_TTL` to `1h`, unless you already set it. Claude Code treats the token as an API key, so without it the main conversation caches for 5 minutes instead of a subscription's 1 hour.
 3. It points Codex at conflux. It sets `model_provider = "conflux"` and adds a `[model_providers.conflux]` table in `~/.codex/config.toml`.
 4. If `~/.grok` exists, it points Grok Build at conflux. It sets `cli_chat_proxy_base_url` under `[endpoints]` in `~/.grok/config.toml`. If Grok Build has no login of its own on this machine, it also sets `auth_provider_command` under `[auth]`, so Grok Build starts without one. A machine where you ran `grok login` keeps that login, and conflux replaces its token with a pooled account's. If you run `grok login` on a machine that conflux set up without one, run `conflux on` right after it, before you start Grok Build, so conflux removes its `auth_provider_command` and Grok Build keeps the new login.
+5. If `~/.config/muse` exists, it points Muse Code at conflux. It sets `endpoint_transport` in `~/.config/muse/settings.json` to conflux's address with `auth` set to `none`, so Muse Code sends no key of its own and needs no login on this machine.
 
-Before it changes these files, conflux saves the values it replaces. `conflux off` and `conflux leave` put them back. If `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, or `GROK_HOME` is set, conflux edits the files there instead. If you install Grok Build after `join`, run `conflux on` again.
+Before it changes these files, conflux saves the values it replaces. `conflux off` and `conflux leave` put them back. If `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`, or `XDG_CONFIG_HOME` is set, conflux edits the files there instead. If you install Grok Build or Muse Code after `join`, run `conflux on` again.
 
 conflux warns you if your shell sets a variable that can bypass these settings, such as `ANTHROPIC_API_KEY` or `OPENAI_BASE_URL`.
 
@@ -121,7 +122,7 @@ Points the coding tools back at this machine's own logins, using the values `joi
 
 Use it when the hub is down. If you have never logged in to a coding tool on this machine, log in to it directly first.
 
-To turn routing off or on for another machine, open Machines on the dashboard, click the ⋯ button on that machine's row, and pick Turn routing off or Turn routing on. New sessions on that machine pick up the change. The dashboard edits the default folders, so if you set `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, or `GROK_HOME` there, run `conflux off` or `conflux on` on that machine instead.
+To turn routing off or on for another machine, open Machines on the dashboard, click the ⋯ button on that machine's row, and pick Turn routing off or Turn routing on. New sessions on that machine pick up the change. The dashboard edits the default folders, so if you set `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`, or `XDG_CONFIG_HOME` there, run `conflux off` or `conflux on` on that machine instead.
 
 ### `conflux on`
 

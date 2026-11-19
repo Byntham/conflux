@@ -31,6 +31,7 @@ impl Client {
             claude_settings: dir.path().join("claude/settings.json"),
             codex_config: dir.path().join("codex/config.toml"),
             grok_config: dir.path().join("grok/config.toml"),
+            muse_settings: dir.path().join("muse/settings.json"),
         };
         let sync = TranscriptSync::new(
             machine.into(),
@@ -117,6 +118,7 @@ async fn offsets_survive_a_client_restart() {
         claude_settings: c.dir.path().join("claude/settings.json"),
         codex_config: c.dir.path().join("codex/config.toml"),
         grok_config: c.dir.path().join("grok/config.toml"),
+        muse_settings: c.dir.path().join("muse/settings.json"),
     };
     let mut restarted = TranscriptSync::new(
         "node-two".into(),
@@ -138,6 +140,7 @@ async fn an_empty_new_hub_gets_everything_again() {
         claude_settings: dir.path().join("claude/settings.json"),
         codex_config: dir.path().join("codex/config.toml"),
         grok_config: dir.path().join("grok/config.toml"),
+        muse_settings: dir.path().join("muse/settings.json"),
     };
     let reader = current.clone();
     let mut sync = TranscriptSync::new(

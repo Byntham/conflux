@@ -360,9 +360,24 @@ pub async fn grok_start(State(app): State<Arc<App>>) -> ApiResult<Json<Value>> {
     )))
 }
 
+pub async fn muse_start(State(app): State<Arc<App>>) -> ApiResult<Json<Value>> {
+    let code = oauth::muse_device_start(&app.control_http, &app.ep).await?;
+    let pending = LoginStatus::Pending {
+        user_code: code.user_code.clone(),
+        verify_url: code.verify_url.clone(),
+    };
+    Ok(Json(start_device_login(
+        &app,
+        pending,
+        code.interval_secs,
+        DeviceFlow::Muse(code),
+    )))
+}
+
 enum DeviceFlow {
     Codex(oauth::DeviceStart),
     Grok(oauth::DeviceCode),
+    Muse(oauth::DeviceCode),
 }
 
 enum DeviceStep {
@@ -388,6 +403,11 @@ impl DeviceFlow {
                 DeviceToken::Pending => Ok(DeviceStep::Pending),
                 DeviceToken::SlowDown => Ok(DeviceStep::SlowDown),
                 DeviceToken::Done(v) => Ok(DeviceStep::Done(oauth::grok_tokens(http, ep, &v).await?)),
+            },
+            DeviceFlow::Muse(code) => match oauth::muse_device_poll(http, ep, &code.device_code).await? {
+                DeviceToken::Pending => Ok(DeviceStep::Pending),
+                DeviceToken::SlowDown => Ok(DeviceStep::SlowDown),
+                DeviceToken::Done(v) => Ok(DeviceStep::Done(oauth::muse_tokens(http, ep, &v).await?)),
             },
         }
     }

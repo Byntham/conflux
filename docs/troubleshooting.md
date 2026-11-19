@@ -28,12 +28,12 @@ A command like `conflux status` could not reach conflux on this machine. Start t
 
 The node is running but can't reach the hub. Check that the hub machine is on, that conflux runs there, and that both machines show up in `tailscale status`.
 
-To keep working until the hub is back, run `conflux off` and restart your session. Run `conflux on` when the hub is back. If `off` fails because it can't read `~/.grok/config.toml`, fix or move that file and run `conflux off` again. conflux changes no tool's settings until it can read all of them.
+To keep working until the hub is back, run `conflux off` and restart your session. Run `conflux on` when the hub is back. If `off` fails because it can't read `~/.grok/config.toml` or `~/.config/muse/settings.json`, fix or move that file and run `conflux off` again. conflux changes no tool's settings until it can read all of them.
 
 ### Requests don't show up on the Requests tab
 
 - Restart the session. Sessions that were open before `conflux join` keep their old settings.
-- Check that `~/.claude/settings.json` has `ANTHROPIC_BASE_URL` set to `http://127.0.0.1:<port>`, that `~/.codex/config.toml` has `model_provider = "conflux"`, and that `~/.grok/config.toml` has `cli_chat_proxy_base_url` set to `http://127.0.0.1:<port>/grok/v1`. `<port>` is `port` in `config.toml`, which is 8317 by default.
+- Check that `~/.claude/settings.json` has `ANTHROPIC_BASE_URL` set to `http://127.0.0.1:<port>`, that `~/.codex/config.toml` has `model_provider = "conflux"`, that `~/.grok/config.toml` has `cli_chat_proxy_base_url` set to `http://127.0.0.1:<port>/grok/v1`, and that `~/.config/muse/settings.json` has `endpoint_transport.base_url` set to `http://127.0.0.1:<port>/muse/v1`. `<port>` is `port` in `config.toml`, which is 8317 by default.
 - Check your shell for `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `OPENAI_BASE_URL`, or `GROK_CLI_CHAT_PROXY_BASE_URL`. These can make the tools skip conflux.
 
 ### The dashboard says "host not allowed"
@@ -46,7 +46,7 @@ The hub refuses Claude requests from anything other than Claude Code. See `claud
 
 ### An account shows "needs login"
 
-Its token stopped working. Run `conflux login claude`, `conflux login codex`, or `conflux login grok` again with the same account. It keeps its ID and settings.
+Its token stopped working. Run `conflux login claude`, `conflux login codex`, `conflux login grok`, or `conflux login muse` again with the same account. It keeps its ID and settings.
 
 ### conflux stops when you log out of Linux
 

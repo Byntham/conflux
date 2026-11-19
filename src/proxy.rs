@@ -25,10 +25,24 @@ const CLAUDE_OAUTH_BETA: &str = "oauth-2025-04-20";
 pub const HUB_NOT_ACTIVE: &str = "conflux: the hub is moving to another machine. Try again in a minute.";
 
 pub const GROK_PREFIX: &str = "/grok/v1/";
+pub const MUSE_PREFIX: &str = "/muse/v1/";
+pub const MUSE_CODE_PREFIX: &str = "/muse-code/";
+const MUSE_PATHS: &[&str] = &["responses"];
+const MUSE_CODE_PATHS: &[&str] = &["models", "search", "browser_open", "feedback"];
+
+fn first_segment_in(path: &str, prefix: &str, allowed: &[&str]) -> bool {
+    path.strip_prefix(prefix)
+        .and_then(|rest| rest.split('/').next())
+        .is_some_and(|first| allowed.contains(&first))
+}
 
 pub fn provider_for(path: &str, user_agent: &str) -> Option<Provider> {
     if path.starts_with(GROK_PREFIX) {
         Some(Provider::Grok)
+    } else if first_segment_in(path, MUSE_PREFIX, MUSE_PATHS)
+        || first_segment_in(path, MUSE_CODE_PREFIX, MUSE_CODE_PATHS)
+    {
+        Some(Provider::Muse)
     } else if path.starts_with("/v1/messages") {
         Some(Provider::Claude)
     } else if path.starts_with("/backend-api/codex/") {
@@ -64,6 +78,12 @@ pub fn upstream_url(app: &App, provider: Provider, path: &str, query: Option<&st
                 .unwrap_or(path),
         ),
         Provider::Grok => (&app.ep.grok_api, path.strip_prefix("/grok/v1").unwrap_or(path)),
+        Provider::Muse => (
+            &app.ep.meta_api,
+            path.strip_prefix("/muse")
+                .filter(|r| r.starts_with('/'))
+                .unwrap_or(path),
+        ),
     };
     let lower = rest.to_ascii_lowercase();
     if lower.contains("%2f") || lower.contains("%5c") {
@@ -161,7 +181,7 @@ pub fn apply_account_auth(provider: Provider, account: &AccountEntry, h: &mut He
                 h.insert("chatgpt-account-id", acct);
             }
         }
-        Provider::Grok => {}
+        Provider::Grok | Provider::Muse => {}
     }
 }
 
@@ -208,8 +228,8 @@ pub fn codex_session(h: &HeaderMap, body: &Value) -> Option<String> {
     body["prompt_cache_key"].as_str().map(str::to_string)
 }
 
-fn grok_session(h: &HeaderMap, body: &Value) -> Option<String> {
-    header_str(h, "x-grok-session-id")
+fn header_or_cache_key(h: &HeaderMap, header: &str, body: &Value) -> Option<String> {
+    header_str(h, header)
         .map(str::to_string)
         .or_else(|| body["prompt_cache_key"].as_str().map(str::to_string))
 }
@@ -227,7 +247,8 @@ pub fn route_request(provider: Provider, h: &HeaderMap, body: &[u8]) -> RouteReq
         session: match provider {
             Provider::Claude => claude_session(h, &json),
             Provider::Codex => codex_session(h, &json),
-            Provider::Grok => grok_session(h, &json),
+            Provider::Grok => header_or_cache_key(h, "x-grok-session-id", &json),
+            Provider::Muse => header_or_cache_key(h, "x-tbh-session-id", &json),
         },
     }
 }
@@ -318,6 +339,7 @@ pub fn codex_error_object(v: &Value) -> Option<&Value> {
 fn quota_codes(provider: Provider) -> &'static [&'static str] {
     match provider {
         Provider::Grok => &["usage_limit_reached", "usage_pool_exhausted"],
+        Provider::Muse => &["tier_limit", "ai_spend_budget_exceeded"],
         _ => &["usage_limit_reached"],
     }
 }
@@ -387,7 +409,7 @@ fn json_response(status: StatusCode, body: Value, extra: Option<(HeaderName, Str
 pub fn provider_error(provider: Provider, status: StatusCode, kind: &str, message: &str) -> Response {
     let body = match provider {
         Provider::Claude => json!({"type": "error", "error": {"type": kind, "message": message}}),
-        Provider::Codex | Provider::Grok => json!({"error": {"type": kind, "message": message}}),
+        Provider::Codex | Provider::Grok | Provider::Muse => json!({"error": {"type": kind, "message": message}}),
     };
     json_response(status, body, None)
 }
@@ -409,7 +431,7 @@ fn no_account_response(provider: Provider, why: NoAccount) -> Response {
             };
             let body = match provider {
                 Provider::Claude => json!({"type": "error", "error": {"type": "rate_limit_error", "message": message}}),
-                Provider::Codex | Provider::Grok => json!({"error": {
+                Provider::Codex | Provider::Grok | Provider::Muse => json!({"error": {
                     "type": "usage_limit_reached",
                     "message": message,
                     "resets_in_seconds": secs,
@@ -668,7 +690,10 @@ pub async fn handle(State(app): State<Arc<App>>, req: Request) -> Response {
             header_str(resp.headers(), "content-encoding"),
             header_str(resp.headers(), "content-type"),
         );
-        let tap = ResponseTap::new(scanner, provider, record, app.requests.clone());
+        let mut tap = ResponseTap::new(scanner, provider, record, app.requests.clone());
+        if provider == Provider::Muse {
+            tap = tap.watching_quota(app.usage.clone(), account.id.clone());
+        }
         return stream_response(resp, tap);
     }
 }

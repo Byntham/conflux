@@ -25,6 +25,8 @@ pub const CODEX_DEVICE_REDIRECT_URI: &str = "https://auth.openai.com/deviceauth/
 
 pub const GROK_CLIENT_ID: &str = "b1a00492-073a-47ea-816f-4c329264a828";
 pub const GROK_SCOPE: &str = "openid profile email offline_access grok-cli:access api:access conversations:read conversations:write workspaces:read workspaces:write";
+pub const MUSE_CLIENT_ID: &str = "1031625952748946";
+pub const MUSE_KEY_TTL_SECS: i64 = 7 * 24 * 3600;
 const DEVICE_CODE_GRANT: &str = "urn:ietf:params:oauth:grant-type:device_code";
 
 pub fn control_client() -> reqwest::Client {
@@ -330,10 +332,13 @@ pub enum DeviceToken {
     Done(Value),
 }
 
+const DEVICE_USER_AGENT: &str = concat!("conflux/", env!("CARGO_PKG_VERSION"));
+
 async fn device_code_start(http: &reqwest::Client, url: &str, form: &[(&str, &str)], name: &str) -> Result<DeviceCode> {
     let resp = http
         .post(url)
         .header("Accept", "application/json")
+        .header("User-Agent", DEVICE_USER_AGENT)
         .form(form)
         .send()
         .await?;
@@ -367,6 +372,7 @@ async fn device_code_poll(
     let resp = http
         .post(url)
         .header("Accept", "application/json")
+        .header("User-Agent", DEVICE_USER_AGENT)
         .form(&[
             ("grant_type", DEVICE_CODE_GRANT),
             ("device_code", device_code),
@@ -450,6 +456,77 @@ pub async fn grok_tokens(http: &reqwest::Client, ep: &Endpoints, v: &Value) -> R
     })
 }
 
+pub async fn muse_device_start(http: &reqwest::Client, ep: &Endpoints) -> Result<DeviceCode> {
+    let url = format!("{}/oidc/device/authorization/", ep.meta_auth);
+    device_code_start(http, &url, &[("client_id", MUSE_CLIENT_ID)], "Muse").await
+}
+
+pub async fn muse_device_poll(http: &reqwest::Client, ep: &Endpoints, device_code: &str) -> Result<DeviceToken> {
+    let url = format!("{}/oidc/device/token/", ep.meta_auth);
+    device_code_poll(http, &url, MUSE_CLIENT_ID, device_code).await
+}
+
+pub fn muse_mint(http: &reqwest::Client, ep: &Endpoints, oauth_token: &str) -> reqwest::RequestBuilder {
+    http.post(format!("{}/muse-code/key", ep.meta_api))
+        .bearer_auth(oauth_token)
+        .header("x-api-version", "1.0.0")
+        .json(&json!({ "onboard": false }))
+}
+
+async fn muse_key(http: &reqwest::Client, ep: &Endpoints, oauth_token: &str) -> Result<Value> {
+    let resp = muse_mint(http, ep, oauth_token).send().await?;
+    let status = resp.status();
+    let wait = resp
+        .headers()
+        .get("retry-after")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|s| *s <= 60);
+    let text = resp.text().await?;
+    if !status.is_success() {
+        if let Some(s) = wait.filter(|_| status == reqwest::StatusCode::TOO_MANY_REQUESTS) {
+            tokio::time::sleep(Duration::from_secs(s)).await;
+        }
+        bail!("Muse key request failed (HTTP {status}): {}", truncate(&text, 300));
+    }
+    serde_json::from_str(&text).context("parse Muse key response")
+}
+
+pub async fn muse_tokens(http: &reqwest::Client, ep: &Endpoints, v: &Value) -> Result<LoginTokens> {
+    let oauth_token = v["access_token"].as_str().context("no access_token")?.to_string();
+    let mut attempt = 0;
+    let key = loop {
+        attempt += 1;
+        match muse_key(http, ep, &oauth_token).await {
+            Ok(key) => break key,
+            Err(e) if attempt >= 3 => return Err(e),
+            Err(e) => tracing::warn!("Muse key request failed, trying again: {e:#}"),
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    };
+    let api_key = key["api_key"]
+        .as_str()
+        .filter(|k| !k.is_empty())
+        .context("no api_key")?
+        .to_string();
+    let email = key["user_email"]
+        .as_str()
+        .filter(|e| !e.is_empty())
+        .context("the Muse key response names no user")?
+        .to_string();
+    Ok(LoginTokens {
+        provider: Provider::Muse,
+        identity: email.to_lowercase(),
+        email: Some(email),
+        plan: key["subs_tier_name"].as_str().map(str::to_string),
+        chatgpt_account_id: None,
+        access_token: api_key,
+        refresh_token: oauth_token,
+        expires_at: Utc::now() + chrono::Duration::seconds(MUSE_KEY_TTL_SECS),
+        id_token: None,
+    })
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct RefreshedTokens {
     pub access_token: String,
@@ -511,6 +588,7 @@ pub async fn refresh(
                 ("grant_type", "refresh_token"),
                 ("refresh_token", refresh_token),
             ]),
+        Provider::Muse => muse_mint(http, ep, refresh_token),
     };
     let resp = match req.send().await {
         Ok(r) => r,
@@ -531,6 +609,9 @@ pub async fn refresh(
 }
 
 pub fn classify_refresh(provider: Provider, status: u16, retry_after: Option<u64>, body: &str) -> RefreshOutcome {
+    if provider == Provider::Muse {
+        return classify_muse_mint(status, retry_after, body);
+    }
     if status == 200 {
         let Ok(v) = serde_json::from_str::<Value>(body) else {
             return RefreshOutcome::Unknown("undecodable 200 body".into());
@@ -568,6 +649,27 @@ pub fn classify_refresh(provider: Provider, status: u16, retry_after: Option<u64
         return RefreshOutcome::RetryAfter(Duration::from_secs(retry_after.unwrap_or(30).min(MAX_RETRY_AFTER_SECS)));
     }
     RefreshOutcome::Unknown(format!("HTTP {status}: {}", truncate(body, 200)))
+}
+
+fn classify_muse_mint(status: u16, retry_after: Option<u64>, body: &str) -> RefreshOutcome {
+    if status == 429 {
+        return RefreshOutcome::RetryAfter(Duration::from_secs(retry_after.unwrap_or(0).min(MAX_RETRY_AFTER_SECS)));
+    }
+    if status == 401 {
+        return RefreshOutcome::Rejected(truncate(body, 200));
+    }
+    let key = serde_json::from_str::<Value>(body)
+        .ok()
+        .and_then(|v| v["api_key"].as_str().filter(|k| !k.is_empty()).map(str::to_string));
+    match key {
+        Some(api_key) if (200..300).contains(&status) => RefreshOutcome::Ok(RefreshedTokens {
+            access_token: api_key,
+            refresh_token: None,
+            expires_in: MUSE_KEY_TTL_SECS,
+            id_token: None,
+        }),
+        _ => RefreshOutcome::Unknown(format!("HTTP {status}: {}", truncate(body, 200))),
+    }
 }
 
 pub fn truncate(s: &str, n: usize) -> String {

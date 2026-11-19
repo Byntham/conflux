@@ -25,7 +25,10 @@ fn deny(status: StatusCode, message: &str) -> Response {
 }
 
 pub fn is_proxy_path(path: &str) -> bool {
-    path.starts_with("/v1/") || path.starts_with("/backend-api/") || path.starts_with(crate::proxy::GROK_PREFIX)
+    use crate::proxy::{GROK_PREFIX, MUSE_CODE_PREFIX, MUSE_PREFIX};
+    ["/v1/", "/backend-api/", GROK_PREFIX, MUSE_PREFIX, MUSE_CODE_PREFIX]
+        .iter()
+        .any(|p| path.starts_with(p))
 }
 
 fn is_machine_path(path: &str) -> bool {

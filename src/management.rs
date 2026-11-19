@@ -92,6 +92,7 @@ fn t3_provider(provider: Provider) -> Option<&'static str> {
         Provider::Claude => Some("claude"),
         Provider::Codex => Some("codex"),
         Provider::Grok => Some("xai"),
+        Provider::Muse => None,
     }
 }
 

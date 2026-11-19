@@ -1,6 +1,6 @@
 # conflux
 
-Rust proxy that pools Claude Code, Codex, and Grok Build subscription accounts on one hub machine.
+Rust proxy that pools Claude Code, Codex, Grok Build, and Muse Code subscription accounts on one hub machine.
 
 ## Approach
 
@@ -11,12 +11,12 @@ Rust proxy that pools Claude Code, Codex, and Grok Build subscription accounts o
 
 - Never run `conflux` against the real install. Set `CONFLUX_HOME` to a temp dir. The real install holds OAuth tokens for live accounts.
 - Never copy account tokens out of the real install. A refresh from the copy can invalidate the real install's token and log the account out. To test against the real providers, run `conflux login` in the temp `CONFLUX_HOME` and ask the developer to approve it.
-- Never run `conflux on`, `off`, `join` or `service` for real. `CONFLUX_HOME` does not isolate them. They rewrite `~/.claude/settings.json`, `~/.codex/config.toml`, and `~/.grok/config.toml`, and restart the user's conflux service, which can cut off the agent running the command. Test that code through `ClientPaths` with temp paths, as `src/setup.rs` does.
+- Never run `conflux on`, `off`, `join` or `service` for real. `CONFLUX_HOME` does not isolate them. They rewrite `~/.claude/settings.json`, `~/.codex/config.toml`, `~/.grok/config.toml`, and `~/.config/muse/settings.json`, and restart the user's conflux service, which can cut off the agent running the command. Test that code through `ClientPaths` with temp paths, as `src/setup.rs` does.
 - Never kill conflux by name, for example with `pkill -f conflux`. The developer's hub may be serving their agent sessions, including yours. Kill only a PID you started.
 
 ## Try a change in the running app
 
-`cargo run --example dev` starts a throwaway copy of conflux next to the real install. It builds the binary, then runs a hub, a node, and a pretend Claude, OpenAI, and Grok on free ports in a temp folder. It prints the commands that run Claude Code, Codex, Grok Build, and the CLI against the copy, and the commands that force an account out of quota.
+`cargo run --example dev` starts a throwaway copy of conflux next to the real install. It builds the binary, then runs a hub, a node, and a pretend Claude, OpenAI, Grok, and Meta on free ports in a temp folder. It prints the commands that run Claude Code, Codex, Grok Build, Muse Code, and the CLI against the copy, and the commands that force an account out of quota.
 
 - Pass `-- --real` to use the real providers. The copy starts with no accounts. Run the `conflux login` command it prints and ask the developer to approve it.
 - On a Mac, pass `-- --app` to build the menu bar app and start it against the copy. The dev build has its own bundle ID, so it runs next to the installed app. It hides Restart and refuses Set up, because the copy has no background service.
@@ -31,7 +31,7 @@ Rust proxy that pools Claude Code, Codex, and Grok Build subscription accounts o
 A fix that works on one path is often missing from the others. Before calling a change done, check each of these that applies:
 
 - HTTP (`src/proxy.rs`) and WebSocket (`src/ws.rs`)
-- Claude, Codex, and Grok
+- Claude, Codex, Grok, and Muse
 - Hub and node (`src/node.rs`)
 - The dashboard, `/conflux/api`, and `conflux status`
 
