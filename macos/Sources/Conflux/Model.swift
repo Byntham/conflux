@@ -102,11 +102,15 @@ struct Pool: Identifiable {
             let used = group.map { window in
                 window.resetsAt.map { $0 <= now } == true ? 0 : min(100, max(0, window.usedPct))
             }
-            let resets = Set(zip(group, used).filter { $1 > 0 }.compactMap { $0.0.resetsAt }).sorted()
-            let refills = resets.map { at in
-                (at, zip(group, used).filter { $0.0.resetsAt == at }.map { $0.1 }.reduce(0, +) / Double(members.count))
-            }
-            let refill = refills.first { $0.1 >= 0.5 }
+            let refills = Dictionary(
+                zip(group, used).compactMap { window, amount -> (Date, Double)? in
+                    amount > 0 ? window.resetsAt.map { ($0, amount) } : nil
+                },
+                uniquingKeysWith: +
+            )
+            let refill = refills.sorted { $0.key < $1.key }
+                .map { ($0.key, $0.value / Double(members.count)) }
+                .first { $0.1 >= 0.5 }
             return PoolWindow(
                 window: UsageWindow(
                     key: name,
