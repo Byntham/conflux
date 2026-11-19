@@ -443,6 +443,8 @@
   .usage-chart .cross { stroke: var(--fg-2); stroke-width: 1; }
   .usage-chart .layer { fill: color-mix(in srgb, var(--series) 16%, transparent); }
   .usage-chart .edge { fill: none; stroke: var(--series); stroke-width: 1.75; stroke-linejoin: round; }
+  .usage-chart .edge.so-far { stroke-dasharray: 3 4; }
+  .partial { margin-left: 2px; color: var(--muted); font-weight: 400; }
   .series-claude { --series: var(--claude); } .series-codex { --series: var(--codex); } .series-grok { --series: var(--grok); } .series-muse { --series: var(--muse); }
   .usage-tip { position: absolute; top: 0; z-index: 5; min-width: 180px; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--popover); box-shadow: var(--shadow-pop); font-size: 12.5px; pointer-events: none; font-variant-numeric: tabular-nums; }
   .usage-tip b { display: block; font-weight: 500; margin-bottom: 3px; }
@@ -456,9 +458,9 @@
   .usage-type-key b { font-weight: 500; color: var(--fg); }
   .usage-type-key i, .usage-type-bar i { display: inline-block; }
   .usage-type-key i { width: 9px; height: 9px; border-radius: 2px; }
-  .type-input { background: color-mix(in srgb, var(--fg) 30%, transparent); }
-  .type-cache_read { background: color-mix(in srgb, var(--fg) 14%, transparent); }
-  .type-cache_write { background: color-mix(in srgb, var(--fg) 52%, transparent); }
+  .type-input { background: color-mix(in srgb, var(--fg) 45%, var(--bg)); }
+  .type-cache_read { background: color-mix(in srgb, var(--fg) 25%, var(--bg)); }
+  .type-cache_write { background: color-mix(in srgb, var(--fg) 70%, var(--bg)); }
   .type-output { background: var(--fg); }
   .type-fast { background: var(--warn-fill); }
   .usage-table td.name { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -776,6 +778,7 @@ function toggleShowAll() {
   $("revealed").textContent = "";
   applyShowAll();
   if (latest) render(latest);
+  renderUsage();
   syncRevealControls();
 }
 
@@ -1584,6 +1587,7 @@ function showPoolTip(ev) {
 }
 
 const USAGE_REFRESH_MS = 60000;
+const USAGE_DAYS = { "7d": 7, "30d": 30, "90d": 90 };
 const USAGE_TYPES = [["input", "Input"], ["cache_read", "Cache read"], ["cache_write", "Cache write"], ["output", "Output"], ["fast", "Fast mode"]];
 const compact = new Intl.NumberFormat("en", { notation: "compact", maximumSignificantDigits: 3 });
 let usage = null;
@@ -1604,6 +1608,7 @@ function money(v) {
 }
 
 function share(part, whole) {
+  if (part === null) return "–";
   if (!whole || !part) return "0%";
   const p = (part * 100) / whole;
   return p < 0.1 ? "<0.1%" : `${p.toFixed(1)}%`;
@@ -1612,18 +1617,39 @@ function share(part, whole) {
 const byCost = () => usageMetric === "cost";
 const metricOf = (g) => (byCost() ? (g.cost ? g.cost.total : null) : g.tokens);
 const metricText = (v) => (byCost() ? (v === null ? "Unpriced" : money(v)) : amount(v));
+const partial = (g) => byCost() && g.cost && g.unpriced_tokens > 0
+  ? `<span class="partial" data-tip="Leaves out ${esc(amount(g.unpriced_tokens))} tokens with no public price">+</span>`
+  : "";
+
+function usageStarts(range) {
+  const now = new Date();
+  if (range === "24h") {
+    now.setMinutes(0, 0, 0);
+    return Array.from({ length: 24 }, (_, i) => now.getTime() - (23 - i) * HOUR_MS);
+  }
+  now.setHours(0, 0, 0, 0);
+  return Array.from({ length: USAGE_DAYS[range] }, (_, i) => {
+    const day = new Date(now);
+    day.setDate(now.getDate() - (USAGE_DAYS[range] - 1 - i));
+    return day.getTime();
+  });
+}
 
 async function loadUsage() {
   const token = ++usageToken;
-  const query = qs({ range: usageRange, machine: $("usage-machine").value, provider: $("usage-provider").value });
+  usageLoadedAt = Date.now();
+  const range = usageRange;
+  const starts = usageStarts(range);
+  const query = qs({ buckets: starts.map((ms) => Math.floor(ms / 1000)).join(","), machine: $("usage-machine").value, provider: $("usage-provider").value });
   try {
     const u = await api("GET", `/conflux/api/usage?${query}`);
     if (token !== usageToken) return;
-    usage = u;
-    usageLoadedAt = Date.now();
+    usage = { ...u, starts, hourly: range === "24h" };
     renderUsage();
   } catch (e) {
-    if (token === usageToken && !usage) setHtml("usage-body", `<div class="card empty"><strong>Couldn't load usage</strong>${esc(e.message)}</div>`);
+    if (token !== usageToken) return;
+    if (usage) showError(e);
+    else setHtml("usage-body", `<div class="card empty"><strong>Couldn't load usage</strong>${esc(e.message)}</div>`);
   }
 }
 
@@ -1631,41 +1657,23 @@ function fillSelect(id, all, values, label) {
   const select = $(id);
   const current = select.value;
   const options = [...new Set([...values, current].filter(Boolean))];
-  select.innerHTML = `<option value="">${esc(all)}</option>${options.map((v) => `<option value="${esc(v)}">${esc(label(v))}</option>`).join("")}`;
+  select.innerHTML = `<option value="">${esc(all)}</option>${options.map((v, i) => `<option value="${esc(v)}">${esc(label(v, i))}</option>`).join("")}`;
   select.value = current;
 }
 
-function usageBuckets(u) {
-  const hourly = u.range === "24h";
-  const now = new Date(u.now);
-  const starts = [];
-  if (hourly) {
-    const top = new Date(now);
-    top.setMinutes(0, 0, 0);
-    for (let i = 23; i >= 0; i--) starts.push(top.getTime() - i * HOUR_MS);
-  } else {
-    const day = new Date(u.since);
-    day.setHours(0, 0, 0, 0);
-    while (day <= now) {
-      starts.push(day.getTime());
-      day.setDate(day.getDate() + 1);
-    }
-  }
-  const slot = new Map(starts.map((ms, i) => [ms, i]));
-  const indexOf = (ms) => {
-    const d = new Date(ms);
-    if (hourly) d.setMinutes(0, 0, 0); else d.setHours(0, 0, 0, 0);
-    return slot.get(d.getTime());
-  };
+function usageSeries(u) {
   const totals = {};
-  for (const h of u.hours) totals[h.provider] = (totals[h.provider] || 0) + (byCost() ? h.cost : h.tokens);
+  for (const b of u.buckets) totals[b.provider] = (totals[b.provider] || 0) + (byCost() ? b.cost : b.tokens);
   const providers = Object.keys(totals).filter((p) => totals[p] > 0).sort((a, b) => totals[b] - totals[a]);
-  const series = Object.fromEntries(providers.map((p) => [p, starts.map(() => 0)]));
-  for (const h of u.hours) {
-    const i = indexOf(new Date(h.at).getTime());
-    if (i !== undefined && series[h.provider]) series[h.provider][i] += byCost() ? h.cost : h.tokens;
-  }
-  return { hourly, starts, providers, series };
+  const series = Object.fromEntries(providers.map((p) => [p, u.starts.map(() => 0)]));
+  for (const b of u.buckets) if (series[b.provider]) series[b.provider][b.i] += byCost() ? b.cost : b.tokens;
+  return { providers, series };
+}
+
+function bucketLabel(u, i) {
+  const ms = u.starts[i];
+  const label = u.hourly ? `${shortDay(ms)}, ${shortHour(ms)}` : shortDay(ms);
+  return i === u.starts.length - 1 ? `${label} (so far)` : label;
 }
 
 function niceStep(max) {
@@ -1677,14 +1685,14 @@ function niceStep(max) {
 }
 
 function axisText(v, step) {
-  if (!byCost()) return v ? amount(v) : "0";
   if (!v) return "0";
+  if (!byCost()) return amount(v);
   return step >= 1 ? `$${Math.round(v).toLocaleString("en-US")}` : money(v);
 }
 
-function curve(pts) {
+function curveSegments(pts) {
   const n = pts.length;
-  if (n < 2) return pts.map(([x, y]) => `L${x.toFixed(1)} ${y.toFixed(1)}`).join("");
+  if (n < 2) return [];
   const dx = [], m = [];
   for (let i = 0; i < n - 1; i++) {
     dx.push(pts[i + 1][0] - pts[i][0]);
@@ -1698,26 +1706,27 @@ function curve(pts) {
     const a = t[i] / m[i], b = t[i + 1] / m[i], s = a * a + b * b;
     if (s > 9) { const k = 3 / Math.sqrt(s); t[i] = k * a * m[i]; t[i + 1] = k * b * m[i]; }
   }
-  let d = "";
-  for (let i = 0; i < n - 1; i++) {
-    const [x0, y0] = pts[i], [x1, y1] = pts[i + 1], h = dx[i] / 3;
-    d += `C${(x0 + h).toFixed(1)} ${(y0 + t[i] * h).toFixed(1)} ${(x1 - h).toFixed(1)} ${(y1 - t[i + 1] * h).toFixed(1)} ${x1.toFixed(1)} ${y1.toFixed(1)}`;
-  }
-  return d;
+  return pts.slice(0, -1).map(([x0, y0], i) => {
+    const [x1, y1] = pts[i + 1], h = dx[i] / 3;
+    return `C${(x0 + h).toFixed(1)} ${(y0 + t[i] * h).toFixed(1)} ${(x1 - h).toFixed(1)} ${(y1 - t[i + 1] * h).toFixed(1)} ${x1.toFixed(1)} ${y1.toFixed(1)}`;
+  });
 }
 
+const moveTo = ([x, y]) => `M${x.toFixed(1)} ${y.toFixed(1)}`;
+const lineTo = ([x, y]) => `L${x.toFixed(1)} ${y.toFixed(1)}`;
+
 function usageChart(u, width) {
-  const b = usageBuckets(u);
+  const s = usageSeries(u);
   const narrow = width < 520;
   const height = narrow ? 180 : 260;
   const padL = byCost() ? 54 : 44, padR = 8, padT = 8, padB = 24;
   const plotW = Math.max(40, width - padL - padR), plotH = height - padT - padB;
-  const n = b.starts.length;
-  const x = (i) => padL + (n === 1 ? plotW / 2 : (i / (n - 1)) * plotW);
+  const n = u.starts.length;
+  const x = (i) => padL + (i / (n - 1)) * plotW;
   const stacked = [];
-  let below = b.starts.map(() => 0);
-  for (const p of b.providers) {
-    const top = below.map((v, i) => v + b.series[p][i]);
+  let below = u.starts.map(() => 0);
+  for (const p of s.providers) {
+    const top = below.map((v, i) => v + s.series[p][i]);
     stacked.push({ p, below, top });
     below = top;
   }
@@ -1732,18 +1741,19 @@ function usageChart(u, width) {
   for (const layer of [...stacked].reverse()) {
     const top = layer.top.map((v, i) => [x(i), y(v)]);
     const bottom = layer.below.map((v, i) => [x(i), y(v)]).reverse();
-    const start = `M${top[0][0].toFixed(1)} ${top[0][1].toFixed(1)}`;
-    parts.push(`<g class="series-${esc(layer.p)}"><path class="layer" d="${start}${curve(top)}L${bottom[0][0].toFixed(1)} ${bottom[0][1].toFixed(1)}${curve(bottom)}Z"/><path class="edge" d="${start}${curve(top)}"/></g>`);
+    const upper = curveSegments(top);
+    const area = `${moveTo(top[0])}${upper.join("")}${lineTo(bottom[0])}${curveSegments(bottom).join("")}Z`;
+    const solid = `${moveTo(top[0])}${upper.slice(0, -1).join("")}`;
+    const today = `${moveTo(top[n - 2])}${upper[n - 2]}`;
+    parts.push(`<g class="series-${esc(layer.p)}"><path class="layer" d="${area}"/><path class="edge" d="${solid}"/><path class="edge so-far" d="${today}"/></g>`);
   }
-  const labelEvery = b.hourly ? 6 : Math.max(1, Math.ceil(n / (narrow ? 3 : 5)));
-  for (let i = 0; i < n; i += labelEvery) {
-    const anchor = i === 0 ? "start" : "middle";
-    parts.push(`<text x="${x(i)}" y="${height - 5}" text-anchor="${anchor}">${esc(b.hourly ? shortHour(b.starts[i]) : shortDay(b.starts[i]))}</text>`);
-  }
-  if ((n - 1) % labelEvery >= labelEvery / 2) parts.push(`<text x="${x(n - 1)}" y="${height - 5}" text-anchor="end">${esc(b.hourly ? shortHour(b.starts[n - 1]) : shortDay(b.starts[n - 1]))}</text>`);
+  const labelEvery = u.hourly ? 6 : Math.max(1, Math.ceil(n / (narrow ? 3 : 5)));
+  const tick = (i) => (u.hourly ? shortHour(u.starts[i]) : shortDay(u.starts[i]));
+  for (let i = 0; i < n; i += labelEvery) parts.push(`<text x="${x(i)}" y="${height - 5}" text-anchor="${i ? "middle" : "start"}">${esc(tick(i))}</text>`);
+  if ((n - 1) % labelEvery >= labelEvery / 2) parts.push(`<text x="${x(n - 1)}" y="${height - 5}" text-anchor="end">${esc(tick(n - 1))}</text>`);
   parts.push(`<line class="cross" x1="0" x2="0" y1="${padT}" y2="${padT + plotH}" visibility="hidden"/>`);
-  usageGeom = { b, x, n, padL, plotW };
-  const title = `${b.hourly ? "Hourly" : "Daily"} ${byCost() ? "cost" : "processed tokens"}`;
+  usageGeom = { s, x, n, padL, plotW };
+  const title = `${u.hourly ? "Hourly" : "Daily"} ${byCost() ? "cost" : "processed tokens"}`;
   return `<div class="usage-chart"><h2>${title}</h2><svg viewBox="0 0 ${width} ${height}" height="${height}" role="img" aria-label="${esc(title)}">${parts.join("")}</svg><div class="usage-tip" hidden></div></div>`;
 }
 
@@ -1756,50 +1766,51 @@ function hideUsageTip() {
 
 function showUsageTip(ev) {
   const chart = ev.target.closest(".usage-chart");
-  if (!chart || !usageGeom) return hideUsageTip();
+  if (!chart || !usageGeom || !usage) return hideUsageTip();
   const svg = chart.querySelector("svg");
   const box = svg.getBoundingClientRect();
-  const { b, x, n, padL, plotW } = usageGeom;
+  const { s, x, n, padL, plotW } = usageGeom;
   const scale = box.width / svg.viewBox.baseVal.width;
   const px = (ev.clientX - box.left) / scale;
   if (px < padL - 6 || px > padL + plotW + 6) return hideUsageTip();
-  const i = Math.max(0, Math.min(n - 1, Math.round(n === 1 ? 0 : ((px - padL) / plotW) * (n - 1))));
+  const i = Math.max(0, Math.min(n - 1, Math.round(((px - padL) / plotW) * (n - 1))));
   const cross = chart.querySelector(".cross");
   cross.setAttribute("x1", x(i));
   cross.setAttribute("x2", x(i));
   cross.setAttribute("visibility", "visible");
   const tip = chart.querySelector(".usage-tip");
-  const when = b.hourly ? `${shortDay(b.starts[i])}, ${shortHour(b.starts[i])}` : shortDay(b.starts[i]);
-  const rows = b.providers.map((p) => `<div class="series-${esc(p)}"><span class="dot ${esc(p)}"></span><span>${esc(providerName(p))}</span><span>${esc(metricText(b.series[p][i]))}</span></div>`);
-  const total = b.providers.reduce((sum, p) => sum + b.series[p][i], 0);
-  tip.innerHTML = `<b>${esc(when)}</b>${rows.join("")}<div class="sum"><span>Total</span><span>${esc(metricText(total))}</span></div>`;
+  const rows = s.providers.map((p) => `<div><span class="dot ${esc(p)}"></span><span>${esc(providerName(p))}</span><span>${esc(metricText(s.series[p][i]))}</span></div>`);
+  const total = s.providers.reduce((sum, p) => sum + s.series[p][i], 0);
+  tip.innerHTML = `<b>${esc(bucketLabel(usage, i))}</b>${rows.join("")}<div class="sum"><span>Total</span><span>${esc(metricText(total))}</span></div>`;
   tip.hidden = false;
   const cx = x(i) * scale + (box.left - chart.getBoundingClientRect().left);
   const tw = tip.offsetWidth;
-  tip.style.left = `${cx + 12 + tw > chart.clientWidth ? cx - tw - 12 : cx + 12}px`;
+  const left = cx + 12 + tw > chart.clientWidth ? cx - tw - 12 : cx + 12;
+  tip.style.left = `${Math.max(0, Math.min(left, chart.clientWidth - tw))}px`;
   tip.style.top = `${svg.offsetTop + 4}px`;
 }
 
 function usageNotes(u) {
   const notes = [];
   if (byCost() && !u.prices_fetched_at) notes.push("Prices haven't loaded yet, so costs show as unpriced.");
-  if (byCost() && u.unpriced_models.length) notes.push(`No public price for ${u.unpriced_models.map(esc).join(", ")}.`);
+  if (byCost() && u.unpriced_models.length) notes.push(`No public price for ${u.unpriced_models.map(esc).join(", ")}. Costs marked + leave these out.`);
   if (u.total.no_usage) notes.push(`${u.total.no_usage.toLocaleString()} ${u.total.no_usage === 1 ? "request" : "requests"} reported no token counts.`);
   return notes.length ? `<div class="usage-notes">${notes.map((n) => `<span>${n}</span>`).join("")}</div>` : "";
 }
 
 function usageProvider(g, total) {
   const v = metricOf(g);
-  const other = byCost() ? `${amount(g.tokens)} tokens` : g.cost ? money(g.cost.total) : "Unpriced";
+  const unpriced = byCost() && g.unpriced_tokens ? `, ${amount(g.unpriced_tokens)} unpriced` : "";
+  const other = byCost() ? `${amount(g.tokens)} tokens${unpriced}` : g.cost ? money(g.cost.total) : "Unpriced";
   return `<div class="usage-provider">
     <div class="usage-provider-name"><span class="dot ${esc(g.provider)}"></span><span class="truncate">${esc(providerName(g.provider))}</span><small>${g.sessions.toLocaleString()} ${g.sessions === 1 ? "session" : "sessions"}</small></div>
-    <div class="usage-provider-value">${esc(metricText(v))}</div>
-    <div class="usage-provider-sub">${share(v || 0, total)} of ${byCost() ? "cost" : "tokens"} · ${esc(other)}</div>
+    <div class="usage-provider-value">${esc(metricText(v))}${partial(g)}</div>
+    <div class="usage-provider-sub">${share(v, total)} of ${byCost() ? "cost" : "tokens"} · ${esc(other)}</div>
   </div>`;
 }
 
 function usageTypes(t) {
-  const values = byCost() ? (t.cost ? t.cost : null) : t;
+  const values = byCost() ? t.cost : t;
   if (!values) return "";
   const kinds = USAGE_TYPES.filter(([k]) => values[k] !== undefined && (k !== "fast" || values[k] > 0));
   const sum = kinds.reduce((s, [k]) => s + values[k], 0);
@@ -1812,21 +1823,17 @@ function usageTypes(t) {
 
 function usageRows(u) {
   if (usageBreakdown === "time") {
-    const b = usageBuckets(u);
-    const cost = (i) => b.providers.reduce((s, p) => s + b.series[p][i], 0);
-    return b.starts.map((ms, i) => ({ ms, i })).reverse().map(({ ms, i }) => ({
-      label: esc(b.hourly ? `${shortDay(ms)}, ${shortHour(ms)}` : shortDay(ms)),
-      value: cost(i),
-      cost: null,
-      tokens: null,
-      series: "",
-    })).filter((r) => r.value > 0);
+    const s = usageSeries(u);
+    return u.starts.map((_, i) => ({
+      label: esc(bucketLabel(u, i)),
+      value: s.providers.reduce((sum, p) => sum + s.series[p][i], 0),
+    })).reverse().filter((r) => r.value > 0);
   }
   const groups = { model: u.by_model, account: u.by_account, machine: u.by_machine }[usageBreakdown];
   return groups.map((g) => {
-    const name = usageBreakdown === "model" ? esc(g.model) : usageBreakdown === "account" ? secret(g.email || g.account) : secret(g.machine);
+    const name = usageBreakdown === "model" ? `<span title="${esc(g.model)}">${esc(g.model)}</span>` : `<span>${secret(usageBreakdown === "account" ? g.email || g.account : g.machine)}</span>`;
     const dot = g.provider ? `<span class="dot ${esc(g.provider)}"></span>` : "";
-    return { label: `${dot}<span>${name}</span>`, value: metricOf(g), cost: g.cost, partial: g.cost && g.unpriced_tokens > 0, tokens: g.tokens, series: g.provider ? `series-${esc(g.provider)}` : "" };
+    return { label: `${dot}${name}`, value: metricOf(g), group: g, series: g.provider ? `series-${esc(g.provider)}` : "" };
   }).sort((a, b) => (b.value ?? -1) - (a.value ?? -1));
 }
 
@@ -1835,24 +1842,25 @@ function usageTable(u) {
   const time = usageBreakdown === "time";
   const whole = rows.reduce((s, r) => s + (r.value || 0), 0);
   const top = Math.max(0, ...rows.map((r) => r.value || 0));
-  const heading = { model: "Model", account: "Account", machine: "Machine", time: usageGeom?.b.hourly ? "Hour" : "Day" }[usageBreakdown];
-  const head = `<thead><tr><th>#</th><th>${heading}</th>${time ? "" : `<th class="num">${byCost() ? "Tokens" : "Cost"}</th>`}<th class="num">Share</th><th class="num">${byCost() ? "Cost" : "Tokens"}</th></tr></thead>`;
-  const span = time ? 4 : 5;
+  const heading = { model: "Model", account: "Account", machine: "Machine", time: u.hourly ? "Hour" : "Day" }[usageBreakdown];
+  const head = `<thead><tr>${time ? "" : "<th>#</th>"}<th>${heading}</th>${time ? "" : `<th class="num">${byCost() ? "Tokens" : "Cost"}</th>`}<th class="num">Share</th><th class="num">${byCost() ? "Cost" : "Tokens"}</th></tr></thead>`;
   const body = rows.length ? rows.map((r, i) => {
-    const other = byCost() ? amount(r.tokens) : r.cost ? money(r.cost.total) : "Unpriced";
-    const value = r.value === null ? `<span class="unpriced">Unpriced</span>` : `${esc(metricText(r.value))}${r.partial ? `<span class="unpriced" data-tip="Some tokens have no public price"> +</span>` : ""}`;
-    return `<tr><td class="rank">${i + 1}</td><td class="name"><div class="usage-name">${r.label}</div><div class="usage-share ${r.series}" style="width: ${top ? Math.max(1, ((r.value || 0) / top) * 100) : 0}%"></div></td>${time ? "" : `<td class="num dim">${esc(other)}</td>`}<td class="num dim">${share(r.value || 0, whole)}</td><td class="num">${value}</td></tr>`;
-  }).join("") : `<tr><td colspan="${span}"><div class="empty">Nothing in this range.</div></td></tr>`;
+    const g = r.group;
+    const other = !g ? "" : byCost() ? amount(g.tokens) : g.cost ? money(g.cost.total) : "Unpriced";
+    const value = r.value === null ? `<span class="unpriced">Unpriced</span>` : `${esc(metricText(r.value))}${g ? partial(g) : ""}`;
+    const bar = `<div class="usage-share ${r.series || ""}" style="width: ${top ? Math.max(1, ((r.value || 0) / top) * 100) : 0}%"></div>`;
+    return `<tr>${time ? "" : `<td class="rank">${i + 1}</td>`}<td class="name"><div class="usage-name">${r.label}</div>${bar}</td>${time ? "" : `<td class="num dim">${esc(other)}</td>`}<td class="num dim">${share(r.value, whole)}</td><td class="num">${value}</td></tr>`;
+  }).join("") : `<tr><td colspan="5"><div class="empty">Nothing in this range.</div></td></tr>`;
   return `<table class="usage-table">${head}<tbody>${body}</tbody></table>`;
 }
 
 function renderUsage() {
   const u = usage;
   if (!u || $("view-usage").hidden) return;
-  fillSelect("usage-machine", "All machines", u.machines, (m) => m);
+  fillSelect("usage-machine", "All machines", u.machines, (m, i) => (showAll ? m : `Machine ${i + 1}`));
   fillSelect("usage-provider", "All providers", u.providers, providerName);
   const t = u.total;
-  $("usage-sub").textContent = t.requests ? `${t.requests.toLocaleString()} ${t.requests === 1 ? "request" : "requests"} through the hub` : "";
+  $("usage-sub").textContent = t.requests ? `${t.requests.toLocaleString()} ${t.requests === 1 ? "request" : "requests"} served` : "";
   if (!t.requests) {
     usageGeom = null;
     return setHtml("usage-body", `<div class="card empty"><strong>No requests in this range</strong>conflux records each request the hub serves, and keeps 90 days.</div>`);
@@ -1860,12 +1868,13 @@ function renderUsage() {
   const total = metricOf(t);
   const providers = [...u.by_provider].sort((a, b) => (metricOf(b) ?? -1) - (metricOf(a) ?? -1));
   const estimate = byCost() ? ` · <span data-tip="Priced at public API rates. Subscriptions bill differently.">API estimate</span>${icon("info")}` : "";
-  const width = Math.max(240, $("usage-body").clientWidth - (window.innerWidth <= 760 ? 30 : 44) - (window.innerWidth <= 760 ? 0 : 348));
-  const timeTab = u.range === "24h" ? "Hour" : "Day";
+  const narrow = window.innerWidth <= 760;
+  const width = Math.max(240, $("usage-body").clientWidth - (narrow ? 30 : 44) - (narrow ? 0 : 348));
+  const focused = document.activeElement?.dataset?.usageBreak;
   setHtml("usage-body", `
     <div class="card usage-board">
       <div>
-        <div class="usage-big">${esc(metricText(total))}</div>
+        <div class="usage-big">${esc(metricText(total))}${partial(t)}</div>
         <div class="usage-big-sub">${t.sessions.toLocaleString()} ${t.sessions === 1 ? "session" : "sessions"}${estimate}</div>
         <div class="usage-providers">${providers.map((g) => usageProvider(g, total || 0)).join("")}</div>
         ${usageNotes(u)}
@@ -1873,17 +1882,18 @@ function renderUsage() {
       ${usageChart(u, width)}
     </div>
     <div class="section"><div class="section-head"><h2>Totals</h2></div><div class="stats">
-      ${stat("Processed tokens", amount(t.tokens), "")}
+      ${stat("Processed tokens", amount(t.tokens), t.cache_write ? `Includes ${amount(t.cache_write)} cache writes` : "")}
       ${stat("Cached input", amount(t.cache_read), "")}
       ${stat("Uncached input", amount(t.input), "")}
       ${stat("Output", amount(t.output), "")}
-      ${stat("Cache savings", t.cost ? money(t.cost.savings) : "–", "")}
+      ${stat("Cache savings", t.cost ? money(t.cost.savings) : "–", "Cache reads against the input price")}
     </div></div>
     ${usageTypes(t)}
     <div class="section">
-      <div class="section-head"><h2>Breakdown</h2><div class="seg" role="group" aria-label="Break down by">${[["model", "Model"], ["account", "Account"], ["machine", "Machine"], ["time", timeTab]].map(([k, label]) => `<button data-usage-break="${k}" aria-pressed="${k === usageBreakdown}">${label}</button>`).join("")}</div></div>
+      <div class="section-head"><h2>Breakdown</h2><div class="seg" role="group" aria-label="Break down by">${[["model", "Model"], ["account", "Account"], ["machine", "Machine"], ["time", u.hourly ? "Hour" : "Day"]].map(([k, label]) => `<button data-usage-break="${k}" aria-pressed="${k === usageBreakdown}">${label}</button>`).join("")}</div></div>
       <div class="card table-wrap">${usageTable(u)}</div>
     </div>`);
+  if (focused) document.querySelector(`[data-usage-break="${focused}"]`)?.focus();
 }
 
 function setConnection(ok, message, refused = false) {

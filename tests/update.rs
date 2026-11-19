@@ -296,7 +296,8 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
         },
     )
     .await;
-    let codex_usage: Value = reqwest::get(format!("{base}/conflux/api/usage?range=24h&provider=codex"))
+    let since = (chrono::Utc::now() - chrono::Duration::hours(1)).timestamp();
+    let codex_usage: Value = reqwest::get(format!("{base}/conflux/api/usage?buckets={since}&provider=codex"))
         .await
         .unwrap()
         .json()

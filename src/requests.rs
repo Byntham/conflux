@@ -138,7 +138,9 @@ impl RequestLog {
 
     pub fn finish(&self, record: &RequestRecord) {
         self.set_usage(record.id, record.usage);
-        if let Some(ledger) = &self.ledger {
+        if record.status < 400
+            && let Some(ledger) = &self.ledger
+        {
             ledger.append(&Row::from(record));
         }
     }
@@ -335,8 +337,10 @@ fn apply_codex_usage(u: &mut TokenUsage, response: &Value) {
     let usage = &response["usage"];
     if usage.is_object() {
         let cached = n(&usage["input_tokens_details"]["cached_tokens"]);
-        u.input = n(&usage["input_tokens"]).saturating_sub(cached);
+        let written = n(&usage["input_tokens_details"]["cache_write_tokens"]);
+        u.input = n(&usage["input_tokens"]).saturating_sub(cached + written);
         u.cache_read = cached;
+        u.cache_write = written;
         u.output = n(&usage["output_tokens"]);
     }
     if let Some(speed) = Speed::parse(&response["service_tier"]) {

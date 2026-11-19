@@ -993,7 +993,14 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
             format!("event: response.incomplete\ndata: {incomplete}\n\n").into_bytes(),
         ),
     );
-    grok(&h, "s1").send().await.unwrap().bytes().await.unwrap();
+    grok(&h, "s1")
+        .json(&json!({"model": "grok-4.7-build", "stream": true}))
+        .send()
+        .await
+        .unwrap()
+        .bytes()
+        .await
+        .unwrap();
     let mut usage = Default::default();
     for _ in 0..40 {
         usage = h.app.requests.recent()[0].usage;
@@ -1005,6 +1012,21 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
     assert_eq!((usage.input, usage.cache_read, usage.output), (20_000, 100_000, 9));
     assert_eq!(usage.speed, conflux::requests::Speed::Ultrafast);
 
+    h.reply(
+        "at-a",
+        Reply::Json(200, vec![], json!({"input_tokens": 950}).to_string()),
+    );
+    let counted = h
+        .http
+        .post(format!("{}/v1/messages/count_tokens", h.base))
+        .header("user-agent", "claude-cli/2.1.280 (external, cli)")
+        .header("x-app", "cli")
+        .json(&json!({"model": "claude-sonnet-5-5"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(counted.status(), 200);
+
     *h.fake.prices.lock().unwrap() = Some(json!({
         "claude-sonnet-5-5": {
             "input_cost_per_token": 2e-6, "output_cost_per_token": 1e-5,
@@ -1013,13 +1035,15 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         },
         "xai/grok-4.7": {
             "input_cost_per_token": 2e-6, "output_cost_per_token": 6e-6, "cache_read_input_token_cost": 5e-7,
-            "input_cost_per_token_above_100k_tokens": 4e-6, "output_cost_per_token_above_100k_tokens": 1.2e-5
+            "input_cost_per_token_above_100k_tokens": 4e-6, "output_cost_per_token_above_100k_tokens": 1.2e-5,
+            "input_cost_per_token_ultrafast": 6e-6, "output_cost_per_token_ultrafast": 1.8e-5
         },
         "openrouter/xai/grok-4.7": {"input_cost_per_token": 1.0, "output_cost_per_token": 1.0}
     }));
     h.app.prices.refresh(&reqwest::Client::new()).await.unwrap();
+    let since = (chrono::Utc::now() - chrono::Duration::hours(1)).timestamp();
     let usage_page = |query: &str| {
-        let url = format!("{}/conflux/api/usage?range=24h{query}", h.base);
+        let url = format!("{}/conflux/api/usage?buckets={since}{query}", h.base);
         let http = h.http.clone();
         async move {
             http.get(url)
@@ -1041,10 +1065,13 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
     }
     let close = |v: &serde_json::Value, want: f64| (v.as_f64().unwrap() - want).abs() < 1e-12;
     let claude_list = 3.0 * 2e-6 + 900.0 * 1e-7 + 5.0 * 2.5e-6 + 15.0 * 4e-6 + 44.0 * 1e-5;
-    let grok_cost = 20_000.0 * 4e-6 + 100_000.0 * 4e-6 * 0.25 + 9.0 * 1.2e-5;
+    let grok_cost = 3.0 * (20_000.0 * 4e-6 + 100_000.0 * 4e-6 * 0.25 + 9.0 * 1.2e-5);
     assert_eq!(all["total"]["requests"], 2, "{all}");
     assert_eq!(all["total"]["sessions"], 2, "{all}");
-    assert!(close(&all["total"]["cost"]["fast"], claude_list), "{all}");
+    assert!(
+        close(&all["total"]["cost"]["fast"], claude_list + grok_cost * 2.0 / 3.0),
+        "{all}"
+    );
     assert!(
         close(&all["total"]["cost"]["total"], 2.0 * claude_list + grok_cost),
         "{all}"
@@ -1056,7 +1083,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         .iter()
         .map(|m| m["model"].clone())
         .collect();
-    assert_eq!(models, [json!("grok-4.7"), json!("claude-sonnet-5-5")]);
+    assert_eq!(models, [json!("grok-4.7-build"), json!("claude-sonnet-5-5")]);
     let node = usage_page("&machine=node-one").await;
     assert_eq!(
         (node["total"]["requests"].clone(), node["total"]["output"].clone()),

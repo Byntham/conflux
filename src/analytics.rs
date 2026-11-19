@@ -9,7 +9,7 @@ use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use chrono::{DateTime, Duration, DurationRound, NaiveDate, Utc};
+use chrono::{DateTime, Duration, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -20,6 +20,7 @@ use crate::pricing::{Cost, ModelRate, Table};
 use crate::requests::{RequestRecord, TokenUsage};
 
 const KEEP_DAYS: i64 = 92;
+const MAX_BUCKETS: usize = 400;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Row {
@@ -210,6 +211,7 @@ fn grouped<K: Ord>(groups: BTreeMap<K, Group>, mut fields: impl FnMut(&K) -> Val
 pub struct Filter<'a> {
     pub machine: Option<&'a str>,
     pub provider: Option<Provider>,
+    pub starts: &'a [DateTime<Utc>],
 }
 
 pub fn summarize(rows: &[Row], prices: &Table, filter: &Filter, email: impl Fn(&str) -> Option<String>) -> Value {
@@ -220,7 +222,7 @@ pub fn summarize(rows: &[Row], prices: &Table, filter: &Filter, email: impl Fn(&
     let mut by_model: BTreeMap<(Provider, &str), Group> = BTreeMap::new();
     let mut by_account: BTreeMap<(Provider, &str), Group> = BTreeMap::new();
     let mut by_machine: BTreeMap<&str, Group> = BTreeMap::new();
-    let mut hours: BTreeMap<(DateTime<Utc>, Provider), (u64, f64)> = BTreeMap::new();
+    let mut buckets: BTreeMap<(usize, Provider), (u64, f64)> = BTreeMap::new();
     let mut rates: HashMap<(Provider, &str), Option<&ModelRate>> = HashMap::new();
     let mut unpriced_models = HashSet::new();
     for row in rows {
@@ -257,10 +259,11 @@ pub fn summarize(rows: &[Row], prices: &Table, filter: &Filter, email: impl Fn(&
             .entry(row.machine.as_str())
             .or_default()
             .add(row, session, cost);
-        let hour = row.at.duration_trunc(Duration::hours(1)).unwrap_or(row.at);
-        let bucket = hours.entry((hour, row.provider)).or_default();
-        bucket.0 += tokens(&row.usage);
-        bucket.1 += cost.map_or(0.0, Cost::total);
+        if let Some(i) = filter.starts.partition_point(|s| *s <= row.at).checked_sub(1) {
+            let bucket = buckets.entry((i, row.provider)).or_default();
+            bucket.0 += tokens(&row.usage);
+            bucket.1 += cost.map_or(0.0, Cost::total);
+        }
     }
     let mut machines: Vec<&str> = machines.into_iter().collect();
     machines.sort_unstable();
@@ -277,36 +280,42 @@ pub fn summarize(rows: &[Row], prices: &Table, filter: &Filter, email: impl Fn(&
         "by_model": grouped(by_model, |(p, m)| json!({ "provider": p, "model": m })),
         "by_account": grouped(by_account, |(p, a)| json!({ "provider": p, "account": a, "email": email(a) })),
         "by_machine": grouped(by_machine, |m| json!({ "machine": m })),
-        "hours": hours
+        "buckets": buckets
             .into_iter()
-            .map(|((at, provider), (tokens, cost))| json!({ "at": at, "provider": provider, "tokens": tokens, "cost": cost }))
+            .map(|((i, provider), (tokens, cost))| json!({ "i": i, "provider": provider, "tokens": tokens, "cost": cost }))
             .collect::<Vec<_>>(),
     })
 }
 
 #[derive(Deserialize)]
 pub struct UsageQuery {
-    range: Option<String>,
+    buckets: String,
     machine: Option<String>,
     provider: Option<String>,
 }
 
-fn range_hours(range: &str) -> Option<i64> {
-    match range {
-        "24h" => Some(24),
-        "7d" => Some(7 * 24),
-        "30d" => Some(30 * 24),
-        "90d" => Some(90 * 24),
-        _ => None,
-    }
+fn bucket_starts(raw: &str, now: DateTime<Utc>) -> Option<Vec<DateTime<Utc>>> {
+    let starts: Vec<DateTime<Utc>> = raw
+        .split(',')
+        .map(|s| {
+            s.trim()
+                .parse::<i64>()
+                .ok()
+                .and_then(|t| DateTime::from_timestamp(t, 0))
+        })
+        .collect::<Option<_>>()?;
+    let ordered = starts.windows(2).all(|w| w[0] < w[1]);
+    let first = *starts.first()?;
+    (ordered && starts.len() <= MAX_BUCKETS && first >= now - Duration::days(KEEP_DAYS) && first <= now)
+        .then_some(starts)
 }
 
 pub async fn usage(State(app): State<Arc<App>>, Query(q): Query<UsageQuery>) -> Response {
-    let range = q.range.unwrap_or_else(|| "7d".into());
-    let Some(hours) = range_hours(&range) else {
+    let now = Utc::now();
+    let Some(starts) = bucket_starts(&q.buckets, now) else {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "range must be 24h, 7d, 30d, or 90d"})),
+            Json(json!({"error": "buckets must be up to 400 increasing Unix times from the last 92 days"})),
         )
             .into_response();
     };
@@ -324,8 +333,7 @@ pub async fn usage(State(app): State<Arc<App>>, Query(q): Query<UsageQuery>) -> 
         )
             .into_response();
     };
-    let now = Utc::now();
-    let since = now - Duration::hours(hours);
+    let since = starts[0];
     let prices = app.prices.table();
     let emails: HashMap<String, Option<String>> = app
         .store
@@ -339,14 +347,13 @@ pub async fn usage(State(app): State<Arc<App>>, Query(q): Query<UsageQuery>) -> 
         let filter = Filter {
             machine: machine.as_deref(),
             provider,
+            starts: &starts,
         };
         summarize(&rows, &prices, &filter, |id| emails.get(id).cloned().flatten())
     })
     .await;
     match summary {
         Ok(mut v) => {
-            v["range"] = json!(range);
-            v["since"] = json!(since);
             v["now"] = json!(now);
             v["prices_fetched_at"] = json!(app.prices.table().fetched_at);
             Json(v).into_response()

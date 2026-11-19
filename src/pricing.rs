@@ -26,6 +26,17 @@ pub struct Rates {
 }
 
 impl Rates {
+    fn rescaled(self, from: &Rates, to: &Rates) -> Self {
+        let ratio = |a: f64, b: f64, v: f64| if a > 0.0 { v * b / a } else { b };
+        Self {
+            input: ratio(from.input, to.input, self.input),
+            output: ratio(from.output, to.output, self.output),
+            cache_read: ratio(from.cache_read, to.cache_read, self.cache_read),
+            cache_write: ratio(from.cache_write, to.cache_write, self.cache_write),
+            cache_write_1h: ratio(from.cache_write_1h, to.cache_write_1h, self.cache_write_1h),
+        }
+    }
+
     fn scaled(self, by: f64) -> Self {
         Self {
             input: self.input * by,
@@ -170,6 +181,11 @@ fn read_model(entry: &Value) -> Option<ModelRate> {
         .into_iter()
         .filter_map(|k| read_tier(entry, k * 1000, &format!("_above_{k}k_tokens"), Some(&base.standard)))
         .collect();
+    for tier in &mut tiers {
+        let from_base = |sped: Option<Rates>| sped.map(|r| r.rescaled(&base.standard, &tier.standard));
+        tier.fast = tier.fast.or(from_base(base.fast));
+        tier.ultrafast = tier.ultrafast.or(from_base(base.ultrafast));
+    }
     tiers.push(base);
     Some(ModelRate {
         tiers,
