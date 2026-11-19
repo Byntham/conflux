@@ -229,7 +229,7 @@ struct Accounts: View {
                     Text("Pools")
                     Spacer()
                     Text("Left").frame(width: 34, alignment: .trailing)
-                    Text("Next refill").frame(width: 80, alignment: .trailing)
+                    Text("Next refill").frame(width: 92, alignment: .trailing)
                 }
                 .font(.system(size: 11))
                 .foregroundStyle(Palette.muted)
@@ -374,15 +374,16 @@ struct Meter: View {
             Text(refill.map { "+\($0.gain)% \($0.wait)" } ?? "")
                 .font(.system(size: 11).monospacedDigit())
                 .foregroundStyle(Palette.muted)
-                .frame(width: 80, alignment: .trailing)
+                .frame(width: 92, alignment: .trailing)
                 .lineLimit(1)
         }
-        .help("\(Int(left))% of the \(name) limit left, averaged across accounts" + (refill.map { ". In \($0.wait), an account resets and adds \($0.gain)% back" } ?? ""))
+        .help("\(Int(left))% of the \(name) limit left, averaged across accounts" + (refill.map { ". Next refill: +\($0.gain)% in \($0.wait)" } ?? ""))
     }
 
     private var refill: (gain: Int, wait: String)? {
-        guard let at = window.resetsAt, refillPct > 0 else { return nil }
-        return (max(1, Int(refillPct.rounded())), Countdown.text(at, now: now))
+        let gain = Int(refillPct.rounded())
+        guard let at = window.resetsAt, gain > 0 else { return nil }
+        return (gain, Countdown.text(at, now: now))
     }
 
     private func color(_ left: Double) -> Color {
