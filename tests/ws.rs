@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use common::{Harness, Reply, WsScript};
 use conflux::accounts::Provider;
+use conflux::requests::Speed;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
@@ -53,8 +54,23 @@ async fn relays_frames_with_account_auth_and_beta() {
     let done = next_json(&mut ws).await.unwrap();
     assert_eq!(done["response"]["token"], "at-c");
 
-    ws.send(create("gpt-6.1-sol")).await.unwrap();
+    ws.send(create("gpt-6.2-sol")).await.unwrap();
     assert_eq!(next_json(&mut ws).await.unwrap()["response"]["id"], "resp_at-c_2");
+    while next_json(&mut ws).await.unwrap()["type"] != "response.completed" {}
+    let nested = json!({"type": "response.create", "model": 5, "response": {"model": "gpt-6.2-astra"}});
+    ws.send(Message::Binary(nested.to_string().into_bytes().into()))
+        .await
+        .unwrap();
+    assert_eq!(next_json(&mut ws).await.unwrap()["response"]["id"], "resp_at-c_3");
+    let models: Vec<_> = h.app.requests.recent().into_iter().map(|r| r.model).collect();
+    assert_eq!(
+        models,
+        [
+            Some("gpt-6.2-astra".into()),
+            Some("gpt-6.2-sol".into()),
+            Some("gpt-6.1-sol".into())
+        ]
+    );
 
     let headers = h.fake.ws_headers.lock().unwrap()[0].clone();
     assert_eq!(
@@ -225,6 +241,15 @@ async fn the_row_is_logged_when_the_upstream_starts_answering() {
     assert_eq!(rows[0].transport, "ws");
     assert_eq!(next_json(&mut ws).await.unwrap()["type"], "response.completed");
     assert_eq!(h.app.requests.recent()[0].usage.output, 7);
+
+    h.ws_script("at-c", WsScript::FailedTurn);
+    let mut ws = open(&h, &[]).await.unwrap();
+    ws.send(create("m")).await.unwrap();
+    assert_eq!(next_json(&mut ws).await.unwrap()["type"], "response.created");
+    assert_eq!(next_json(&mut ws).await.unwrap()["type"], "response.failed");
+    let usage = h.app.requests.recent()[0].usage;
+    assert_eq!((usage.input, usage.cache_read, usage.output), (10, 40, 3));
+    assert_eq!(usage.speed, Speed::Fast);
 }
 
 #[tokio::test]

@@ -30,6 +30,7 @@ pub enum WsScript {
     Normal,
     QuotaMidStream,
     SlowTurn,
+    FailedTurn,
     RejectHandshake429,
     RejectHandshake401,
 }
@@ -137,7 +138,7 @@ async fn fake_ws(fake: Arc<Fake>, req: Request) -> Response {
     upgrade.on_upgrade(move |mut socket| async move {
         let mut n = 0;
         while let Some(Ok(msg)) = socket.recv().await {
-            let Message::Text(_) = msg else { continue };
+            let (Message::Text(_) | Message::Binary(_)) = msg else { continue };
             n += 1;
             if let WsScript::SlowTurn = script {
                 let id = format!("resp_{token}_{n}");
@@ -157,8 +158,14 @@ async fn fake_ws(fake: Arc<Fake>, req: Request) -> Response {
                     "type": "error", "status": 429,
                     "error": {"type": "usage_limit_reached", "message": "limit", "resets_in_seconds": 600}
                 })],
-                _ => vec![
+                WsScript::FailedTurn => vec![
                     json!({"type": "response.created", "response": {"id": format!("resp_{token}_{n}")}}),
+                    json!({"type": "response.failed", "response": {"id": format!("resp_{token}_{n}"), "service_tier": "priority", "usage": {
+                        "input_tokens": 50, "input_tokens_details": {"cached_tokens": 40}, "output_tokens": 3
+                    }}}),
+                ],
+                _ => vec![
+                    json!({"type": "response.created", "response": {"id": format!("resp_{token}_{n}"), "model": "resolved-by-upstream"}}),
                     json!({"type": "codex.rate_limits", "rate_limits": {
                         "primary": {"used_percent": 33.0, "window_minutes": 300, "reset_after_seconds": 100}}}),
                     json!({"type": "response.completed", "response": {"id": format!("resp_{token}_{n}"), "token": token}}),
