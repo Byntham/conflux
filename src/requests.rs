@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
@@ -182,11 +182,24 @@ impl Decoder {
     }
 }
 
-pub fn decompressed(encoding: Option<&str>, body: &[u8]) -> Vec<u8> {
-    Decoder::new(encoding)
-        .decode(body)
-        .filter(|plain| !plain.is_empty())
-        .unwrap_or_else(|| body.to_vec())
+pub fn decompressed<'a>(encoding: Option<&str>, body: &'a [u8], limit: usize) -> Cow<'a, [u8]> {
+    let reader: Box<dyn Read + 'a> = match encoding.map(|e| e.trim().to_ascii_lowercase()).as_deref() {
+        Some("gzip") => Box::new(flate2::read::GzDecoder::new(body)),
+        Some("deflate") => Box::new(flate2::read::ZlibDecoder::new(body)),
+        Some("br") => Box::new(brotli::Decompressor::new(body, 4096)),
+        Some("zstd") => match zstd::stream::read::Decoder::new(body) {
+            Ok(d) => Box::new(d),
+            Err(_) => return Cow::Borrowed(body),
+        },
+        _ => return Cow::Borrowed(body),
+    };
+    let mut plain = Vec::new();
+    let _ = reader.take(limit as u64).read_to_end(&mut plain);
+    if plain.is_empty() {
+        Cow::Borrowed(body)
+    } else {
+        Cow::Owned(plain)
+    }
 }
 
 pub struct BodyScanner {
@@ -390,9 +403,10 @@ mod tests {
         let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         enc.write_all(b"{\"a\":1}").unwrap();
         let gz = enc.finish().unwrap();
-        assert_eq!(decompressed(Some("gzip"), &gz), b"{\"a\":1}");
-        assert_eq!(decompressed(None, b"plain"), b"plain");
-        assert_eq!(decompressed(Some("gzip"), b"not gzip"), b"not gzip");
+        assert_eq!(&*decompressed(Some("gzip"), &gz, 1024), b"{\"a\":1}");
+        assert_eq!(&*decompressed(Some("gzip"), &gz, 3), b"{\"a");
+        assert_eq!(&*decompressed(None, b"plain", 1024), b"plain");
+        assert_eq!(&*decompressed(Some("gzip"), b"not gzip", 1024), b"not gzip");
     }
 
     #[test]
