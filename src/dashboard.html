@@ -1658,14 +1658,19 @@ function usageStarts(range) {
 
 let usageInFlight = false;
 let pressing = false;
+const usageTipOpen = () => Boolean(document.querySelector(".usage-chart .usage-tip:not([hidden])"));
+const flushUsage = () => setTimeout(() => { if (usagePending && !pressing && !usageTipOpen()) renderUsage(); }, 0);
+const endPress = () => { pressing = false; flushUsage(); };
 document.addEventListener("pointerdown", () => { pressing = true; }, true);
-document.addEventListener("pointerup", () => { pressing = false; }, true);
-document.addEventListener("pointercancel", () => { pressing = false; }, true);
+document.addEventListener("pointerup", endPress, true);
+document.addEventListener("pointercancel", endPress, true);
+window.addEventListener("blur", endPress);
 let usagePending = null;
 
 async function loadUsage(background = false) {
   if (background && usageInFlight) return;
   usageInFlight = true;
+  if (!background) usagePending = null;
   const token = ++usageToken;
   usageLoadedAt = Date.now();
   if (!background) $("usage-body").classList.add("loading");
@@ -1679,8 +1684,7 @@ async function loadUsage(background = false) {
     usageInFlight = false;
     $("usage-body").classList.remove("loading");
     const next = { ...u, starts, range, hourly: range === "24h", machine: $("usage-machine").value, provider: $("usage-provider").value };
-    const tipOpen = document.querySelector(".usage-chart .usage-tip:not([hidden])");
-    if (background && tipOpen) {
+    if (background && (pressing || usageTipOpen())) {
       usagePending = next;
     } else {
       usagePending = null;
@@ -1853,12 +1857,7 @@ function hideUsageTip() {
   if (!tip) return;
   tip.hidden = true;
   document.querySelector(".usage-chart .cross").setAttribute("visibility", "hidden");
-  if (!usagePending) return;
-  const flush = () => setTimeout(() => { if (usagePending) renderUsage(); }, 0);
-  if (pressing) {
-    document.addEventListener("pointerup", flush, { once: true });
-    document.addEventListener("pointercancel", flush, { once: true });
-  } else flush();
+  if (usagePending && !pressing) flushUsage();
 }
 
 function showUsageTip(ev) {
