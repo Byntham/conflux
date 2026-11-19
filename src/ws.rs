@@ -52,23 +52,11 @@ struct FrameKind<'a> {
     kind: Option<Cow<'a, str>>,
 }
 
-#[derive(Deserialize)]
-struct NestedModel<'a> {
-    #[serde(borrow)]
-    model: Option<Cow<'a, str>>,
-}
-
-#[derive(Deserialize)]
-struct FrameModel<'a> {
-    #[serde(borrow)]
-    model: Option<Cow<'a, str>>,
-    #[serde(borrow)]
-    response: Option<NestedModel<'a>>,
-}
-
-fn frame_model(frame: &[u8]) -> Option<String> {
-    let f: FrameModel = serde_json::from_slice(frame).ok()?;
-    f.model.or(f.response.and_then(|r| r.model)).map(Cow::into_owned)
+fn frame_model(v: &Value) -> Option<String> {
+    v["model"]
+        .as_str()
+        .or_else(|| v["response"]["model"].as_str())
+        .map(str::to_string)
 }
 
 #[derive(Default)]
@@ -136,7 +124,7 @@ pub fn first_frame_route(headers: &HeaderMap, first: &str) -> RouteRequest {
     let v: Value = serde_json::from_str(first).unwrap_or(Value::Null);
     RouteRequest {
         provider: Provider::Codex,
-        model: frame_model(first.as_bytes()),
+        model: frame_model(&v),
         session: proxy::codex_session(headers, &v),
     }
 }
@@ -356,7 +344,8 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, upstrea
                 };
                 if let Some(frame) = frame {
                     turn.started.set(Instant::now());
-                    if let Some(model) = frame_model(frame) {
+                    let v: Value = serde_json::from_slice(frame).unwrap_or(Value::Null);
+                    if let Some(model) = frame_model(&v) {
                         route.model = Some(model);
                     }
                 }
