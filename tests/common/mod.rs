@@ -31,6 +31,7 @@ pub enum WsScript {
     QuotaMidStream,
     SlowTurn,
     FailedTurn,
+    CutTurn,
     RejectHandshake429,
     RejectHandshake401,
 }
@@ -46,6 +47,7 @@ pub struct Fake {
     pub body_lengths: Mutex<Vec<usize>>,
     pub stream_dropped: Arc<AtomicBool>,
     pub release: Mutex<Option<(String, std::path::PathBuf)>>,
+    pub prices: Mutex<Option<Value>>,
 }
 
 struct DropFlag(Arc<AtomicBool>);
@@ -158,6 +160,7 @@ async fn fake_ws(fake: Arc<Fake>, req: Request) -> Response {
                     "type": "error", "status": 429,
                     "error": {"type": "usage_limit_reached", "message": "limit", "resets_in_seconds": 600}
                 })],
+                WsScript::CutTurn => vec![json!({"type": "response.created", "response": {"id": format!("resp_{token}_{n}")}})],
                 WsScript::FailedTurn => vec![
                     json!({"type": "response.created", "response": {"id": format!("resp_{token}_{n}")}}),
                     json!({"type": "response.failed", "response": {"id": format!("resp_{token}_{n}"), "service_tier": "priority", "usage": {
@@ -168,13 +171,16 @@ async fn fake_ws(fake: Arc<Fake>, req: Request) -> Response {
                     json!({"type": "response.created", "response": {"id": format!("resp_{token}_{n}"), "model": "resolved-by-upstream"}}),
                     json!({"type": "codex.rate_limits", "rate_limits": {
                         "primary": {"used_percent": 33.0, "window_minutes": 300, "reset_after_seconds": 100}}}),
-                    json!({"type": "response.completed", "response": {"id": format!("resp_{token}_{n}"), "token": token}}),
+                    json!({"type": "response.completed", "response": {"id": format!("resp_{token}_{n}"), "token": token, "usage": {"output_tokens": 1}}}),
                 ],
             };
             for f in frames {
                 if socket.send(Message::Text(f.to_string().into())).await.is_err() {
                     return;
                 }
+            }
+            if let WsScript::CutTurn = script {
+                return;
             }
         }
     })
@@ -187,6 +193,13 @@ async fn fake_handler(State(fake): State<Arc<Fake>>, req: Request) -> Response {
     fake.http_headers.lock().unwrap().push(req.headers().clone());
     if req.headers().get("upgrade").is_some() {
         return fake_ws(fake, req).await.into_response();
+    }
+    if path == "/prices.json" {
+        let prices = fake.prices.lock().unwrap().clone();
+        return match prices {
+            Some(doc) => Response::new(Body::from(doc.to_string())),
+            None => Response::builder().status(404).body(Body::empty()).unwrap(),
+        };
     }
     if let Some(rest) = path.strip_prefix("/releases/") {
         let release = fake.release.lock().unwrap().clone();

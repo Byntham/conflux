@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
 use crate::accounts::Provider;
+use crate::analytics::{Ledger, Row};
 
 pub const LOG_CAPACITY: usize = 500;
 const MAX_LINE: usize = 16 * 1024 * 1024;
@@ -101,14 +102,26 @@ impl LogState {
     }
 }
 
-#[derive(Default)]
 pub struct RequestLog {
     state: Mutex<LogState>,
+    ledger: Arc<Ledger>,
 }
 
 impl RequestLog {
-    pub fn add(&self, r: RequestRecord) -> u64 {
-        self.state.lock().unwrap().push(r)
+    pub fn new(ledger: Arc<Ledger>) -> Self {
+        Self {
+            state: Mutex::default(),
+            ledger,
+        }
+    }
+
+    pub fn ledger(&self) -> Arc<Ledger> {
+        self.ledger.clone()
+    }
+
+    pub fn add(&self, mut r: RequestRecord) -> RequestRecord {
+        r.id = self.state.lock().unwrap().push(r.clone());
+        r
     }
 
     pub fn set_usage(&self, id: u64, usage: TokenUsage) {
@@ -120,6 +133,14 @@ impl RequestLog {
             .lock()
             .unwrap()
             .change(id, |r| r.transport = transport.into());
+    }
+
+    pub fn finish(&self, record: &RequestRecord) {
+        self.set_usage(record.id, record.usage);
+        let u = &record.usage;
+        if record.status < 400 && u.input + u.cache_read + u.cache_write + u.output > 0 {
+            self.ledger.append(&Row::from(record));
+        }
     }
 
     pub fn export(&self, successor: mpsc::UnboundedSender<Value>) -> Value {
@@ -266,17 +287,22 @@ impl BodyScanner {
                 }
                 continue;
             }
-            if let Some(data) = self.line.strip_prefix(b"data:")
-                && is_interesting(data)
-                && let Ok(v) = serde_json::from_slice::<Value>(data.trim_ascii())
-            {
-                sink(v);
-            }
-            self.line.clear();
+            self.take_line(sink);
         }
     }
 
+    fn take_line(&mut self, sink: &mut impl FnMut(Value)) {
+        if let Some(data) = self.line.strip_prefix(b"data:")
+            && is_interesting(data)
+            && let Ok(v) = serde_json::from_slice::<Value>(data.trim_ascii())
+        {
+            sink(v);
+        }
+        self.line.clear();
+    }
+
     pub fn finish(&mut self, sink: &mut impl FnMut(Value)) {
+        self.take_line(sink);
         if !self.whole.is_empty()
             && let Ok(v) = serde_json::from_slice::<Value>(&self.whole)
         {
@@ -314,8 +340,10 @@ fn apply_codex_usage(u: &mut TokenUsage, response: &Value) {
     let usage = &response["usage"];
     if usage.is_object() {
         let cached = n(&usage["input_tokens_details"]["cached_tokens"]);
-        u.input = n(&usage["input_tokens"]).saturating_sub(cached);
+        let written = n(&usage["input_tokens_details"]["cache_write_tokens"]);
+        u.input = n(&usage["input_tokens"]).saturating_sub(cached + written);
         u.cache_read = cached;
+        u.cache_write = written;
         u.output = n(&usage["output_tokens"]);
     }
     if let Some(speed) = Speed::parse(&response["service_tier"]) {
@@ -344,13 +372,13 @@ pub struct ResponseTap {
     scanner: BodyScanner,
     provider: Provider,
     usage: TokenUsage,
-    record: Option<u64>,
+    record: Option<RequestRecord>,
     log: Arc<RequestLog>,
     quota: Option<(Arc<crate::usage::Usage>, String)>,
 }
 
 impl ResponseTap {
-    pub fn new(scanner: BodyScanner, provider: Provider, record: Option<u64>, log: Arc<RequestLog>) -> Self {
+    pub fn new(scanner: BodyScanner, provider: Provider, record: Option<RequestRecord>, log: Arc<RequestLog>) -> Self {
         Self {
             scanner,
             provider,
@@ -389,8 +417,9 @@ impl Drop for ResponseTap {
         for v in events {
             self.take(v);
         }
-        if let Some(record) = self.record {
-            self.log.set_usage(record, self.usage);
+        if let Some(mut record) = self.record.take() {
+            record.usage = self.usage;
+            self.log.finish(&record);
         }
     }
 }
@@ -413,6 +442,13 @@ mod tests {
         let (a, b) = line.split_at(20);
         assert!(collect(&mut s, a).is_empty());
         assert_eq!(collect(&mut s, b)[0]["usage"]["output_tokens"], 7);
+        assert!(collect(&mut s, b"data: {\"usage\":{\"output_tokens\":8}}").is_empty());
+        let mut last = Vec::new();
+        s.finish(&mut |v| last.push(v));
+        assert_eq!(
+            last[0]["usage"]["output_tokens"], 8,
+            "a stream that ends without a newline keeps its last event"
+        );
     }
 
     #[test]
@@ -465,15 +501,15 @@ mod tests {
             Provider::Codex,
             &mut u,
             &json!({"type": "response.completed", "response": {"usage": {
-                "input_tokens": 100, "input_tokens_details": {"cached_tokens": 80}, "output_tokens": 5
+                "input_tokens": 100, "input_tokens_details": {"cached_tokens": 80, "cache_write_tokens": 15}, "output_tokens": 5
             }}}),
         );
         assert_eq!(
             u,
             TokenUsage {
-                input: 20,
+                input: 5,
                 cache_read: 80,
-                cache_write: 0,
+                cache_write: 15,
                 cache_write_1h: 0,
                 output: 5,
                 speed: Speed::Standard
@@ -484,7 +520,13 @@ mod tests {
             &mut u,
             &json!({"type": "response.cancelled", "response": {"usage": null, "service_tier": "priority"}}),
         );
-        assert_eq!((u.input, u.cache_read, u.output, u.speed), (20, 80, 5, Speed::Fast));
+        assert_eq!((u.input, u.cache_read, u.output, u.speed), (5, 80, 5, Speed::Fast));
+        apply_event(
+            Provider::Codex,
+            &mut u,
+            &json!({"type": "response.completed", "response": {"usage": null, "service_tier": "ultrafast"}}),
+        );
+        assert_eq!(u.speed, Speed::Ultrafast);
     }
 
     #[test]
@@ -499,7 +541,8 @@ mod tests {
 
     #[test]
     fn log_is_bounded_and_newest_first() {
-        let log = RequestLog::default();
+        let dir = tempfile::tempdir().unwrap();
+        let log = RequestLog::new(Ledger::open(dir.path().to_path_buf()));
         let rec = |account: &str| RequestRecord {
             id: 0,
             at: Utc::now(),
@@ -514,7 +557,7 @@ mod tests {
             latency_ms: 1,
             usage: TokenUsage::default(),
         };
-        let first = log.add(rec("first"));
+        let first = log.add(rec("first")).id;
         log.set_usage(
             first,
             TokenUsage {

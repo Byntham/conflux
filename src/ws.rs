@@ -22,7 +22,7 @@ use crate::app::App;
 use crate::guests::ApprovedGuest;
 use crate::proxy::{self, Rejection};
 use crate::refresh::RefreshResult;
-use crate::requests::{self, TokenUsage};
+use crate::requests::{self, RequestRecord};
 use crate::router::{self, NoAccount, RouteRequest};
 
 pub const RESPONSES_WEBSOCKETS_BETA: &str = "responses_websockets=2026-02-06";
@@ -53,18 +53,29 @@ struct FrameKind<'a> {
 }
 
 #[derive(Default, Deserialize)]
-struct FrameModel {
+struct FrameFields {
     model: Option<Value>,
+    prompt_cache_key: Option<Value>,
     response: Option<Value>,
 }
 
-fn frame_model(frame: &[u8]) -> Option<String> {
-    let f: FrameModel = serde_json::from_slice(frame).unwrap_or_default();
-    f.model
-        .as_ref()
-        .and_then(Value::as_str)
-        .or_else(|| f.response.as_ref().and_then(|r| r["model"].as_str()))
-        .map(str::to_string)
+struct FrameRoute {
+    model: Option<String>,
+    cache_key: Option<String>,
+}
+
+fn frame_route(frame: &[u8]) -> FrameRoute {
+    let f: FrameFields = serde_json::from_slice(frame).unwrap_or_default();
+    let field = |top: &Option<Value>, key: &str| {
+        top.as_ref()
+            .and_then(Value::as_str)
+            .or_else(|| f.response.as_ref().and_then(|r| r[key].as_str()))
+            .map(str::to_string)
+    };
+    FrameRoute {
+        model: field(&f.model, "model"),
+        cache_key: field(&f.prompt_cache_key, "prompt_cache_key"),
+    }
 }
 
 #[derive(Default)]
@@ -129,11 +140,11 @@ async fn close_with(client: &mut WebSocket, text: String) {
 }
 
 pub fn first_frame_route(headers: &HeaderMap, first: &str) -> RouteRequest {
-    let v: Value = serde_json::from_str(first).unwrap_or(Value::Null);
+    let frame = frame_route(first.as_bytes());
     RouteRequest {
         provider: Provider::Codex,
-        model: frame_model(first.as_bytes()),
-        session: proxy::codex_session(headers, &v),
+        model: frame.model,
+        session: proxy::codex_session(headers, &Value::Null).or(frame.cache_key),
     }
 }
 
@@ -316,6 +327,7 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, upstrea
     let mut shutdown = app.ws_shutdown.subscribe();
     let mut drain = app.lifecycle.watch_drain();
     let mut turns = TurnTracker::started();
+    let header_session = proxy::codex_session(&headers, &Value::Null);
     loop {
         tokio::select! {
             biased;
@@ -352,8 +364,14 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, upstrea
                 };
                 if let Some(frame) = frame {
                     turn.started.set(Instant::now());
-                    if let Some(model) = frame_model(frame) {
+                    let next = frame_route(frame);
+                    if let Some(model) = next.model {
                         route.model = Some(model);
+                    }
+                    if let Some(key) = next.cache_key
+                        && header_session.is_none()
+                    {
+                        route.session = Some(key);
                     }
                 }
                 if up_tx.send(to_upstream(msg)).await.is_err() || closing {
@@ -427,7 +445,7 @@ pub fn rate_limit_headers(event: &Value) -> HeaderMap {
 struct Turn {
     machine: String,
     started: Cell<Instant>,
-    record: Cell<Option<u64>>,
+    record: Cell<Option<RequestRecord>>,
 }
 
 fn inspect_event(app: &App, account: &AccountEntry, route: &RouteRequest, turn: &Turn, text: &str) -> bool {
@@ -436,11 +454,10 @@ fn inspect_event(app: &App, account: &AccountEntry, route: &RouteRequest, turn: 
     };
     let kind = v["type"].as_str();
     if requests::is_response_end(kind)
-        && let Some(record) = turn.record.take()
+        && let Some(mut record) = turn.record.take()
     {
-        let mut usage = TokenUsage::default();
-        requests::apply_event(Provider::Codex, &mut usage, &v);
-        app.requests.set_usage(record, usage);
+        requests::apply_event(Provider::Codex, &mut record.usage, &v);
+        app.requests.finish(&record);
     }
     match kind {
         Some("response.created") => {
@@ -453,7 +470,7 @@ fn inspect_event(app: &App, account: &AccountEntry, route: &RouteRequest, turn: 
                 200,
                 turn.started.get(),
             );
-            app.requests.set_transport(record, "ws");
+            app.requests.set_transport(record.id, "ws");
             turn.record.set(Some(record));
             false
         }

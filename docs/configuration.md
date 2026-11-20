@@ -12,6 +12,8 @@ conflux uses the same paths on Linux, macOS, and Windows. On Windows, `~` is you
 | `~/.config/conflux/joined.json` | The Claude Code, Codex, Grok Build, and Muse Code settings that `join` replaced, so `off` and `leave` can restore them, and the providers the hub holds accounts for. |
 | `~/.config/conflux/management-key` | The key that `conflux t3-key` prints. Hub only. |
 | `~/.local/share/conflux/accounts/` | One set of files per account, with its OAuth tokens in plain text. Hub only. |
+| `~/.local/share/conflux/analytics/` | One file per day of the requests the hub served, with each request's machine, account email, model, and token counts, for the Usage page. Kept for at least 90 days. Hub only. |
+| `~/.local/share/conflux/prices.json` | Public API prices from LiteLLM, refreshed daily, for the Usage page's cost estimate. Hub only. |
 | `~/.local/share/conflux/retired-*/` | The accounts an old hub kept after a hub move. Delete it once the move has worked. |
 | `~/conflux/transcripts/` | Transcripts that machines copied with `conflux sync on`. Hub only. |
 
@@ -75,6 +77,7 @@ transcript_sync = false
 | `CONFLUX_META_API` | The Muse Code API. Default `https://api.meta.ai`. |
 | `CONFLUX_META_AUTH` | The Meta login server. Default `https://auth.meta.com`. |
 | `CONFLUX_RELEASES` | Where `conflux update` looks for releases. |
+| `CONFLUX_PRICES` | Where the hub downloads API prices. Default is LiteLLM's `model_prices_and_context_window.json` on GitHub. |
 | `CONFLUX_HUB_PORT` | The port a node finds its hub on, and a waiting machine looks for one on. Default is the machine's own `port`. It lets a hub and a node run on one machine. |
 | `CONFLUX_HOSTNAME` | The name this machine reports, in place of its hostname. |
 | `CONFLUX_SSH` | The program the hub runs in place of `ssh` to install conflux on another machine. |

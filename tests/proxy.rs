@@ -923,6 +923,17 @@ async fn no_accounts_message() {
 async fn dashboard_shows_accounts_requests_and_tokens() {
     let h = Harness::new().await;
     h.add(Provider::Claude, "a").await;
+    let analytics = h.dir.path().join("data/analytics");
+    std::fs::create_dir_all(&analytics).unwrap();
+    let day_file = |days: i64| {
+        let at = chrono::Utc::now() - chrono::Duration::days(days);
+        let row = json!({"at": at, "machine": "m", "provider": "claude", "account": "a", "model": "claude-sonnet-5-5",
+            "session": null, "usage": {"input": 1, "cache_read": 0, "cache_write": 0, "output": 1}});
+        let path = analytics.join(format!("{}.jsonl", at.format("%Y-%m-%d")));
+        std::fs::write(&path, format!("{row}\n")).unwrap();
+        path
+    };
+    let (expired, kept) = (day_file(100), day_file(2));
     let sse = concat!(
         "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3,",
         "\"cache_read_input_tokens\":900,\"cache_creation_input_tokens\":20,\"cache_creation\":",
@@ -937,8 +948,9 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         ),
     );
     let r = h
-        .claude(json!({"model": "claude-sonnet-5-5"}))
+        .claude(json!({"model": "claude-sonnet-5-5-20261101"}))
         .header("x-conflux-node", "node-one")
+        .header("x-claude-code-session-id", "c1")
         .send()
         .await
         .unwrap();
@@ -980,10 +992,31 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
     assert_eq!(record["usage"]["speed"], "fast");
     assert_eq!(record["usage"]["output"], 44);
     assert!(h.fake.http_headers.lock().unwrap()[0].get("x-conflux-node").is_none());
+    let since_three_days = chrono::Utc::now() - chrono::Duration::days(3);
+    let recorded = || {
+        h.app
+            .requests
+            .ledger()
+            .read(since_three_days, chrono::Utc::now())
+            .unwrap()
+            .len()
+    };
+    for _ in 0..40 {
+        if recorded() == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(recorded(), 2);
+    assert!(
+        !expired.exists(),
+        "the first write of a day deletes files past retention"
+    );
+    assert!(kept.exists());
 
     h.add(Provider::Grok, "g").await;
-    let incomplete = json!({"type": "response.incomplete", "response": {"service_tier": "ultrafast", "usage": {
-        "input_tokens": 120, "input_tokens_details": {"cached_tokens": 100}, "output_tokens": 9
+    let incomplete = json!({"type": "response.incomplete", "response": {"service_tier": "priority", "usage": {
+        "input_tokens": 120_000, "input_tokens_details": {"cached_tokens": 100_000}, "output_tokens": 9
     }}});
     h.reply(
         "at-g",
@@ -992,7 +1025,14 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
             format!("event: response.incomplete\ndata: {incomplete}\n\n").into_bytes(),
         ),
     );
-    grok(&h, "s1").send().await.unwrap().bytes().await.unwrap();
+    grok(&h, "s1")
+        .json(&json!({"model": "grok-4.7-build-20270115", "stream": true}))
+        .send()
+        .await
+        .unwrap()
+        .bytes()
+        .await
+        .unwrap();
     let mut usage = Default::default();
     for _ in 0..40 {
         usage = h.app.requests.recent()[0].usage;
@@ -1001,8 +1041,269 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
-    assert_eq!((usage.input, usage.cache_read, usage.output), (20, 100, 9));
-    assert_eq!(usage.speed, conflux::requests::Speed::Ultrafast);
+    assert_eq!((usage.input, usage.cache_read, usage.output), (20_000, 100_000, 9));
+    assert_eq!(usage.speed, conflux::requests::Speed::Fast);
+
+    h.reply(
+        "at-a",
+        Reply::Json(200, vec![], json!({"input_tokens": 950}).to_string()),
+    );
+    let counted = h
+        .http
+        .post(format!("{}/v1/messages/count_tokens", h.base))
+        .header("user-agent", "claude-cli/2.1.280 (external, cli)")
+        .header("x-app", "cli")
+        .json(&json!({"model": "claude-sonnet-5-5"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(counted.status(), 200);
+    h.reply(
+        "at-a",
+        Reply::Json(
+            500,
+            vec![],
+            json!({"type": "error", "usage": {"input_tokens": 5, "output_tokens": 5}}).to_string(),
+        ),
+    );
+    let failed = h.claude(json!({"model": "claude-sonnet-5-5"})).send().await.unwrap();
+    assert_eq!(failed.status(), 500);
+    failed.bytes().await.unwrap();
+
+    *h.fake.prices.lock().unwrap() = Some(json!({
+        "claude-sonnet-5-5": {
+            "litellm_provider": "anthropic", "input_cost_per_token": 2e-6, "output_cost_per_token": 1e-5,
+            "cache_read_input_token_cost": 1e-7, "cache_creation_input_token_cost": 2.5e-6,
+            "cache_creation_input_token_cost_above_1hr": 4e-6, "provider_specific_entry": {"fast": 2}
+        },
+        "xai/grok-4.7": {
+            "litellm_provider": "xai", "input_cost_per_token": 2e-6, "output_cost_per_token": 6e-6, "cache_read_input_token_cost": 5e-7,
+            "input_cost_per_token_above_100k_tokens": 4e-6, "output_cost_per_token_above_100k_tokens": 1.2e-5,
+            "input_cost_per_token_priority": 6e-6, "output_cost_per_token_priority": 1.8e-5
+        },
+        "grok-4.7": {"litellm_provider": "xai", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0},
+        "openrouter/xai/grok-4.7": {"litellm_provider": "openrouter", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0},
+        "claude-sonnet-5-5-20261101": {"litellm_provider": "bedrock", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0},
+        "xai/grok-4.7-build": {"litellm_provider": "openai", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0},
+        "openai/grok-4.7-build": {"litellm_provider": "openai", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0},
+        "gpt-6.2-sol": {"litellm_provider": "openai", "input_cost_per_token": 2e-6, "output_cost_per_token": 1e-5},
+        "muse-spark-1.3": {"litellm_provider": "meta", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0},
+        "meta/muse-spark-1.3": {"litellm_provider": "meta", "input_cost_per_token": 1.25e-6, "output_cost_per_token": 4.25e-6}
+    }));
+    std::fs::create_dir_all(h.dir.path().join("data/prices.json")).unwrap();
+    h.app.prices.refresh(&reqwest::Client::new()).await.unwrap();
+    let since = (chrono::Utc::now() - chrono::Duration::hours(1)).timestamp();
+    let usage_page = |query: &str| {
+        let url = format!("{}/conflux/api/usage?buckets={since}{query}", h.base);
+        let http = h.http.clone();
+        async move {
+            http.get(url)
+                .send()
+                .await
+                .unwrap()
+                .json::<serde_json::Value>()
+                .await
+                .unwrap()
+        }
+    };
+    let mut all = serde_json::Value::Null;
+    for _ in 0..40 {
+        all = usage_page("").await;
+        if all["total"]["requests"] == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    let close = |v: &serde_json::Value, want: f64| (v.as_f64().unwrap() - want).abs() < 1e-12;
+    let claude_list = 3.0 * 2e-6 + 900.0 * 1e-7 + 5.0 * 2.5e-6 + 15.0 * 4e-6 + 44.0 * 1e-5;
+    let grok_cost = 3.0 * (20_000.0 * 4e-6 + 100_000.0 * 4e-6 * 0.25 + 9.0 * 1.2e-5);
+    assert_eq!(all["total"]["requests"], 2, "{all}");
+    assert_eq!(all["total"]["sessions"], 2, "{all}");
+    assert!(
+        close(&all["total"]["cost"]["fast"], claude_list + grok_cost * 2.0 / 3.0),
+        "{all}"
+    );
+    assert!(
+        close(&all["total"]["cost"]["total"], 2.0 * claude_list + grok_cost),
+        "{all}"
+    );
+    assert_eq!(all["machines"], json!(["hub-under-test", "node-one"]));
+    assert!(
+        all["prices_fetched_at"].is_string(),
+        "prices apply even when saving them fails"
+    );
+    *h.fake.prices.lock().unwrap() = Some(json!({
+        "gpt-6.2-sol": {"litellm_provider": "openai", "input_cost_per_token": 1.0, "output_cost_per_token": 1.0}
+    }));
+    assert!(
+        h.app.prices.refresh(&reqwest::Client::new()).await.is_err(),
+        "a much shorter price list does not replace a good one"
+    );
+    let aged_file = h.dir.path().join("aged-prices.json");
+    let mut aged = (*h.app.prices.table()).clone();
+    aged.fetched_at = Some(chrono::Utc::now() - chrono::Duration::days(4));
+    std::fs::write(&aged_file, serde_json::to_vec(&aged).unwrap()).unwrap();
+    let old_prices = conflux::pricing::Prices::new(h.app.ep.prices.clone(), Some(aged_file));
+    old_prices.refresh(&reqwest::Client::new()).await.unwrap();
+    assert_eq!(
+        old_prices.table().models.len(),
+        1,
+        "an aged table accepts a shorter list"
+    );
+    let now = chrono::Utc::now().timestamp();
+    let many = (0..401).map(|i| (since + i).to_string()).collect::<Vec<_>>().join(",");
+    for bad in [
+        format!("{},{}", since, since - 60),
+        format!("{}", now - 93 * 86400),
+        format!("{since},{}", now + 2 * 3600),
+        many,
+        "soon".into(),
+    ] {
+        let url = format!("{}/conflux/api/usage?buckets={bad}", h.base);
+        assert_eq!(h.http.get(url).send().await.unwrap().status(), 400, "{bad}");
+    }
+    let models: Vec<_> = all["by_model"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["model"].clone())
+        .collect();
+    assert_eq!(
+        models,
+        [json!("grok-4.7-build-20270115"), json!("claude-sonnet-5-5-20261101")]
+    );
+    let node = usage_page("&machine=node-one").await;
+    assert_eq!(
+        (node["total"]["requests"].clone(), node["total"]["output"].clone()),
+        (json!(1), json!(44))
+    );
+    assert_eq!(
+        node["machines"], all["machines"],
+        "a machine filter still lists every machine"
+    );
+    let grok_only = usage_page("&provider=grok").await;
+    assert!(close(&grok_only["total"]["cost"]["total"], grok_cost), "{grok_only}");
+    let whole = json!({"type": "message", "usage": {"input_tokens": 7, "output_tokens": 3}});
+    h.reply("at-a", Reply::Json(200, vec![], whole.to_string()));
+    let r = h
+        .claude(json!({"model": "claude-sonnet-5-5"}))
+        .header("x-claude-code-session-id", "c1")
+        .send()
+        .await
+        .unwrap();
+    r.bytes().await.unwrap();
+    let mut claude_only = serde_json::Value::Null;
+    for _ in 0..40 {
+        claude_only = usage_page("&provider=claude").await;
+        if claude_only["total"]["requests"] == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(
+        (
+            claude_only["total"]["output"].clone(),
+            claude_only["total"]["sessions"].clone()
+        ),
+        (json!(47), json!(1)),
+        "a non-streaming reply is recorded: {claude_only}"
+    );
+    let earlier = chrono::Utc::now() - chrono::Duration::minutes(90);
+    let mut old = h.app.requests.ledger().read(earlier, chrono::Utc::now()).unwrap()[0].clone();
+    old.at = earlier;
+    old.provider = Provider::Muse;
+    h.app.requests.ledger().append(&old);
+    let split: serde_json::Value = h
+        .http
+        .get(format!("{}/conflux/api/usage?buckets={},{since}", h.base, since - 3600))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let slots: Vec<_> = split["buckets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| (b["i"].clone(), b["provider"].clone()))
+        .collect();
+    assert_eq!(
+        slots,
+        [
+            (json!(0), json!("muse")),
+            (json!(1), json!("claude")),
+            (json!(1), json!("grok"))
+        ],
+        "{split}"
+    );
+
+    h.add(Provider::Codex, "c").await;
+    let muse_account = h.add(Provider::Muse, "m").await;
+    let answer = json!({"usage": {"input_tokens": 1000, "output_tokens": 100}}).to_string();
+    h.reply("at-c", Reply::Json(200, vec![], answer.clone()));
+    h.reply("at-m", Reply::Json(200, vec![], answer));
+    h.http
+        .post(format!("{}/v1/responses", h.base))
+        .header("user-agent", "codex_cli_rs/0.200.0")
+        .json(&json!({"model": "gpt-6.2-sol"}))
+        .send()
+        .await
+        .unwrap()
+        .bytes()
+        .await
+        .unwrap();
+    muse(&h, "/muse/v1/responses")
+        .json(&json!({"model": "muse-spark-1.3", "stream": true}))
+        .send()
+        .await
+        .unwrap()
+        .bytes()
+        .await
+        .unwrap();
+    for (provider, want) in [
+        ("codex", 1000.0 * 2e-6 + 100.0 * 1e-5),
+        ("muse", 1000.0 * 1.25e-6 + 100.0 * 4.25e-6),
+    ] {
+        let mut got = serde_json::Value::Null;
+        for _ in 0..40 {
+            got = usage_page(&format!("&provider={provider}")).await;
+            if got["total"]["requests"] == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        assert!(close(&got["total"]["cost"]["total"], want), "{provider}: {got}");
+    }
+    let removed = h
+        .http
+        .delete(format!("{}/conflux/api/accounts/{muse_account}", h.base))
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert!(removed.status().is_success(), "{}", removed.status());
+    let after = usage_page("&provider=muse").await;
+    assert_eq!(
+        after["by_account"][0]["email"], "m@example.com",
+        "a removed account keeps its label: {after}"
+    );
+
+    let status = async || {
+        let url = format!("{}/conflux/api/usage?buckets={since}", h.base);
+        h.http.get(url).send().await.unwrap().status()
+    };
+    let today = analytics.join(format!("{}.jsonl", chrono::Utc::now().format("%Y-%m-%d")));
+    std::fs::remove_file(&today).unwrap();
+    std::fs::create_dir(&today).unwrap();
+    assert_eq!(status().await, 500, "a day file that cannot be read is an error");
+    std::fs::remove_dir_all(&analytics).unwrap();
+    std::fs::write(&analytics, "").unwrap();
+    assert_eq!(
+        status().await,
+        500,
+        "unreadable history is an error, not an empty range"
+    );
 }
 
 #[tokio::test]

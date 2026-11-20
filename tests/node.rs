@@ -76,10 +76,24 @@ async fn request_flows_through_node_and_hub() {
     let hub = Harness::new().await;
     hub.add(Provider::Claude, "a").await;
     let n = start_node(hub.port).await;
+    let reply = json!({"token": "at-a", "usage": {"input_tokens": 3, "output_tokens": 4}});
+    hub.reply("at-a", common::Reply::Json(200, vec![], reply.to_string()));
     let r = claude(&n).send().await.unwrap();
     assert_eq!(r.status(), 200);
     let v: Value = r.json().await.unwrap();
     assert_eq!(v["token"], "at-a");
+    let now = chrono::Utc::now();
+    let machines = eventually(|| {
+        let rows = hub
+            .app
+            .requests
+            .ledger()
+            .read(now - chrono::Duration::hours(1), now)
+            .unwrap();
+        (!rows.is_empty()).then(|| rows.into_iter().map(|r| r.machine).collect::<Vec<_>>())
+    })
+    .await;
+    assert_eq!(machines, ["node-one"], "the hub records the node's machine");
     let upstream = hub.fake.http_headers.lock().unwrap()[0].clone();
     assert!(
         upstream.get("x-conflux-node").is_none(),
@@ -153,6 +167,22 @@ async fn websocket_flows_through_node_and_hub() {
         .unwrap();
     let v: Value = serde_json::from_str(first.to_text().unwrap()).unwrap();
     assert_eq!(v["type"], "response.created");
+    let now = chrono::Utc::now();
+    let machines = eventually(|| {
+        let rows = hub
+            .app
+            .requests
+            .ledger()
+            .read(now - chrono::Duration::hours(1), now + chrono::Duration::minutes(1))
+            .unwrap();
+        (!rows.is_empty()).then(|| rows.into_iter().map(|r| r.machine).collect::<Vec<_>>())
+    })
+    .await;
+    assert_eq!(
+        machines,
+        ["node-one"],
+        "a Codex turn through a node is recorded under the node"
+    );
 }
 
 #[tokio::test]
@@ -807,6 +837,11 @@ async fn guests_see_the_hub_and_their_own_machines_and_change_nothing() {
         ),
         (Method::GET, "/conflux/api/discover".into(), Value::Null),
         (Method::GET, "/conflux/api/threads".into(), Value::Null),
+        (
+            Method::GET,
+            format!("/conflux/api/usage?buckets={}", chrono::Utc::now().timestamp() - 3600),
+            Value::Null,
+        ),
         (Method::POST, "/conflux/transcripts".into(), upload),
     ];
     for (method, path, body) in &owner_only {
