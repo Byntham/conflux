@@ -1,9 +1,9 @@
 use std::borrow::Cow;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
@@ -11,7 +11,9 @@ use tokio::sync::mpsc;
 use crate::accounts::Provider;
 use crate::analytics::{Ledger, Row};
 
-pub const LOG_CAPACITY: usize = 500;
+const RECENT_ROWS: usize = 500;
+const MAX_RECORDS: usize = 20_000;
+const HOUR: Duration = Duration::hours(1);
 const MAX_LINE: usize = 16 * 1024 * 1024;
 const MAX_WHOLE_BODY: usize = 8 * 1024 * 1024;
 
@@ -68,6 +70,8 @@ struct LogState {
     records: VecDeque<RequestRecord>,
     #[serde(skip)]
     carried_over: u64,
+    #[serde(default)]
+    newest_dropped: Option<DateTime<Utc>>,
     #[serde(skip)]
     ids_from_predecessor: HashMap<u64, u64>,
     #[serde(skip)]
@@ -79,8 +83,12 @@ impl LogState {
         self.next_id += 1;
         r.id = self.next_id;
         self.records.push_back(r);
-        while self.records.len() > LOG_CAPACITY {
-            self.records.pop_front();
+        let hour_ago = Utc::now() - HOUR;
+        while self.records.len() > MAX_RECORDS
+            || (self.records.len() > RECENT_ROWS && self.records.front().is_some_and(|r| r.at < hour_ago))
+        {
+            let dropped = self.records.pop_front().map(|r| r.at);
+            self.newest_dropped = self.newest_dropped.max(dropped);
         }
         self.tell_successor(self.next_id);
         self.next_id
@@ -152,6 +160,9 @@ impl RequestLog {
     pub fn import(&self, state: &Value) {
         if let Ok(mut state) = serde_json::from_value::<LogState>(state.clone()) {
             state.carried_over = state.next_id;
+            if state.newest_dropped.is_none() && state.next_id > state.records.len() as u64 {
+                state.newest_dropped = state.records.front().map(|r| r.at);
+            }
             *self.state.lock().unwrap() = state;
         }
     }
@@ -177,7 +188,60 @@ impl RequestLog {
     }
 
     pub fn recent(&self) -> Vec<RequestRecord> {
-        self.state.lock().unwrap().records.iter().rev().cloned().collect()
+        let st = self.state.lock().unwrap();
+        st.records.iter().rev().take(RECENT_ROWS).cloned().collect()
+    }
+
+    pub fn last_hour(&self) -> Value {
+        let now = Utc::now();
+        let this_minute = now.timestamp().div_euclid(60);
+        let hour_ago = DateTime::from_timestamp((this_minute - 59) * 60, 0).unwrap_or(now - HOUR);
+        let mut minutes: Vec<HashMap<&str, i64>> = (0..60)
+            .map(|i| HashMap::from([("minute", this_minute - 59 + i)]))
+            .collect();
+        let mut accounts = HashSet::new();
+        let mut latencies = Vec::new();
+        let (mut total, mut failed, mut input, mut cache_read, mut cache_write) = (0, 0, 0, 0, 0);
+        let st = self.state.lock().unwrap();
+        let capped = st.newest_dropped.is_some_and(|at| at >= hour_ago);
+        let hour = st.records.iter().filter(|r| r.at >= hour_ago && r.at <= now);
+        for r in hour {
+            total += 1;
+            accounts.insert(r.account.as_str());
+            input += r.usage.input;
+            cache_read += r.usage.cache_read;
+            cache_write += r.usage.cache_write;
+            let lane = if r.status >= 400 {
+                failed += 1;
+                "failed"
+            } else {
+                latencies.push(r.latency_ms);
+                r.provider.as_str()
+            };
+            let index = 59 - (this_minute - r.at.timestamp().div_euclid(60));
+            if let Some(minute) = usize::try_from(index).ok().and_then(|i| minutes.get_mut(i)) {
+                *minute.entry(lane).or_default() += 1;
+            }
+        }
+        let accounts = accounts.len();
+        drop(st);
+        latencies.sort_unstable();
+        let percentile = |p: f64| {
+            let i = ((latencies.len() as f64 * p) as usize).min(latencies.len().saturating_sub(1));
+            latencies.get(i).copied()
+        };
+        json!({
+            "minutes": minutes,
+            "total": total,
+            "capped": capped,
+            "failed": failed,
+            "accounts": accounts,
+            "latency_p50_ms": percentile(0.5),
+            "latency_p95_ms": percentile(0.95),
+            "input": input,
+            "cache_read": cache_read,
+            "cache_write": cache_write,
+        })
     }
 }
 
@@ -566,11 +630,11 @@ mod tests {
             },
         );
         assert_eq!(log.recent()[0].usage.input, 1);
-        for _ in 0..LOG_CAPACITY {
+        for _ in 0..RECENT_ROWS {
             log.add(rec("later"));
         }
         let recent = log.recent();
-        assert_eq!(recent.len(), LOG_CAPACITY);
+        assert_eq!(recent.len(), RECENT_ROWS);
         assert!(recent.iter().all(|r| r.account == "later"));
     }
 }

@@ -1075,6 +1075,84 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
     assert_eq!(failed.status(), 500);
     failed.bytes().await.unwrap();
 
+    let grok_bars = |hour: &serde_json::Value| -> u64 {
+        hour["minutes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m["grok"].as_u64().unwrap_or(0))
+            .sum()
+    };
+    let mut hour = serde_json::Value::Null;
+    for _ in 0..40 {
+        hour = dashboard().await["requests_hour"].clone();
+        if hour["failed"] == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(hour["failed"], 1, "{hour}");
+    let (total, grok) = (hour["total"].as_u64().unwrap(), grok_bars(&hour));
+    let now = Utc::now();
+    let logged = |ago: chrono::Duration| conflux::requests::RequestRecord {
+        id: 0,
+        at: now - ago,
+        machine: "m".into(),
+        provider: Provider::Grok,
+        account: "g".into(),
+        email: None,
+        model: None,
+        session: None,
+        transport: "http".into(),
+        status: 200,
+        latency_ms: 1,
+        usage: Default::default(),
+    };
+    h.app.requests.add(logged(chrono::Duration::minutes(90)));
+    let mut edge_of_hour = logged(chrono::Duration::seconds(3599));
+    edge_of_hour.status = 500;
+    h.app.requests.add(edge_of_hour);
+    for i in 0..600 {
+        h.app.requests.add(logged(chrono::Duration::minutes(30 + i % 20)));
+    }
+    let v = dashboard().await;
+    assert_eq!(v["requests"].as_array().unwrap().len(), 500);
+    let hour = &v["requests_hour"];
+    let bars: u64 = hour["minutes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|m| m.as_object().unwrap().iter())
+        .filter(|(lane, _)| *lane != "minute")
+        .map(|(_, n)| n.as_u64().unwrap())
+        .sum();
+    assert_eq!(
+        hour["total"], bars,
+        "the stats and the chart cover the same minutes: {hour}"
+    );
+    assert!(
+        hour["total"].as_u64().unwrap() >= total + 600,
+        "the hour counts past the 500 rows sent: {hour}"
+    );
+    assert_eq!(grok_bars(hour), grok + 600, "{hour}");
+    let busy_minutes = hour["minutes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|m| m["grok"] == 30)
+        .count();
+    assert_eq!(busy_minutes, 20, "each request lands in its own minute: {hour}");
+    assert_eq!(hour["capped"], false, "{hour}");
+    for _ in 0..20_000 {
+        h.app.requests.add(logged(chrono::Duration::minutes(10)));
+    }
+    let hour = &dashboard().await["requests_hour"];
+    assert_eq!(
+        (&hour["total"], &hour["capped"]),
+        (&json!(20_000), &json!(true)),
+        "a full log marks the hour as partial"
+    );
+
     *h.fake.prices.lock().unwrap() = Some(json!({
         "claude-sonnet-5-5": {
             "litellm_provider": "anthropic", "input_cost_per_token": 2e-6, "output_cost_per_token": 1e-5,
