@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use axum::Json;
@@ -54,6 +55,7 @@ pub struct Ledger {
     dir: PathBuf,
     writing: Mutex<()>,
     last_error: Mutex<Option<String>>,
+    written_at: AtomicI64,
 }
 
 fn day_file(dir: &std::path::Path, day: NaiveDate) -> PathBuf {
@@ -66,7 +68,12 @@ impl Ledger {
             dir,
             writing: Mutex::new(()),
             last_error: Mutex::new(None),
+            written_at: AtomicI64::new(0),
         })
+    }
+
+    pub fn written_at(&self) -> Option<i64> {
+        Some(self.written_at.load(Ordering::Relaxed)).filter(|&ms| ms > 0)
     }
 
     pub fn append(&self, row: &Row) {
@@ -90,6 +97,7 @@ impl Ledger {
             self.prune(row.at);
         }
         fsutil::open_private_append(&path)?.write_all(&line)?;
+        self.written_at.store(Utc::now().timestamp_millis(), Ordering::Relaxed);
         Ok(())
     }
 

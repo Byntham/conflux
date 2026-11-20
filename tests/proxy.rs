@@ -934,6 +934,17 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         path
     };
     let (expired, kept) = (day_file(100), day_file(2));
+    let dashboard = || async {
+        h.http
+            .get(format!("{}/conflux/api/dashboard", h.base))
+            .send()
+            .await
+            .unwrap()
+            .json::<serde_json::Value>()
+            .await
+            .unwrap()
+    };
+    assert!(dashboard().await["usage_written_at"].is_null());
     let sse = concat!(
         "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3,",
         "\"cache_read_input_tokens\":900,\"cache_creation_input_tokens\":20,\"cache_creation\":",
@@ -969,15 +980,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
 
     let mut record = serde_json::Value::Null;
     for _ in 0..40 {
-        let v: serde_json::Value = h
-            .http
-            .get(format!("{}/conflux/api/dashboard", h.base))
-            .send()
-            .await
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
+        let v = dashboard().await;
         assert_eq!(v["accounts"].as_array().unwrap().len(), 1);
         record = v["requests"][0].clone();
         if record["usage"]["output"] == 44 {
@@ -1013,6 +1016,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         "the first write of a day deletes files past retention"
     );
     assert!(kept.exists());
+    assert!(dashboard().await["usage_written_at"].is_i64());
 
     h.add(Provider::Grok, "g").await;
     let incomplete = json!({"type": "response.incomplete", "response": {"service_tier": "priority", "usage": {
