@@ -1062,6 +1062,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         .await
         .unwrap();
     assert_eq!(counted.status(), 200);
+    assert_eq!(h.app.requests.recent().len(), 2, "a token count is not a request");
     h.reply(
         "at-a",
         Reply::Json(
