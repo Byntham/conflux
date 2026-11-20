@@ -1965,7 +1965,7 @@ function usageRows(u) {
   return groups.map((g) => {
     const machine = () => (showAll ? esc(g.machine) : `Machine ${u.machines.indexOf(g.machine) + 1}`);
     const name = usageBreakdown === "model" ? `<span title="${esc(g.model)}">${esc(g.model)}</span>` : usageBreakdown === "account" ? `<span>${secret(g.email || g.account)}</span>` : `<span>${machine()}</span>`;
-    const dot = g.provider ? `<span class="dot ${esc(g.provider)}"></span>` : "";
+    const dot = g.provider ? `<span class="dot ${esc(g.provider)}" role="img" aria-label="${esc(providerName(g.provider))}" title="${esc(providerName(g.provider))}"></span>` : "";
     return { label: `${dot}${name}`, value: metricOf(g), group: g, series: g.provider ? `series-${esc(g.provider)}` : "" };
   }).sort((a, b) => (b.value ?? -1) - (a.value ?? -1));
 }
@@ -2554,6 +2554,7 @@ $("usage-body").addEventListener("pointermove", showUsageTip);
 $("usage-body").addEventListener("pointerdown", showUsageTip);
 document.addEventListener("pointerdown", (ev) => { if (!ev.target.closest(".usage-chart")) hideUsageTip(); });
 $("usage-body").addEventListener("pointerleave", (ev) => { if (ev.pointerType !== "touch") hideUsageTip(); });
+$("usage-body").addEventListener("pointercancel", hideUsageTip);
 $("usage-machine").onchange = () => loadUsage();
 $("usage-provider").onchange = () => loadUsage();
 $("pool").addEventListener("pointermove", showPoolTip);
@@ -2576,6 +2577,7 @@ document.addEventListener("keydown", (ev) => {
     if (ev.repeat) return;
     return toggleSecret(hidden);
   }
+  if (ev.key === "Escape") $("tip").hidden = true;
   if (ev.key !== "Escape" || !menuAnchor) return;
   const anchor = menuAnchor;
   closeMenu();
@@ -2596,7 +2598,9 @@ function showTip(ev) {
   const left = Math.max(8, Math.min(rect.left + rect.width / 2 - tip.offsetWidth / 2, window.innerWidth - tip.offsetWidth - 8));
   tip.style.left = `${left}px`;
   const above = rect.top - tip.offsetHeight + (col.classList.contains("col") ? 8 : -6);
-  tip.style.top = `${above < 0 ? rect.bottom + 6 : above}px`;
+  const below = rect.bottom + 6;
+  const fitsBelow = below + tip.offsetHeight <= window.innerHeight;
+  tip.style.top = `${col.classList.contains("col") ? (above < 0 ? below : above) : fitsBelow || above < 0 ? below : above}px`;
 }
 
 document.addEventListener("mouseover", showTip);

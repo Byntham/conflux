@@ -242,6 +242,15 @@ async fn a_draining_hub_closes_the_socket_only_after_the_turn_ends() {
         "the running turn finishes"
     );
     assert!(next_json(&mut ws).await.is_none(), "the idle socket closes");
+    let now = chrono::Utc::now();
+    let rows = h
+        .app
+        .requests
+        .ledger()
+        .read(now - chrono::Duration::hours(1), now)
+        .unwrap();
+    assert_eq!(rows.len(), 1, "a turn that ends during a drain is recorded");
+    assert_eq!(rows[0].usage.output, 7);
 }
 
 #[tokio::test]
