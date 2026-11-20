@@ -587,7 +587,7 @@ pub async fn handle(State(app): State<Arc<App>>, req: Request) -> Response {
     let route = route_request(provider, &parts.headers, if inference { &body } else { &[] });
     let machine = machine_name(&app, &parts.headers);
     let started = Instant::now();
-    let logged = inference && parts.method == http::Method::POST;
+    let logged = inference && parts.method == http::Method::POST && !path.ends_with("/count_tokens");
     let log = |account: &AccountEntry, status: u16| {
         logged.then(|| log_attempt(&app, provider, account, &route, &machine, status, started))
     };
