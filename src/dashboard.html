@@ -1503,10 +1503,7 @@ function renderPools(d) {
   }).join(" ")}`;
   poolGeom = { lanes, padL, plotW, width, pad, height, x, at };
   setHtml("pool", `<div class="card pool-board"><div class="pool-chart${narrow ? " narrow" : ""}"><svg viewBox="0 0 ${width} ${height}" height="${height}" role="img" aria-label="${esc(summary)}">${parts.join("")}</svg>${lanes.map((l) => poolGutter(l, narrow)).join("")}<div class="pool-tip" hidden></div></div></div>`);
-  if (!poolPointer) return;
-  const chart = document.querySelector(".pool-chart");
-  const box = chart.getBoundingClientRect();
-  showPoolTip({ target: chart, clientX: box.left + poolPointer.x, clientY: box.top + poolPointer.y });
+  if (poolPointer) drawPoolTip();
 }
 
 function poolValueAt(pool, t) {
@@ -1531,20 +1528,26 @@ function hidePoolTip() {
 function showPoolTip(ev) {
   const chart = ev.target.closest(".pool-chart");
   if (!chart || !poolGeom || ev.target.closest(".pool-gut")) return hidePoolTip();
-  const { lanes, padL, plotW, width, pad, height, x, at } = poolGeom;
-  const box = chart.getBoundingClientRect();
-  const px = ev.clientX - box.left - pad;
+  const { lanes, padL, plotW, pad } = poolGeom;
+  const px = ev.clientX - chart.getBoundingClientRect().left - pad;
   if (px < padL - 30) return hidePoolTip();
   const py = ev.clientY - chart.querySelector("svg").getBoundingClientRect().top;
   const lane = lanes.find((l) => py >= l.top - 20 && py <= l.top + l.h + 8);
-  if (!lane?.pool.size) return hidePoolTip();
-  poolPointer = { x: ev.clientX - box.left, y: ev.clientY - box.top };
+  if (!lane) return hidePoolTip();
+  const cx = Math.min(Math.max(px, padL), padL + plotW);
+  poolPointer = { provider: lane.pool.provider, t: ((cx - padL) / plotW) * (POOL_BACK_H + POOL_AHEAD_H) - POOL_BACK_H, y: (py - lane.top) / lane.h };
+  drawPoolTip();
+}
+
+function drawPoolTip() {
+  const chart = document.querySelector(".pool-chart");
+  const { lanes, width, pad, height, x, at } = poolGeom;
+  const lane = lanes.find((l) => l.pool.provider === poolPointer.provider);
+  if (!chart || !lane?.pool.size) return hidePoolTip();
   const p = lane.pool;
-  const cx0 = Math.min(Math.max(px, padL), padL + plotW);
-  const t = ((cx0 - padL) / plotW) * (POOL_BACK_H + POOL_AHEAD_H) - POOL_BACK_H;
-  const near = p.refills.find((r) => Math.abs(x(r.t) - cx0) < 9);
-  const tt = near ? near.t + POOL_STEP_H : t;
-  const cx = near ? x(near.t) : cx0;
+  const near = p.refills.find((r) => Math.abs(x(r.t) - x(poolPointer.t)) < 9);
+  const tt = near ? near.t + POOL_STEP_H : poolPointer.t;
+  const cx = x(near ? near.t : poolPointer.t);
   chart.querySelectorAll(".cross").forEach((cross, i) => {
     cross.setAttribute("x1", cx);
     cross.setAttribute("x2", cx);
@@ -1562,7 +1565,8 @@ function showPoolTip(ev) {
   tip.hidden = false;
   const tw = tip.offsetWidth;
   tip.style.left = `${pad + Math.max(0, cx + 12 + tw > width ? cx - tw - 12 : cx + 12)}px`;
-  tip.style.top = `${Math.min(Math.max(0, ev.clientY - box.top - 30), height - tip.offsetHeight)}px`;
+  const svgTop = chart.querySelector("svg").getBoundingClientRect().top - chart.getBoundingClientRect().top;
+  tip.style.top = `${Math.min(Math.max(0, svgTop + lane.top + poolPointer.y * lane.h - 30), height - tip.offsetHeight)}px`;
 }
 
 const USAGE_REFRESH_MS = 60000;
@@ -2078,6 +2082,7 @@ function showView() {
     else a.removeAttribute("aria-current");
   });
   closeMenu();
+  hidePoolTip();
   window.scrollTo(0, 0);
   if (name === "threads" && latest) loadThreads();
   if (name === "overview" && latest) renderPools(latest);
