@@ -1625,7 +1625,7 @@ async function loadUsage(background = false) {
   usageLoadedAt = Date.now();
   usageWrittenAt = latest?.usage_written_at ?? null;
   if (!background) $("usage-body").classList.add("loading");
-  if (!usage) setHtml("usage-body", `<div class="card empty">Loading usage…</div>`);
+  if (!usage && !background) setHtml("usage-body", `<div class="card empty">Loading usage…</div>`);
   const range = usageRange;
   const starts = usageStarts(range);
   const query = qs({ buckets: starts.map((ms) => Math.floor(ms / 1000)).join(","), machine: $("usage-machine").value, provider: $("usage-provider").value });
