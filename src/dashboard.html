@@ -1162,7 +1162,7 @@ let overviewProvider = "all";
 
 function overviewProviders(d) {
   const all = [...new Set(d.accounts.map((a) => a.provider))].sort();
-  if (!all.includes(overviewProvider)) overviewProvider = "all";
+  if (all.length < 2 || !all.includes(overviewProvider)) overviewProvider = "all";
   return { all, shown: overviewProvider === "all" ? all : [overviewProvider] };
 }
 
@@ -2019,7 +2019,7 @@ function render(d) {
   setHtml("top-line", masked(d.hub.name));
   $("view-overview").classList.toggle("first-run", !d.accounts.length);
   renderAlerts(d);
-  renderPools(d);
+  if (!document.querySelector(".pool-chart .pool-tip:not([hidden])")) renderPools(d);
   renderStats(d);
   renderAccounts(d);
   renderChart(d);
