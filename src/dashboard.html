@@ -1747,7 +1747,7 @@ function controls(values, xs) {
   const w = values.slice(1).map((_, i) => xs[i + 1] - xs[i]);
   const m = values.slice(1).map((v, i) => (v - values[i]) / w[i]);
   const t = [m[0]];
-  for (let i = 1; i < n - 1; i++) t.push(m[i - 1] * m[i] <= 0 ? 0 : (m[i - 1] + m[i]) / 2);
+  for (let i = 1; i < n - 1; i++) t.push(m[i - 1] * m[i] <= 0 ? 0 : (values[i + 1] - values[i - 1]) / (xs[i + 1] - xs[i - 1]));
   t.push(m[n - 2]);
   for (let i = 0; i < n - 1; i++) {
     if (m[i] === 0) { t[i] = 0; t[i + 1] = 0; continue; }
