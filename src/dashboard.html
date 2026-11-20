@@ -1551,6 +1551,7 @@ function showPoolTip(ev) {
   const label = Math.abs(tt) < 0.6 ? "Now" : `${when.toLocaleDateString([], { weekday: "short" })} ${when.getDate()}, ${when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
   const tip = chart.querySelector(".pool-tip");
   tip.innerHTML = `<b>${esc(label)}</b>${row}<p>${note}</p>`;
+  tip.toggleAttribute("data-touch", ev.pointerType === "touch");
   tip.hidden = false;
   const tw = tip.offsetWidth;
   tip.style.left = `${pad + Math.max(0, cx + 12 + tw > width ? cx - tw - 12 : cx + 12)}px`;
@@ -2019,7 +2020,8 @@ function render(d) {
   setHtml("top-line", masked(d.hub.name));
   $("view-overview").classList.toggle("first-run", !d.accounts.length);
   renderAlerts(d);
-  if (!document.querySelector(".pool-chart .pool-tip:not([hidden])")) renderPools(d);
+  const pinned = document.querySelector(".pool-chart .pool-tip[data-touch]:not([hidden])");
+  if (!pinned || poolGeom?.lanes.map((l) => l.pool.provider).join() !== overviewProviders(d).shown.join()) renderPools(d);
   renderStats(d);
   renderAccounts(d);
   renderChart(d);
