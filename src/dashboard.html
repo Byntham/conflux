@@ -1795,11 +1795,12 @@ function usageChart(u, width) {
   }
   const h = (j) => (x(j + 1) - x(j)) / 3;
   const c = (px, v) => `${px.toFixed(1)} ${y(v).toFixed(1)}`;
-  for (const { p, values, ctl } of curves) {
+  const edges = curves.map(({ p, values, ctl }) => {
     const forward = ctl.map(([a, b], j) => `C${c(x(j) + h(j), a)} ${c(x(j + 1) - h(j), b)} ${c(x(j + 1), values[j + 1])}`).join("");
-    const edge = `M${c(x(0), values[0])}${forward}`;
-    parts.push(`<g class="series-${esc(p)}"><path class="layer" d="${edge}L${c(x(n - 1), 0)}L${c(x(0), 0)}Z"/><path class="edge" d="${edge}"/></g>`);
-  }
+    return { p, d: `M${c(x(0), values[0])}${forward}` };
+  });
+  for (const { p, d } of edges) parts.push(`<path class="layer series-${esc(p)}" d="${d}L${c(x(n - 1), 0)}L${c(x(0), 0)}Z"/>`);
+  for (const { p, d } of edges) parts.push(`<path class="edge series-${esc(p)}" d="${d}"/>`);
   const labelEvery = u.hourly ? (narrow ? 8 : 6) : Math.max(1, Math.ceil(n / (narrow ? 3 : 5)));
   const tick = (i) => (u.hourly ? (i ? shortHour(u.starts[i]) : shortDay(u.starts[i])) : i === n - 1 ? "Today" : shortDay(u.starts[i]));
   const ticks = [];
