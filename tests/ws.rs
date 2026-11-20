@@ -104,6 +104,24 @@ async fn relays_frames_with_account_auth_and_beta() {
 
     let snap = h.app.usage.get(&id);
     assert_eq!(snap.windows[0].used_pct, 33.0);
+
+    let mut ws = open(&h, &[("session_id", "s1")]).await.unwrap();
+    for key in ["k3", "k4"] {
+        ws.send(keyed("gpt-6.2-sol", key)).await.unwrap();
+        while next_json(&mut ws).await.unwrap()["type"] != "response.completed" {}
+    }
+    let now = chrono::Utc::now();
+    let rows = h
+        .app
+        .requests
+        .ledger()
+        .read(now - chrono::Duration::hours(1), now)
+        .unwrap();
+    assert_eq!(
+        rows.last().unwrap().session.as_deref(),
+        Some("s1"),
+        "a handshake session header outranks the cache key"
+    );
 }
 
 #[tokio::test]

@@ -2565,7 +2565,9 @@ $("pool").addEventListener("pointerdown", showPoolTip);
 $("pool").addEventListener("pointerleave", hidePoolTip);
 window.addEventListener("scroll", () => {
   closeMenu();
-  if (!$("tip").hidden && tipFor && tipFor === document.activeElement) showTip({ target: tipFor });
+  const rect = tipFor?.getBoundingClientRect();
+  const onScreen = rect && rect.bottom > 0 && rect.top < window.innerHeight;
+  if (!$("tip").hidden && onScreen && tipFor === document.activeElement && tipFor.matches(":focus-visible")) showTip({ target: tipFor });
   else $("tip").hidden = true;
 }, { passive: true });
 
