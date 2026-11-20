@@ -428,6 +428,7 @@
   .usage-big-sub { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 13px; color: var(--muted); }
   .usage-big-sub .i { width: 14px; height: 14px; }
   .estimate { display: inline-flex; align-items: center; gap: 6px; cursor: default; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .usage-providers { display: grid; gap: 14px; margin-top: 22px; }
   .usage-provider { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px 12px; align-items: baseline; }
   .usage-provider-name { display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 500; }
@@ -1706,12 +1707,31 @@ async function loadUsage(background = false) {
   }
 }
 
+const ESTIMATE_TIP = "Dollar figures apply today's public API rates to every day shown. Subscriptions bill differently.";
+
 function fillSelect(id, all, values, label) {
   const select = $(id);
   const current = select.value;
   const options = [...new Set([...values, current].filter(Boolean))];
-  select.innerHTML = `<option value="">${esc(all)}</option>${options.map((v, i) => `<option value="${esc(v)}">${esc(label(v, i))}</option>`).join("")}`;
+  const html = `<option value="">${esc(all)}</option>${options.map((v, i) => `<option value="${esc(v)}">${esc(label(v, i))}</option>`).join("")}`;
+  if (rendered.get(id) === html) return;
+  rendered.set(id, html);
+  select.innerHTML = html;
   select.value = current;
+}
+
+const FOCUS_KEYS = ["data-usage-break", "data-secret", "data-tip"];
+
+function focusedIn(id) {
+  const el = document.activeElement;
+  const key = FOCUS_KEYS.find((k) => el?.hasAttribute?.(k));
+  if (!key || !$(id).contains(el) || !el.matches(":focus-visible")) return null;
+  const selector = `[${key}="${CSS.escape(el.getAttribute(key))}"]`;
+  return { selector, index: [...$(id).querySelectorAll(selector)].indexOf(el) };
+}
+
+function refocus(id, focus) {
+  if (focus) $(id).querySelectorAll(focus.selector)[focus.index]?.focus({ preventScroll: true });
 }
 
 function usageSeries(u) {
@@ -1987,12 +2007,11 @@ function renderUsage() {
   }
   const total = metricOf(t);
   const providers = [...u.by_provider].sort((a, b) => (metricOf(b) ?? -1) - (metricOf(a) ?? -1));
-  const estimate = `${byCost() ? "" : " · processed tokens"} · <span class="estimate" tabindex="0" data-tip="Dollar figures apply today's public API rates to every day shown. Subscriptions bill differently.">API estimate${icon("info")}</span>`;
+  const estimate = `${byCost() ? "" : " · processed tokens"} · <span class="estimate" tabindex="0" data-tip="${ESTIMATE_TIP}">API estimate${icon("info")}<span class="sr-only">. ${ESTIMATE_TIP}</span></span>`;
   const narrow = window.innerWidth <= 760;
   const stackedBoard = window.innerWidth <= 1200;
   const width = Math.max(240, $("usage-body").clientWidth - (narrow ? 30 : 44) - (stackedBoard ? 0 : 348));
-  const focused = document.activeElement?.dataset?.usageBreak;
-  const estimateFocused = document.activeElement?.classList?.contains("estimate");
+  const focus = focusedIn("usage-body");
   setHtml("usage-body", `
     <div class="card usage-board">
       <div>
@@ -2015,8 +2034,7 @@ function renderUsage() {
       <div class="section-head"><h2>Breakdown</h2><div class="seg" role="group" aria-label="Break down by">${[["model", "Model"], ["account", "Account"], ["machine", "Machine"], ["time", u.hourly ? "Hour" : "Day"]].map(([k, label]) => `<button data-usage-break="${k}" aria-pressed="${k === usageBreakdown}">${label}</button>`).join("")}</div></div>
       <div class="card table-wrap">${usageTable(u)}</div>
     </div>`);
-  if (focused) document.querySelector(`[data-usage-break="${focused}"]`)?.focus();
-  if (estimateFocused) document.querySelector("#usage-body .estimate")?.focus();
+  refocus("usage-body", focus);
 }
 
 function setConnection(ok, message, refused = false) {
@@ -2581,7 +2599,7 @@ function showTip(ev) {
 }
 
 document.addEventListener("mouseover", showTip);
-document.addEventListener("focusin", showTip);
+document.addEventListener("focusin", (ev) => { if (ev.target.matches?.(":focus-visible")) showTip(ev); });
 document.addEventListener("focusout", (ev) => { if (tipFor && tipFor === ev.target.closest?.("[data-tip]")) $("tip").hidden = true; });
 
 document.addEventListener("click", (ev) => {
