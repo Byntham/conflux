@@ -1784,17 +1784,8 @@ function usageChart(u, width) {
   const plotW = Math.max(40, width - padL - padR), plotH = height - padT - padB;
   const n = u.starts.length;
   const x = (i) => padL + ((u.starts[i] - u.starts[0]) / (u.starts[n - 1] - u.starts[0])) * plotW;
-  const stacked = [];
-  let below = u.starts.map(() => 0);
-  let belowCtl = controls(below, u.starts);
-  for (const p of s.providers) {
-    const top = below.map((v, i) => v + s.series[p][i]);
-    const topCtl = controls(s.series[p], u.starts).map(([a, b], i) => [belowCtl[i][0] + a, belowCtl[i][1] + b]);
-    stacked.push({ p, below, top, belowCtl, topCtl });
-    below = top;
-    belowCtl = topCtl;
-  }
-  const max = Math.max(0, ...below, ...belowCtl.flat());
+  const curves = s.providers.map((p) => ({ p, values: s.series[p], ctl: controls(s.series[p], u.starts) }));
+  const max = Math.max(0, ...curves.flatMap(({ values, ctl }) => [...values, ...ctl.flat()]));
   const step = niceStep(max);
   const yMax = Math.max(step, Math.ceil(max / step) * step);
   const y = (v) => padT + plotH - (v / yMax) * plotH;
@@ -1804,11 +1795,10 @@ function usageChart(u, width) {
   }
   const h = (j) => (x(j + 1) - x(j)) / 3;
   const c = (px, v) => `${px.toFixed(1)} ${y(v).toFixed(1)}`;
-  for (const { p, top, below: bottom, topCtl, belowCtl } of [...stacked].reverse()) {
-    const forward = topCtl.map(([a, b], j) => `C${c(x(j) + h(j), a)} ${c(x(j + 1) - h(j), b)} ${c(x(j + 1), top[j + 1])}`).join("");
-    const back = belowCtl.map(([a, b], j) => `C${c(x(j + 1) - h(j), b)} ${c(x(j) + h(j), a)} ${c(x(j), bottom[j])}`).reverse().join("");
-    const edge = `M${c(x(0), top[0])}${forward}`;
-    parts.push(`<g class="series-${esc(p)}"><path class="layer" d="${edge}L${c(x(n - 1), bottom[n - 1])}${back}Z"/><path class="edge" d="${edge}"/></g>`);
+  for (const { p, values, ctl } of curves) {
+    const forward = ctl.map(([a, b], j) => `C${c(x(j) + h(j), a)} ${c(x(j + 1) - h(j), b)} ${c(x(j + 1), values[j + 1])}`).join("");
+    const edge = `M${c(x(0), values[0])}${forward}`;
+    parts.push(`<g class="series-${esc(p)}"><path class="layer" d="${edge}L${c(x(n - 1), 0)}L${c(x(0), 0)}Z"/><path class="edge" d="${edge}"/></g>`);
   }
   const labelEvery = u.hourly ? (narrow ? 8 : 6) : Math.max(1, Math.ceil(n / (narrow ? 3 : 5)));
   const tick = (i) => (u.hourly ? (i ? shortHour(u.starts[i]) : shortDay(u.starts[i])) : i === n - 1 ? "Today" : shortDay(u.starts[i]));
