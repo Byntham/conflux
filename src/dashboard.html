@@ -440,7 +440,6 @@
   .usage-chart .layer { fill: color-mix(in srgb, var(--series) 16%, transparent); }
   .usage-chart .edge { fill: none; stroke: var(--series); stroke-width: 1.75; stroke-linejoin: round; }
   #usage-body.loading { opacity: .55; transition: opacity .15s; }
-  .usage-chart .so-far { fill: var(--surface); stroke: var(--fg-2); stroke-width: 1.75; }
   .partial { margin-left: .06em; color: var(--muted); font-weight: 400; }
   .series-claude { --series: var(--claude); } .series-codex { --series: var(--codex); } .series-grok { --series: var(--grok); } .series-muse { --series: var(--muse); }
   .usage-tip { position: absolute; top: 0; z-index: 5; min-width: 180px; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--popover); box-shadow: var(--shadow-pop); font-size: 12.5px; pointer-events: none; font-variant-numeric: tabular-nums; }
@@ -1771,15 +1770,12 @@ function usageChart(u, width) {
   const plotW = Math.max(40, width - padL - padR), plotH = height - padT - padB;
   const n = u.starts.length;
   const x = (i) => padL + ((u.starts[i] - u.starts[0]) / (u.starts[n - 1] - u.starts[0])) * plotW;
-  const first = u.hourly ? 1 : 0;
-  const done = n - 1;
-  const span = (values) => values.slice(first, done);
   const stacked = [];
   let below = u.starts.map(() => 0);
-  let belowCtl = controls(span(below)).map(() => [0, 0]);
+  let belowCtl = controls(below).map(() => [0, 0]);
   for (const p of s.providers) {
     const top = below.map((v, i) => v + s.series[p][i]);
-    const topCtl = controls(span(s.series[p])).map(([a, b], i) => [belowCtl[i][0] + a, belowCtl[i][1] + b]);
+    const topCtl = controls(s.series[p]).map(([a, b], i) => [belowCtl[i][0] + a, belowCtl[i][1] + b]);
     stacked.push({ p, below, top, belowCtl, topCtl });
     below = top;
     belowCtl = topCtl;
@@ -1792,18 +1788,13 @@ function usageChart(u, width) {
   for (let v = 0; v <= yMax + step / 2; v += step) {
     parts.push(`<line class="${v ? "grid" : "base"}" x1="${padL}" x2="${padL + plotW}" y1="${y(v)}" y2="${y(v)}"/><text x="${padL - 12}" y="${y(v) + 4}" text-anchor="end">${esc(axisText(v, step))}</text>`);
   }
-  const at = (j) => x(first + j);
-  const h = (j) => (at(j + 1) - at(j)) / 3;
+  const h = (j) => (x(j + 1) - x(j)) / 3;
   const c = (px, v) => `${px.toFixed(1)} ${y(v).toFixed(1)}`;
-  for (const layer of [...stacked].reverse()) {
-    const top = span(layer.top), bottom = span(layer.below);
-    const forward = layer.topCtl.map(([a, b], j) => `C${c(at(j) + h(j), a)} ${c(at(j + 1) - h(j), b)} ${c(at(j + 1), top[j + 1])}`).join("");
-    const back = layer.belowCtl.map(([a, b], j) => `C${c(at(j + 1) - h(j), b)} ${c(at(j) + h(j), a)} ${c(at(j), bottom[j])}`).reverse().join("");
-    const edge = `M${c(at(0), top[0])}${forward}`;
-    parts.push(`<g class="series-${esc(layer.p)}"><path class="layer" d="${edge}L${c(at(top.length - 1), bottom[bottom.length - 1])}${back}Z"/><path class="edge" d="${edge}"/></g>`);
-  }
-  if (stacked.length) {
-    for (const i of first && below[0] > 0 ? [0, done] : [done]) parts.push(`<circle class="so-far" cx="${x(i)}" cy="${y(below[i])}" r="4"/>`);
+  for (const { p, top, below: bottom, topCtl, belowCtl } of [...stacked].reverse()) {
+    const forward = topCtl.map(([a, b], j) => `C${c(x(j) + h(j), a)} ${c(x(j + 1) - h(j), b)} ${c(x(j + 1), top[j + 1])}`).join("");
+    const back = belowCtl.map(([a, b], j) => `C${c(x(j + 1) - h(j), b)} ${c(x(j) + h(j), a)} ${c(x(j), bottom[j])}`).reverse().join("");
+    const edge = `M${c(x(0), top[0])}${forward}`;
+    parts.push(`<g class="series-${esc(p)}"><path class="layer" d="${edge}L${c(x(n - 1), bottom[n - 1])}${back}Z"/><path class="edge" d="${edge}"/></g>`);
   }
   const labelEvery = u.hourly ? (narrow ? 8 : 6) : Math.max(1, Math.ceil(n / (narrow ? 3 : 5)));
   const tick = (i) => (u.hourly ? (i ? shortHour(u.starts[i]) : shortDay(u.starts[i])) : i === n - 1 ? "Today" : shortDay(u.starts[i]));
