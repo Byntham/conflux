@@ -1731,7 +1731,9 @@ function focusedIn(id) {
 }
 
 function refocus(id, focus) {
+  const tipOpen = !$("tip").hidden;
   if (focus) $(id).querySelectorAll(focus.selector)[focus.index]?.focus({ preventScroll: true });
+  if (!tipOpen) $("tip").hidden = true;
 }
 
 function usageSeries(u) {
@@ -1964,8 +1966,8 @@ function usageRows(u) {
   const groups = { model: u.by_model, account: u.by_account, machine: u.by_machine }[usageBreakdown];
   return groups.map((g) => {
     const machine = () => (showAll ? esc(g.machine) : `Machine ${u.machines.indexOf(g.machine) + 1}`);
-    const name = usageBreakdown === "model" ? `<span title="${esc(g.model)}">${esc(g.model)}</span>` : usageBreakdown === "account" ? `<span>${secret(g.email || g.account)}</span>` : `<span>${machine()}</span>`;
-    const dot = g.provider ? `<span class="dot ${esc(g.provider)}" role="img" aria-label="${esc(providerName(g.provider))}" title="${esc(providerName(g.provider))}"></span>` : "";
+    const name = usageBreakdown === "model" ? `<span title="${esc(g.model)}">${esc(g.model)}</span>` : usageBreakdown === "account" ? `<span>${secret(g.email || g.account)} <span class="muted">${esc(providerName(g.provider))}</span></span>` : `<span>${machine()}</span>`;
+    const dot = g.provider ? `<span class="dot ${esc(g.provider)}"></span>` : "";
     return { label: `${dot}${name}`, value: metricOf(g), group: g, series: g.provider ? `series-${esc(g.provider)}` : "" };
   }).sort((a, b) => (b.value ?? -1) - (a.value ?? -1));
 }
@@ -2560,7 +2562,7 @@ $("usage-provider").onchange = () => loadUsage();
 $("pool").addEventListener("pointermove", showPoolTip);
 $("pool").addEventListener("pointerdown", showPoolTip);
 $("pool").addEventListener("pointerleave", hidePoolTip);
-window.addEventListener("scroll", closeMenu, { passive: true });
+window.addEventListener("scroll", () => { closeMenu(); $("tip").hidden = true; }, { passive: true });
 
 $("menu").addEventListener("keydown", (ev) => {
   if (ev.key !== "ArrowDown" && ev.key !== "ArrowUp") return;

@@ -53,18 +53,29 @@ struct FrameKind<'a> {
 }
 
 #[derive(Default, Deserialize)]
-struct FrameModel {
+struct FrameFields {
     model: Option<Value>,
+    prompt_cache_key: Option<Value>,
     response: Option<Value>,
 }
 
-fn frame_model(frame: &[u8]) -> Option<String> {
-    let f: FrameModel = serde_json::from_slice(frame).unwrap_or_default();
-    f.model
-        .as_ref()
-        .and_then(Value::as_str)
-        .or_else(|| f.response.as_ref().and_then(|r| r["model"].as_str()))
-        .map(str::to_string)
+struct FrameRoute {
+    model: Option<String>,
+    cache_key: Option<String>,
+}
+
+fn frame_route(frame: &[u8]) -> FrameRoute {
+    let f: FrameFields = serde_json::from_slice(frame).unwrap_or_default();
+    let field = |top: &Option<Value>, key: &str| {
+        top.as_ref()
+            .and_then(Value::as_str)
+            .or_else(|| f.response.as_ref().and_then(|r| r[key].as_str()))
+            .map(str::to_string)
+    };
+    FrameRoute {
+        model: field(&f.model, "model"),
+        cache_key: field(&f.prompt_cache_key, "prompt_cache_key"),
+    }
 }
 
 #[derive(Default)]
@@ -132,7 +143,7 @@ pub fn first_frame_route(headers: &HeaderMap, first: &str) -> RouteRequest {
     let v: Value = serde_json::from_str(first).unwrap_or(Value::Null);
     RouteRequest {
         provider: Provider::Codex,
-        model: frame_model(first.as_bytes()),
+        model: frame_route(first.as_bytes()).model,
         session: proxy::codex_session(headers, &v),
     }
 }
@@ -316,6 +327,7 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, upstrea
     let mut shutdown = app.ws_shutdown.subscribe();
     let mut drain = app.lifecycle.watch_drain();
     let mut turns = TurnTracker::started();
+    let header_session = proxy::codex_session(&headers, &Value::Null);
     loop {
         tokio::select! {
             biased;
@@ -352,8 +364,14 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, upstrea
                 };
                 if let Some(frame) = frame {
                     turn.started.set(Instant::now());
-                    if let Some(model) = frame_model(frame) {
+                    let next = frame_route(frame);
+                    if let Some(model) = next.model {
                         route.model = Some(model);
+                    }
+                    if let Some(key) = next.cache_key
+                        && header_session.is_none()
+                    {
+                        route.session = Some(key);
                     }
                 }
                 if up_tx.send(to_upstream(msg)).await.is_err() || closing {

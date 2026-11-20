@@ -48,13 +48,17 @@ async fn relays_frames_with_account_auth_and_beta() {
     let h = Harness::new().await;
     let id = h.add(Provider::Codex, "c").await;
     let mut ws = open(&h, &[]).await.unwrap();
-    ws.send(create("gpt-6.1-sol")).await.unwrap();
+    let keyed = |model: &str, key: &str| {
+        let frame = json!({"type": "response.create", "model": model, "prompt_cache_key": key, "input": []});
+        Message::Text(frame.to_string().into())
+    };
+    ws.send(keyed("gpt-6.1-sol", "k1")).await.unwrap();
     assert_eq!(next_json(&mut ws).await.unwrap()["type"], "response.created");
     assert_eq!(next_json(&mut ws).await.unwrap()["type"], "codex.rate_limits");
     let done = next_json(&mut ws).await.unwrap();
     assert_eq!(done["response"]["token"], "at-c");
 
-    ws.send(create("gpt-6.2-sol")).await.unwrap();
+    ws.send(keyed("gpt-6.2-sol", "k2")).await.unwrap();
     assert_eq!(next_json(&mut ws).await.unwrap()["response"]["id"], "resp_at-c_2");
     while next_json(&mut ws).await.unwrap()["type"] != "response.completed" {}
     let nested = json!({"type": "response.create", "model": 5, "response": {"model": "gpt-6.2-astra"}});
@@ -71,12 +75,13 @@ async fn relays_frames_with_account_auth_and_beta() {
         .read(now - chrono::Duration::hours(1), now)
         .unwrap()
         .into_iter()
-        .map(|r| r.model.unwrap_or_default())
+        .map(|r| (r.model.unwrap_or_default(), r.session.unwrap_or_default()))
         .collect();
+    let expected = [("gpt-6.1-sol", "k1"), ("gpt-6.2-sol", "k2"), ("gpt-6.2-astra", "k2")];
     assert_eq!(
         kept,
-        ["gpt-6.1-sol", "gpt-6.2-sol", "gpt-6.2-astra"],
-        "every turn on one socket is recorded"
+        expected.map(|(m, k)| (m.to_string(), k.to_string())),
+        "every turn on one socket is recorded with its own session"
     );
     let models: Vec<_> = h.app.requests.recent().into_iter().map(|r| r.model).collect();
     assert_eq!(
