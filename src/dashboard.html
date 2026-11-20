@@ -1190,6 +1190,7 @@ const POOL_EMPTY = 1e-6;
 const POOL_NOISE = 1.5;
 const FABLE_SHARE_OF_WEEKLY = 0.5;
 let poolGeom = null;
+let poolPointer = null;
 
 const pct = (v) => `${Math.round(v)}%`;
 const pctLeft = (v) => (v > POOL_EMPTY && v < 0.5 ? "<1%" : pct(v));
@@ -1416,6 +1417,7 @@ function renderPools(d) {
   renderOverviewFilter(d, all);
   if (!d.accounts.length) {
     poolGeom = null;
+    poolPointer = null;
     return setHtml("pool", `<div class="accounts"><div class="card empty"><strong>No accounts yet</strong>Add a subscription and conflux will start routing requests to it.<div class="row"><button class="btn" data-add="claude">Add Claude account</button><button class="btn" data-add="codex">Add Codex account</button><button class="btn" data-add="grok">Add Grok account</button><button class="btn" data-add="muse">Add Muse account</button></div></div></div>`);
   }
   const now = Math.floor(Date.now() / 60000) * 60000;
@@ -1501,6 +1503,10 @@ function renderPools(d) {
   }).join(" ")}`;
   poolGeom = { lanes, padL, plotW, width, pad, height, x, at };
   setHtml("pool", `<div class="card pool-board"><div class="pool-chart${narrow ? " narrow" : ""}"><svg viewBox="0 0 ${width} ${height}" height="${height}" role="img" aria-label="${esc(summary)}">${parts.join("")}</svg>${lanes.map((l) => poolGutter(l, narrow)).join("")}<div class="pool-tip" hidden></div></div></div>`);
+  if (!poolPointer) return;
+  const chart = document.querySelector(".pool-chart");
+  const box = chart.getBoundingClientRect();
+  showPoolTip({ target: chart, clientX: box.left + poolPointer.x, clientY: box.top + poolPointer.y });
 }
 
 function poolValueAt(pool, t) {
@@ -1515,6 +1521,7 @@ function poolValueAt(pool, t) {
 }
 
 function hidePoolTip() {
+  poolPointer = null;
   const chart = document.querySelector(".pool-chart");
   if (!chart) return;
   chart.querySelector(".pool-tip").hidden = true;
@@ -1531,6 +1538,7 @@ function showPoolTip(ev) {
   const py = ev.clientY - chart.querySelector("svg").getBoundingClientRect().top;
   const lane = lanes.find((l) => py >= l.top - 20 && py <= l.top + l.h + 8);
   if (!lane?.pool.size) return hidePoolTip();
+  poolPointer = { x: ev.clientX - box.left, y: ev.clientY - box.top };
   const p = lane.pool;
   const cx0 = Math.min(Math.max(px, padL), padL + plotW);
   const t = ((cx0 - padL) / plotW) * (POOL_BACK_H + POOL_AHEAD_H) - POOL_BACK_H;
@@ -1551,7 +1559,6 @@ function showPoolTip(ev) {
   const label = Math.abs(tt) < 0.6 ? "Now" : `${when.toLocaleDateString([], { weekday: "short" })} ${when.getDate()}, ${when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
   const tip = chart.querySelector(".pool-tip");
   tip.innerHTML = `<b>${esc(label)}</b>${row}<p>${note}</p>`;
-  tip.toggleAttribute("data-touch", ev.pointerType === "touch");
   tip.hidden = false;
   const tw = tip.offsetWidth;
   tip.style.left = `${pad + Math.max(0, cx + 12 + tw > width ? cx - tw - 12 : cx + 12)}px`;
@@ -2020,8 +2027,7 @@ function render(d) {
   setHtml("top-line", masked(d.hub.name));
   $("view-overview").classList.toggle("first-run", !d.accounts.length);
   renderAlerts(d);
-  const pinned = document.querySelector(".pool-chart .pool-tip[data-touch]:not([hidden])");
-  if (!pinned || poolGeom?.lanes.map((l) => l.pool.provider).join() !== overviewProviders(d).shown.join()) renderPools(d);
+  renderPools(d);
   renderStats(d);
   renderAccounts(d);
   renderChart(d);
