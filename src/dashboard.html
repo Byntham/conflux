@@ -1501,7 +1501,7 @@ function renderPools(d) {
     const outlook = l.pool.size && poolOutlook(l.pool);
     return `${providerName(l.pool.provider)} has ${l.pool.size ? pctLeft(l.pool.now) : "no quota data"} left${outlook ? `. ${outlook.label} ${outlook.value}` : ""}.`;
   }).join(" ")}`;
-  poolGeom = { lanes, padL, plotW, width, pad, height, x, at };
+  poolGeom = { lanes, padL, plotW, width, pad, height, x, at, now };
   setHtml("pool", `<div class="card pool-board"><div class="pool-chart${narrow ? " narrow" : ""}"><svg viewBox="0 0 ${width} ${height}" height="${height}" role="img" aria-label="${esc(summary)}">${parts.join("")}</svg>${lanes.map((l) => poolGutter(l, narrow)).join("")}<div class="pool-tip" hidden></div></div></div>`);
   if (poolPointer) drawPoolTip();
 }
@@ -1528,26 +1528,29 @@ function hidePoolTip() {
 function showPoolTip(ev) {
   const chart = ev.target.closest(".pool-chart");
   if (!chart || !poolGeom || ev.target.closest(".pool-gut")) return hidePoolTip();
-  const { lanes, padL, plotW, pad } = poolGeom;
+  const { lanes, padL, plotW, pad, x, now } = poolGeom;
   const px = ev.clientX - chart.getBoundingClientRect().left - pad;
   if (px < padL - 30) return hidePoolTip();
   const py = ev.clientY - chart.querySelector("svg").getBoundingClientRect().top;
   const lane = lanes.find((l) => py >= l.top - 20 && py <= l.top + l.h + 8);
   if (!lane) return hidePoolTip();
   const cx = Math.min(Math.max(px, padL), padL + plotW);
-  poolPointer = { provider: lane.pool.provider, t: ((cx - padL) / plotW) * (POOL_BACK_H + POOL_AHEAD_H) - POOL_BACK_H, y: (py - lane.top) / lane.h };
+  const near = lane.pool.refills.find((r) => Math.abs(x(r.t) - cx) < 9);
+  const t = near ? near.t : ((cx - padL) / plotW) * (POOL_BACK_H + POOL_AHEAD_H) - POOL_BACK_H;
+  poolPointer = { provider: lane.pool.provider, ms: now + t * HOUR_MS, y: (py - lane.top) / lane.h };
   drawPoolTip();
 }
 
 function drawPoolTip() {
   const chart = document.querySelector(".pool-chart");
-  const { lanes, width, pad, height, x, at } = poolGeom;
+  const { lanes, width, pad, height, x, at, now } = poolGeom;
   const lane = lanes.find((l) => l.pool.provider === poolPointer.provider);
   if (!chart || !lane?.pool.size) return hidePoolTip();
   const p = lane.pool;
-  const near = p.refills.find((r) => Math.abs(x(r.t) - x(poolPointer.t)) < 9);
-  const tt = near ? near.t + POOL_STEP_H : poolPointer.t;
-  const cx = x(near ? near.t : poolPointer.t);
+  const t = (poolPointer.ms - now) / HOUR_MS;
+  const near = p.refills.find((r) => Math.abs(r.t - t) < 1 / 60);
+  const tt = near ? near.t + POOL_STEP_H : t;
+  const cx = x(Math.min(Math.max(t, -POOL_BACK_H), POOL_AHEAD_H));
   chart.querySelectorAll(".cross").forEach((cross, i) => {
     cross.setAttribute("x1", cx);
     cross.setAttribute("x2", cx);
