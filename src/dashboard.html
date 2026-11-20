@@ -208,7 +208,7 @@
   .col i.failed, .key i.failed { background: repeating-linear-gradient(135deg, var(--bad-fill) 0 2px, color-mix(in srgb, var(--bad-fill) 62%, var(--bg)) 2px 4px); }
   .col i:first-child { border-radius: 3px 3px 0 0; }
   .x-axis { grid-column: 2; display: flex; justify-content: space-between; margin-top: 5px; font-size: 11.5px; color: var(--muted); }
-  #tip { position: fixed; z-index: 40; padding: 5px 9px; border-radius: 6px; background: var(--fg); color: var(--bg); font-size: 12px; pointer-events: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  #tip { position: fixed; z-index: 40; padding: 5px 9px; border-radius: 6px; background: var(--fg); color: var(--bg); font-size: 12px; pointer-events: none; max-width: min(320px, calc(100vw - 16px)); font-variant-numeric: tabular-nums; }
 
   .table-wrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -428,7 +428,7 @@
   .usage-big-sub { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 13px; color: var(--muted); }
   .usage-big-sub .i { width: 14px; height: 14px; }
   .estimate { display: inline-flex; align-items: center; gap: 6px; cursor: default; }
-  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .usage-providers { display: grid; gap: 14px; margin-top: 22px; }
   .usage-provider { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px 12px; align-items: baseline; }
   .usage-provider-name { display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 500; }
@@ -1627,7 +1627,7 @@ const byCost = () => usageMetric === "cost";
 const metricOf = (g) => (byCost() ? (g.cost ? g.cost.total : null) : g.tokens);
 const metricText = (v) => (byCost() ? (v === null ? "Unpriced" : money(v)) : amount(v));
 const plus = (unpriced) => unpriced > 0
-  ? `<span class="partial" data-tip="Leaves out ${esc(amount(unpriced))} tokens with no public price">+</span>`
+  ? `<span class="partial" data-tip="Leaves out ${esc(amount(unpriced))} tokens with no public price">+<span class="sr-only"> (leaves out ${esc(amount(unpriced))} tokens with no public price)</span></span>`
   : "";
 const partial = (g) => (byCost() && g.cost ? plus(g.unpriced_tokens) : "");
 const moneyOf = (g) => (g.cost ? `${esc(money(g.cost.total))}${plus(g.unpriced_tokens)}` : "Unpriced");
@@ -1662,7 +1662,7 @@ let pressing = false;
 const usageTipOpen = () => Boolean(document.querySelector(".usage-chart .usage-tip:not([hidden])"));
 const flushUsage = () => setTimeout(() => { if (usagePending && !pressing && !usageTipOpen()) renderUsage(); }, 0);
 const endPress = () => { pressing = false; flushUsage(); };
-document.addEventListener("pointerdown", (ev) => { if (ev.button === 0) pressing = true; }, true);
+document.addEventListener("pointerdown", (ev) => { if (ev.button === 0 && ev.target.closest?.("#usage-body")) pressing = true; }, true);
 document.addEventListener("contextmenu", endPress, true);
 document.addEventListener("pointerup", endPress, true);
 document.addEventListener("pointercancel", endPress, true);
@@ -2590,6 +2590,7 @@ function showTip(ev) {
   tipFor = col;
   if (!col) { tip.hidden = true; return; }
   tip.textContent = col.dataset.tip;
+  tip.style.left = "0px";
   tip.hidden = false;
   const rect = col.getBoundingClientRect();
   const left = Math.max(8, Math.min(rect.left + rect.width / 2 - tip.offsetWidth / 2, window.innerWidth - tip.offsetWidth - 8));
