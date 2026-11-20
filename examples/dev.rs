@@ -91,6 +91,10 @@ impl Quota {
     fn short_used(&self) -> f64 {
         if self.exhausted { 100.0 } else { self.short_pct }
     }
+
+    fn fable_used(&self) -> f64 {
+        (self.long_pct * 1.5).min(100.0)
+    }
 }
 
 struct Pretend {
@@ -254,7 +258,11 @@ async fn claude_usage(State(pretend): State<Arc<Pretend>>, headers: HeaderMap) -
         vec![],
         json!({
             "five_hour": {"utilization": quota.short_used(), "resets_at": quota.short_resets.to_rfc3339()},
-            "seven_day": {"utilization": quota.long_pct, "resets_at": quota.long_resets.to_rfc3339()}
+            "seven_day": {"utilization": quota.long_pct, "resets_at": quota.long_resets.to_rfc3339()},
+            "limits": [{
+                "kind": "weekly_scoped", "percent": quota.fable_used(), "resets_at": quota.long_resets.to_rfc3339(),
+                "scope": {"model": {"display_name": "Fable"}}
+            }]
         }),
     )
 }
