@@ -412,6 +412,9 @@
   .pool-chart .nowline { stroke: var(--fg-2); stroke-width: 1; }
   .pool-chart .now { fill: var(--series); stroke: var(--surface); stroke-width: 2; }
   .pool-chart .cross { stroke: var(--fg-2); stroke-width: 1; }
+  .overview-filter { margin-bottom: 14px; }
+  .overview-filter button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+  .overview-filter .count { color: var(--muted); font-weight: 400; }
   .pool-tip { position: absolute; top: 0; z-index: 5; min-width: 170px; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--popover); box-shadow: var(--shadow-pop); font-size: 12.5px; pointer-events: none; font-variant-numeric: tabular-nums; }
   .pool-tip b { display: block; font-weight: 500; margin-bottom: 2px; }
   .pool-tip div { display: flex; align-items: center; gap: 7px; color: var(--fg-2); }
@@ -482,6 +485,7 @@
     .col-tokens { width: 96px; }
     #request-log td { overflow: hidden; text-overflow: ellipsis; }
   }
+  @media (max-width: 420px) { .overview-filter .count { display: none; } }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
   @media (max-width: 1200px) { .usage-board { grid-template-columns: minmax(0, 1fr); gap: 22px; } }
   @media (max-width: 1080px) {
@@ -543,8 +547,9 @@
     .code-text { padding: 10px 0; }
     .alert-sep { display: none; }
     .alert-part { display: block; }
-    .panel .seg { display: flex; }
-    .panel .seg button { flex: 1 1 auto; padding: 0 6px; }
+    .panel .seg, .overview-filter { display: flex; }
+    .panel .seg button, .overview-filter button { flex: 1 1 auto; padding: 0 6px; }
+    .overview-filter button { gap: 5px; }
     .show-sm { display: block; }
     .show-sm-inline { display: inline; }
     .hide-sm { display: none; }
@@ -642,6 +647,7 @@
         </div>
         <div class="alerts" id="hub-alert" hidden></div>
         <div class="alerts" id="alerts" hidden></div>
+        <div id="overview-filter" class="seg overview-filter" role="group" aria-label="Show provider" hidden></div>
         <div id="pool"></div>
         <div class="section hide-first-run">
           <div class="section-head"><h2>Accounts</h2><div class="section-note"><span class="key"><i class="left"></i>Quota left</span><span class="key"><i class="tick"></i>Time left in window</span></div></div>
@@ -1152,8 +1158,25 @@ function renderInstall() {
   document.querySelectorAll("[data-install]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.install === installKey)));
 }
 
+let overviewProvider = "all";
+
+function overviewProviders(d) {
+  const all = [...new Set(d.accounts.map((a) => a.provider))].sort();
+  if (!all.includes(overviewProvider)) overviewProvider = "all";
+  return { all, shown: overviewProvider === "all" ? all : [overviewProvider] };
+}
+
+function renderOverviewFilter(d, all) {
+  $("overview-filter").hidden = all.length < 2;
+  const count = (p) => d.accounts.filter((a) => p === "all" || a.provider === p).length;
+  const focus = focusedIn("overview-filter");
+  setHtml("overview-filter", ["all", ...all].map((p) => `<button data-overview-provider="${esc(p)}" aria-pressed="${p === overviewProvider}">${p === "all" ? "" : `<span class="dot ${esc(p)}"></span>`}${p === "all" ? "All" : esc(providerName(p))}<span class="count">${count(p)}</span></button>`).join(""));
+  refocus("overview-filter", focus);
+}
+
 function renderAccounts(d) {
-  const ordered = [...d.accounts].sort((x, y) => x.provider.localeCompare(y.provider) || severity(x) - severity(y));
+  const { shown } = overviewProviders(d);
+  const ordered = d.accounts.filter((a) => shown.includes(a.provider)).sort((x, y) => x.provider.localeCompare(y.provider) || severity(x) - severity(y));
   setHtml("accounts", ordered.map((a) => renderAccount(a, d.requests)).join(""));
 }
 
@@ -1389,13 +1412,14 @@ function poolGutter(l, narrow) {
 
 function renderPools(d) {
   if ($("view-overview").hidden) return;
+  const { all, shown } = overviewProviders(d);
+  renderOverviewFilter(d, all);
   if (!d.accounts.length) {
     poolGeom = null;
     return setHtml("pool", `<div class="accounts"><div class="card empty"><strong>No accounts yet</strong>Add a subscription and conflux will start routing requests to it.<div class="row"><button class="btn" data-add="claude">Add Claude account</button><button class="btn" data-add="codex">Add Codex account</button><button class="btn" data-add="grok">Add Grok account</button><button class="btn" data-add="muse">Add Muse account</button></div></div></div>`);
   }
   const now = Math.floor(Date.now() / 60000) * 60000;
-  const providers = [...new Set(d.accounts.map((a) => a.provider))].sort();
-  const lanes = providers.map((p) => ({ pool: buildPool(p, d, now) }));
+  const lanes = shown.map((p) => ({ pool: buildPool(p, d, now) }));
   const outer = $("pool").clientWidth;
   const narrow = outer < 640;
   const pad = narrow ? 16 : 22;
@@ -1424,10 +1448,8 @@ function renderPools(d) {
   const nowSpans = [[2, 18], ...lanes.map((l) => [l.top, l.top + l.h + (l === lanes[lanes.length - 1] ? 6 : 0)])];
   for (const [y1, y2] of nowSpans) parts.push(`<line class="nowline" x1="${x(0)}" x2="${x(0)}" y1="${y1}" y2="${y2}"/>`);
   parts.push(`<text class="zone" x="${x(0) - 10}" y="13" text-anchor="end">Measured</text>`);
-  const drawn = lanes.filter((l) => l.pool.size);
-  const known = drawn.filter((l) => l.pool.burn !== null).length;
-  const projected = !known ? "none" : known === drawn.length ? "all" : "some";
-  parts.push(`<text class="zone" x="${x(0) + 10}" y="13">${projected === "none" ? "Scheduled resets" : "Projected"}</text>`);
+  const projected = lanes.some((l) => l.pool.size && l.pool.burn !== null);
+  parts.push(`<text class="zone" x="${x(0) + 10}" y="13">${projected ? "Projected" : "Scheduled resets"}</text>`);
 
   for (const l of lanes) {
     const p = l.pool;
@@ -1477,7 +1499,7 @@ function renderPools(d) {
     const outlook = l.pool.size && poolOutlook(l.pool);
     return `${providerName(l.pool.provider)} has ${l.pool.size ? pctLeft(l.pool.now) : "no quota data"} left${outlook ? `. ${outlook.label} ${outlook.value}` : ""}.`;
   }).join(" ")}`;
-  poolGeom = { lanes, padL, plotW, width, pad, height, x, at, projected };
+  poolGeom = { lanes, padL, plotW, width, pad, height, x, at };
   setHtml("pool", `<div class="card pool-board"><div class="pool-chart${narrow ? " narrow" : ""}"><svg viewBox="0 0 ${width} ${height}" height="${height}" role="img" aria-label="${esc(summary)}">${parts.join("")}</svg>${lanes.map((l) => poolGutter(l, narrow)).join("")}<div class="pool-tip" hidden></div></div></div>`);
 }
 
@@ -1502,33 +1524,33 @@ function hidePoolTip() {
 function showPoolTip(ev) {
   const chart = ev.target.closest(".pool-chart");
   if (!chart || !poolGeom || ev.target.closest(".pool-gut")) return hidePoolTip();
-  const { lanes, padL, plotW, width, pad, height, x, at, projected } = poolGeom;
+  const { lanes, padL, plotW, width, pad, height, x, at } = poolGeom;
   const box = chart.getBoundingClientRect();
   const px = ev.clientX - box.left - pad;
   if (px < padL - 30) return hidePoolTip();
+  const py = ev.clientY - chart.querySelector("svg").getBoundingClientRect().top;
+  const lane = lanes.find((l) => py >= l.top - 20 && py <= l.top + l.h + 8);
+  if (!lane?.pool.size) return hidePoolTip();
+  const p = lane.pool;
   const cx0 = Math.min(Math.max(px, padL), padL + plotW);
   const t = ((cx0 - padL) / plotW) * (POOL_BACK_H + POOL_AHEAD_H) - POOL_BACK_H;
-  const refills = lanes.flatMap((l) => l.pool.refills.map((r) => ({ ...r, provider: l.pool.provider })));
-  const near = refills.find((r) => Math.abs(x(r.t) - cx0) < 9);
+  const near = p.refills.find((r) => Math.abs(x(r.t) - cx0) < 9);
   const tt = near ? near.t + POOL_STEP_H : t;
   const cx = near ? x(near.t) : cx0;
-  for (const cross of chart.querySelectorAll(".cross")) {
+  chart.querySelectorAll(".cross").forEach((cross, i) => {
     cross.setAttribute("x1", cx);
     cross.setAttribute("x2", cx);
-    cross.setAttribute("visibility", "visible");
-  }
-  const show = (v) => (v === null ? "No data" : v <= POOL_EMPTY ? "None left" : `${esc(pctLeft(v))} left`);
-  const rows = lanes.filter((l) => l.pool.size).map((l) => {
-    const p = l.pool;
-    return `<div class="pool-${esc(p.provider)}"><i></i><span>${esc(providerName(p.provider))}</span><span>${show(poolValueAt(p, tt))}</span></div>`;
-  }).join("");
+    cross.setAttribute("visibility", lanes[i] === lane ? "visible" : "hidden");
+  });
+  const v = poolValueAt(p, tt);
+  const row = `<div class="pool-${esc(p.provider)}"><i></i><span>${esc(providerName(p.provider))}</span><span>${v === null ? "No data" : v <= POOL_EMPTY ? "None left" : `${esc(pctLeft(v))} left`}</span></div>`;
   const note = near
-    ? `${masked(near.who.join(", ") || "An account")} ${near.past ? "reset" : "resets"}, +${pct(near.gain)} for ${esc(providerName(near.provider))}`
-    : tt < 0 ? "Measured at a usage check" : { all: `At the last ${POOL_BURN_H}h burn rate`, some: `At the last ${POOL_BURN_H}h burn rate, where known`, none: "If you use nothing more" }[projected];
+    ? `${masked(near.who.join(", ") || "An account")} ${near.past ? "reset" : "resets"}, +${pct(near.gain)}`
+    : tt < 0 ? "Measured at a usage check" : p.burn === null ? "If you use nothing more" : `At the last ${POOL_BURN_H}h burn rate`;
   const when = at(tt);
   const label = Math.abs(tt) < 0.6 ? "Now" : `${when.toLocaleDateString([], { weekday: "short" })} ${when.getDate()}, ${when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
   const tip = chart.querySelector(".pool-tip");
-  tip.innerHTML = `<b>${esc(label)}</b>${rows}<p>${note}</p>`;
+  tip.innerHTML = `<b>${esc(label)}</b>${row}<p>${note}</p>`;
   tip.hidden = false;
   const tw = tip.offsetWidth;
   tip.style.left = `${pad + Math.max(0, cx + 12 + tw > width ? cx - tw - 12 : cx + 12)}px`;
@@ -1664,7 +1686,7 @@ function fillSelect(id, all, values, label = String) {
   select.value = current;
 }
 
-const FOCUS_KEYS = ["data-usage-break", "data-tip"];
+const FOCUS_KEYS = ["data-usage-break", "data-overview-provider", "data-tip"];
 
 function focusedIn(id) {
   const el = document.activeElement;
@@ -2489,7 +2511,9 @@ $("usage-machine").onchange = () => loadUsage();
 $("usage-provider").onchange = () => loadUsage();
 $("pool").addEventListener("pointermove", showPoolTip);
 $("pool").addEventListener("pointerdown", showPoolTip);
-$("pool").addEventListener("pointerleave", hidePoolTip);
+$("pool").addEventListener("pointerleave", (ev) => { if (ev.pointerType !== "touch") hidePoolTip(); });
+$("pool").addEventListener("pointercancel", hidePoolTip);
+document.addEventListener("pointerdown", (ev) => { if (!ev.target.closest(".pool-chart")) hidePoolTip(); });
 window.addEventListener("scroll", () => {
   closeMenu();
   const rect = tipFor?.getBoundingClientRect();
@@ -2568,6 +2592,11 @@ document.addEventListener("click", (ev) => {
     usageMetric = metric.dataset.usageMetric;
     document.querySelectorAll("[data-usage-metric]").forEach((b) => b.setAttribute("aria-pressed", String(b === metric)));
     return renderUsage();
+  }
+  const overview = ev.target.closest("[data-overview-provider]");
+  if (overview) {
+    overviewProvider = overview.dataset.overviewProvider;
+    return latest && (renderPools(latest), renderAccounts(latest));
   }
   const breakdown = ev.target.closest("[data-usage-break]");
   if (breakdown) { usageBreakdown = breakdown.dataset.usageBreak; return renderUsage(); }
