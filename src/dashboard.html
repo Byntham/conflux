@@ -389,11 +389,12 @@
   .pool-key b { font-weight: 500; color: var(--fg); }
   .pool-key .pool-note { margin-left: auto; }
   .pool-key .pool-note.warn { color: var(--warn); }
-  .narrow .pool-gut { left: 16px; right: 16px; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+  .narrow .pool-gut { left: 16px; right: 16px; align-items: center; gap: 4px 10px; }
   .narrow .pool-title { flex-direction: row; align-items: center; gap: 10px; }
   .narrow .pool-big { margin: 0; font-size: 24px; }
   .narrow .pool-big span { display: none; }
   .narrow .pool-split { margin-top: 4px; }
+  .narrow .pool-key span:first-child { display: none; }
   .narrow .pool-key .pool-note { flex-basis: 100%; margin: 0; }
   .narrow .pool-stats { order: 1; flex-basis: 100%; flex-wrap: wrap; gap: 0 12px; padding: 0; font-size: 12.5px; }
   .narrow .pool-stat { flex-direction: row; gap: 4px; }
@@ -1180,7 +1181,7 @@ const POOL_BURN_H = 3;
 const POOL_BURN_MIN_H = 1;
 const POOL_EMPTY = 1e-6;
 const POOL_NOISE = 1.5;
-const MODEL_SHARE_OF_WEEKLY = { Fable: 0.5 };
+const FABLE_SHARE_OF_WEEKLY = 0.5;
 let poolGeom = null;
 
 const pct = (v) => `${Math.round(v)}%`;
@@ -1219,12 +1220,14 @@ function corners(points) {
   return points.filter((p, i) => !i || i === points.length - 1 || p.v !== points[i - 1].v || points[i + 1].v - p.v > POOL_NOISE);
 }
 
+function fableWindow(a) {
+  return a.usage.windows.find((w) => /\bfable\b/i.test(w.model_scope || ""));
+}
+
 function buildPool(provider, d, now) {
   const accounts = d.accounts.filter((a) => a.provider === provider);
   const members = accounts.filter((a) => a.enabled && !a.needs_login && poolWindow(a));
-  const scopes = members.flatMap((a) => a.usage.windows.filter((w) => w.model_scope).map((w) => w.model_scope));
-  const scope = [...new Set(scopes)].sort()[0] || null;
-  const share = MODEL_SHARE_OF_WEEKLY[scope] ?? 1;
+  const scope = members.some(fableWindow) ? "Fable" : null;
   const pool = { provider, accounts, size: members.length, scope, past: [], future: [], refills: [], now: 0, nowScoped: 0 };
   if (!members.length) return pool;
   const hoursAway = (iso) => (iso ? (new Date(iso) - now) / HOUR_MS : Infinity);
@@ -1232,7 +1235,7 @@ function buildPool(provider, d, now) {
   const history = d.usage_history || {};
   const series = members.map((a) => {
     const w = poolWindow(a);
-    const sw = scope && a.usage.windows.find((x) => x.model_scope === scope);
+    const sw = fableWindow(a);
     const points = (win) => steady([...(history[a.id] || [])
       .filter((s) => win.key in s.used)
       .map((s) => ({ t: (new Date(s.at) - now) / HOUR_MS, v: s.used[win.key] }))
@@ -1249,7 +1252,7 @@ function buildPool(provider, d, now) {
       name: a.email || a.id,
       all: corners(all),
       samples: { all, scoped },
-      state: { allLeft: 100 - usedNow(w), allReset: reset(w), allEvery: every(w), hasScope: Boolean(sw), scopeLeft: sw ? 100 - usedNow(sw) : Infinity, scopeReset: reset(sw), scopeEvery: every(sw) },
+      state: { allLeft: 100 - usedNow(w), allReset: reset(w), allEvery: every(w), scopeLeft: sw ? 100 - usedNow(sw) : 100, scopeReset: reset(sw), scopeEvery: every(sw) },
     };
   });
   const cap = members.length * 100;
@@ -1292,34 +1295,31 @@ function buildPool(provider, d, now) {
   const burnAll = burn("all");
   const burnScope = burn("scoped");
   pool.burn = burnAll === null ? null : burnAll / members.length;
-  pool.burnKnown = burnAll !== null && (!scope || burnScope !== null);
   const total = (t) => {
     let all = 0, scoped = 0;
-    for (const { state } of series) { all += state.allLeft; scoped += Math.min(state.allLeft, state.scopeLeft * share); }
+    for (const { state } of series) { all += state.allLeft; scoped += Math.min(state.allLeft, state.scopeLeft * FABLE_SHARE_OF_WEEKLY); }
     return { t, v: (all / cap) * 100, s: (scoped / cap) * 100 };
   };
   const byRouter = [...series].sort((p, q) => p.state.allReset - q.state.allReset || (p.id < q.id ? -1 : 1));
   const drain = (hours) => {
     let all = (burnAll || 0) * hours, scoped = (burnScope || 0) * hours;
     for (const { state } of byRouter) {
-      if (state.allLeft <= 0) continue;
-      if (state.hasScope) {
-        const fromScope = Math.min(scoped, state.scopeLeft);
-        state.scopeLeft -= fromScope;
-        scoped -= fromScope;
-      } else {
-        scoped = 0;
-      }
-      const fromAll = Math.min(all, state.allLeft);
+      const fromScope = Math.min(scoped, state.scopeLeft, state.allLeft / FABLE_SHARE_OF_WEEKLY);
+      state.scopeLeft -= fromScope;
+      state.allLeft -= fromScope * FABLE_SHARE_OF_WEEKLY;
+      scoped -= fromScope;
+      all -= fromScope * FABLE_SHARE_OF_WEEKLY;
+    }
+    for (const { state } of byRouter) {
+      const fromAll = Math.min(Math.max(all, 0), state.allLeft);
       state.allLeft -= fromAll;
       all -= fromAll;
-      if (all <= 0 && scoped <= 0) break;
     }
   };
   pool.future = [total(0)];
   pool.now = pool.future[0].v;
   pool.nowScoped = pool.future[0].s;
-  pool.scopeReset = Math.min(...series.map((s) => s.state.scopeReset));
+  pool.scopeReset = Math.min(...series.filter((s) => s.state.scopeLeft < 100).map((s) => s.state.scopeReset));
   let t = 0;
   while (t < POOL_AHEAD_H) {
     const next = Math.min(POOL_AHEAD_H, t + POOL_SIM_STEP_H, ...series.flatMap((s) => [s.state.allReset, s.state.scopeReset]));
@@ -1375,7 +1375,7 @@ function poolScopeNote(p) {
   const out = (pt) => pt.s <= POOL_EMPTY;
   if (out(p.future[0])) {
     const back = p.future.find((pt) => !out(pt));
-    return { text: back ? `${p.scope} out, back ${shortDate(back.t)}` : `${p.scope} out for ${POOL_DAYS}+ days`, warn: true };
+    return { text: back ? `${p.scope} out, back ${shortDate(back.t)}` : `${p.scope} out`, warn: true };
   }
   const empty = p.future.find(out);
   if (empty && (p.emptyAt === undefined || empty.t < p.emptyAt)) return { text: `${p.scope} runs out ${shortDate(empty.t)}`, warn: true };
@@ -1389,7 +1389,7 @@ function poolSplit(p) {
   const note = poolScopeNote(p);
   const all = esc(pctLeft(p.now)), scoped = esc(pctLeft(p.nowScoped));
   return `<div class="pool-split">
-    <div class="pool-bar" role="img" aria-label="${all} left for all models. ${scoped} of the weekly limit can be ${esc(p.scope)}."><i style="width:${p.now.toFixed(2)}%"></i><i class="scope" style="width:${p.nowScoped.toFixed(2)}%"></i></div>
+    <div class="pool-bar" aria-hidden="true"><i style="width:${p.now.toFixed(2)}%"></i><i class="scope" style="width:${p.nowScoped.toFixed(2)}%"></i></div>
     <div class="pool-key"><span><i></i>All models <b>${all}</b></span><span><i class="scope"></i>Can be ${esc(p.scope)} <b>${scoped}</b></span>${note ? `<span class="pool-note${note.warn ? " warn" : ""}">${esc(note.text)}</span>` : ""}</div>
   </div>`;
 }
@@ -1420,7 +1420,7 @@ function renderPools(d) {
   const plotW = width - padL - padR;
   let y = 22;
   for (const l of lanes) {
-    l.split = poolHasSplit(l.pool) ? (narrow ? 62 : 48) : 0;
+    l.split = poolHasSplit(l.pool) ? (narrow ? 66 : 48) : 0;
     l.top = y + l.split + (narrow ? 104 : 96);
     l.h = narrow ? 120 : 200;
     y = l.top + l.h + (narrow ? 12 : 24);
@@ -1442,8 +1442,7 @@ function renderPools(d) {
   parts.push(`<text class="zone" x="${x(0) - 10}" y="13" text-anchor="end">Measured</text>`);
   const drawn = lanes.filter((l) => l.pool.size);
   const known = drawn.filter((l) => l.pool.burn !== null).length;
-  const full = drawn.filter((l) => l.pool.burnKnown).length;
-  const projected = !known ? "none" : full === drawn.length ? "all" : "some";
+  const projected = !known ? "none" : known === drawn.length ? "all" : "some";
   parts.push(`<text class="zone" x="${x(0) + 10}" y="13">${projected === "none" ? "Scheduled resets" : "Projected"}</text>`);
 
   for (const l of lanes) {
@@ -1518,7 +1517,7 @@ function hidePoolTip() {
 
 function showPoolTip(ev) {
   const chart = ev.target.closest(".pool-chart");
-  if (!chart || !poolGeom) return hidePoolTip();
+  if (!chart || !poolGeom || ev.target.closest(".pool-gut")) return hidePoolTip();
   const { lanes, padL, plotW, width, pad, height, x, at, projected } = poolGeom;
   const box = chart.getBoundingClientRect();
   const px = ev.clientX - box.left - pad;
