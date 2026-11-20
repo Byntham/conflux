@@ -1741,10 +1741,11 @@ function axisText(v, step) {
   return `$${v.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
 }
 
-function controls(values) {
+function controls(values, xs) {
   const n = values.length;
   if (n < 2) return [];
-  const m = values.slice(1).map((v, i) => v - values[i]);
+  const w = values.slice(1).map((_, i) => xs[i + 1] - xs[i]);
+  const m = values.slice(1).map((v, i) => (v - values[i]) / w[i]);
   const t = [m[0]];
   for (let i = 1; i < n - 1; i++) t.push(m[i - 1] * m[i] <= 0 ? 0 : (m[i - 1] + m[i]) / 2);
   t.push(m[n - 2]);
@@ -1753,7 +1754,7 @@ function controls(values) {
     const a = t[i] / m[i], b = t[i + 1] / m[i], s = a * a + b * b;
     if (s > 9) { const k = 3 / Math.sqrt(s); t[i] = k * a * m[i]; t[i + 1] = k * b * m[i]; }
   }
-  return m.map((_, i) => [values[i] + t[i] / 3, values[i + 1] - t[i + 1] / 3]);
+  return m.map((_, i) => [values[i] + (t[i] * w[i]) / 3, values[i + 1] - (t[i + 1] * w[i]) / 3]);
 }
 
 
@@ -1772,10 +1773,10 @@ function usageChart(u, width) {
   const x = (i) => padL + ((u.starts[i] - u.starts[0]) / (u.starts[n - 1] - u.starts[0])) * plotW;
   const stacked = [];
   let below = u.starts.map(() => 0);
-  let belowCtl = controls(below).map(() => [0, 0]);
+  let belowCtl = controls(below, u.starts);
   for (const p of s.providers) {
     const top = below.map((v, i) => v + s.series[p][i]);
-    const topCtl = controls(s.series[p]).map(([a, b], i) => [belowCtl[i][0] + a, belowCtl[i][1] + b]);
+    const topCtl = controls(s.series[p], u.starts).map(([a, b], i) => [belowCtl[i][0] + a, belowCtl[i][1] + b]);
     stacked.push({ p, below, top, belowCtl, topCtl });
     below = top;
     belowCtl = topCtl;
