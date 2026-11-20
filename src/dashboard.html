@@ -741,8 +741,9 @@ function maskEmail(email) {
 }
 
 function maskIpv6(match) {
-  const ip = match.replace(/[.:]+$/, "");
-  const isIp = /[0-9a-f]/i.test(ip) && (ip.includes("::") || ip.split(":").length === 8);
+  const ip = match.replace(/\.+$|(?<!:):$/, "");
+  const parts = ip.split(":").length;
+  const isIp = /[0-9a-f]/i.test(ip) && (ip.includes("::") || parts === 8 || (parts === 7 && ip.includes(".")));
   return isIp ? `${ip.split(":")[0] || ":"}:•••${match.slice(ip.length)}` : match;
 }
 
@@ -888,7 +889,7 @@ function statusPill(a) {
   if (a.billing_blocked) return '<span class="pill bad">Billing blocked</span>';
   if (!a.enabled) return '<span class="pill">Disabled</span>';
   const cooling = accountCooldown(a);
-  if (cooling) return `<span class="pill warn" title="${esc(cooling.reason)}">Cooling ${esc(until(cooling.until))}</span>`;
+  if (cooling) return `<span class="pill warn" title="${masked(cooling.reason)}">Cooling ${esc(until(cooling.until))}</span>`;
   if (quotaExhausted(a)) return '<span class="pill warn">Out of quota</span>';
   if (!a.cooldowns.length) return "";
   const n = a.cooldowns.length;
@@ -922,7 +923,7 @@ function renderNotes(a) {
   const notes = [];
   if (a.usage.overage_in_use) notes.push('<span class="note info">Using extra usage</span>');
   for (const c of a.cooldowns) {
-    if (c.scope !== "account") notes.push(`<span class="note" title="${esc(c.reason)}">${esc(c.scope.replace("model:", ""))} cooling ${esc(until(c.until))}</span>`);
+    if (c.scope !== "account") notes.push(`<span class="note" title="${masked(c.reason)}">${esc(c.scope.replace("model:", ""))} cooling ${esc(until(c.until))}</span>`);
   }
   if (usageStale(a)) notes.push(`<span class="note quiet">Usage checked ${esc(ago(a.usage.updated_at))}</span>`);
   if (a.refresh !== "ok" && !a.needs_login) notes.push(`<span class="note bad">Token refresh: ${esc(a.refresh)}</span>`);
@@ -2184,7 +2185,7 @@ async function searchThreads() {
     if (token !== listToken) return;
     const head = `<div class="list-head"><span>${d.hits.length} ${d.hits.length === 1 ? "match" : "matches"}</span><button data-clear-search>Clear</button></div>`;
     setHtml("thread-pane", d.hits.length
-      ? head + d.hits.map((h) => `<button class="thread ${h.thread === selectedThread ? "selected" : ""}" data-thread="${esc(h.thread)}"><div class="thread-title">${esc(h.title || "Untitled thread")}</div><div class="snippet">${highlight(h.snippet, q)}</div><div class="thread-meta"><span>${esc(h.machine)}</span><span class="ago">${h.at ? esc(ago(h.at)) : ""}</span></div></button>`).join("")
+      ? head + d.hits.map((h) => `<button class="thread ${h.thread === selectedThread ? "selected" : ""}" data-thread="${esc(h.thread)}"><div class="thread-title">${masked(h.title || "Untitled thread")}</div><div class="snippet">${highlight(h.snippet, q)}</div><div class="thread-meta"><span>${esc(h.machine)}</span><span class="ago">${h.at ? esc(ago(h.at)) : ""}</span></div></button>`).join("")
       : head + '<div class="empty"><strong>No matches</strong>Try a different word.</div>');
   } catch (e) { showError(e); }
 }
