@@ -1240,9 +1240,9 @@ function buildPool(provider, d, now) {
       .filter((s) => win.key in s.used)
       .map((s) => ({ t: (new Date(s.at) - now) / HOUR_MS, v: s.used[win.key] }))
       .filter((p) => p.t < 0), { t: 0, v: usedNow(win) }]);
-    const every = (win) => (win && win.duration_secs ? win.duration_secs / 3600 : Infinity);
+    const every = (win) => (win.duration_secs ? win.duration_secs / 3600 : Infinity);
     const reset = (win) => {
-      const h = win ? hoursAway(win.resets_at) : Infinity;
+      const h = hoursAway(win.resets_at);
       return h > 0 ? h : h + Math.floor(1 - h / every(win)) * every(win) || Infinity;
     };
     const all = points(w);
@@ -1252,7 +1252,7 @@ function buildPool(provider, d, now) {
       name: a.email || a.id,
       all: corners(all),
       samples: { all, scoped },
-      state: { allLeft: 100 - usedNow(w), allReset: reset(w), allEvery: every(w), scopeLeft: sw ? 100 - usedNow(sw) : 100, scopeReset: reset(sw), scopeEvery: every(sw) },
+      state: { allLeft: 100 - usedNow(w), allReset: reset(w), allEvery: every(w), scopeLeft: sw ? 100 - usedNow(sw) : 100, scopeReset: reset(sw || w), scopeEvery: every(sw || w) },
     };
   });
   const cap = members.length * 100;
@@ -1293,7 +1293,7 @@ function buildPool(provider, d, now) {
     return rate;
   };
   const burnAll = burn("all");
-  const burnScope = burn("scoped");
+  const burnScope = Math.min(burn("scoped") ?? 0, (burnAll ?? 0) / FABLE_SHARE_OF_WEEKLY);
   pool.burn = burnAll === null ? null : burnAll / members.length;
   const total = (t) => {
     let all = 0, scoped = 0;
@@ -1302,7 +1302,7 @@ function buildPool(provider, d, now) {
   };
   const byRouter = [...series].sort((p, q) => p.state.allReset - q.state.allReset || (p.id < q.id ? -1 : 1));
   const drain = (hours) => {
-    let all = (burnAll || 0) * hours, scoped = (burnScope || 0) * hours;
+    let all = (burnAll || 0) * hours, scoped = burnScope * hours;
     for (const { state } of byRouter) {
       const fromScope = Math.min(scoped, state.scopeLeft, state.allLeft / FABLE_SHARE_OF_WEEKLY);
       state.scopeLeft -= fromScope;
