@@ -1517,6 +1517,10 @@ function poolValueAt(pool, t) {
   return prev.v;
 }
 
+function nearestRefill(refills, gap, limit) {
+  return refills.reduce((best, r) => (gap(r) < limit && (!best || gap(r) < gap(best)) ? r : best), null);
+}
+
 function hidePoolTip() {
   poolPointer = null;
   const chart = document.querySelector(".pool-chart");
@@ -1535,7 +1539,7 @@ function showPoolTip(ev) {
   const lane = lanes.find((l) => py >= l.top - 20 && py <= l.top + l.h + 8);
   if (!lane) return hidePoolTip();
   const cx = Math.min(Math.max(px, padL), padL + plotW);
-  const near = lane.pool.refills.find((r) => Math.abs(x(r.t) - cx) < 9);
+  const near = nearestRefill(lane.pool.refills, (r) => Math.abs(x(r.t) - cx), 9);
   const t = near ? near.t : ((cx - padL) / plotW) * (POOL_BACK_H + POOL_AHEAD_H) - POOL_BACK_H;
   poolPointer = { provider: lane.pool.provider, ms: now + t * HOUR_MS, y: (py - lane.top) / lane.h };
   drawPoolTip();
@@ -1548,9 +1552,10 @@ function drawPoolTip() {
   if (!chart || !lane?.pool.size) return hidePoolTip();
   const p = lane.pool;
   const t = (poolPointer.ms - now) / HOUR_MS;
-  const near = p.refills.find((r) => Math.abs(r.t - t) < 1 / 60);
+  if (t < -POOL_BACK_H || t > POOL_AHEAD_H) return hidePoolTip();
+  const near = nearestRefill(p.refills, (r) => Math.abs(r.t - t), 1 / 60);
   const tt = near ? near.t + POOL_STEP_H : t;
-  const cx = x(Math.min(Math.max(t, -POOL_BACK_H), POOL_AHEAD_H));
+  const cx = x(t);
   chart.querySelectorAll(".cross").forEach((cross, i) => {
     cross.setAttribute("x1", cx);
     cross.setAttribute("x2", cx);
