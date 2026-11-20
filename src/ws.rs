@@ -140,11 +140,11 @@ async fn close_with(client: &mut WebSocket, text: String) {
 }
 
 pub fn first_frame_route(headers: &HeaderMap, first: &str) -> RouteRequest {
-    let v: Value = serde_json::from_str(first).unwrap_or(Value::Null);
+    let frame = frame_route(first.as_bytes());
     RouteRequest {
         provider: Provider::Codex,
-        model: frame_route(first.as_bytes()).model,
-        session: proxy::codex_session(headers, &v),
+        model: frame.model,
+        session: proxy::codex_session(headers, &Value::Null).or(frame.cache_key),
     }
 }
 

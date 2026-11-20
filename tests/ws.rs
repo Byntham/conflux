@@ -52,7 +52,8 @@ async fn relays_frames_with_account_auth_and_beta() {
         let frame = json!({"type": "response.create", "model": model, "prompt_cache_key": key, "input": []});
         Message::Text(frame.to_string().into())
     };
-    ws.send(keyed("gpt-6.1-sol", "k1")).await.unwrap();
+    let nested_key = json!({"type": "response.create", "response": {"model": "gpt-6.1-sol", "prompt_cache_key": "k1"}});
+    ws.send(Message::Text(nested_key.to_string().into())).await.unwrap();
     assert_eq!(next_json(&mut ws).await.unwrap()["type"], "response.created");
     assert_eq!(next_json(&mut ws).await.unwrap()["type"], "codex.rate_limits");
     let done = next_json(&mut ws).await.unwrap();

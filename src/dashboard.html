@@ -526,6 +526,7 @@
     .usage-controls .select select { width: 100%; }
     .usage-table .rank { display: none; }
     .usage-table td.name { white-space: normal; overflow-wrap: anywhere; }
+    .usage-table td.name .secret { display: inline-block; }
     .usage-name > span:last-child { overflow: visible; }
     .account-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "email pill" "sub actions"; align-items: center; gap: 4px 8px; }
     .account-title { display: contents; }
@@ -1966,7 +1967,7 @@ function usageRows(u) {
   const groups = { model: u.by_model, account: u.by_account, machine: u.by_machine }[usageBreakdown];
   return groups.map((g) => {
     const machine = () => (showAll ? esc(g.machine) : `Machine ${u.machines.indexOf(g.machine) + 1}`);
-    const name = usageBreakdown === "model" ? `<span title="${esc(g.model)}">${esc(g.model)}</span>` : usageBreakdown === "account" ? `<span>${secret(g.email || g.account)} <span class="muted">${esc(providerName(g.provider))}</span></span>` : `<span>${machine()}</span>`;
+    const name = usageBreakdown === "model" ? `<span title="${esc(g.model)}">${esc(g.model)}</span>` : usageBreakdown === "account" ? `<span><span class="muted">${esc(providerName(g.provider))}</span> ${secret(g.email || g.account)}</span>` : `<span>${machine()}</span>`;
     const dot = g.provider ? `<span class="dot ${esc(g.provider)}"></span>` : "";
     return { label: `${dot}${name}`, value: metricOf(g), group: g, series: g.provider ? `series-${esc(g.provider)}` : "" };
   }).sort((a, b) => (b.value ?? -1) - (a.value ?? -1));
@@ -2562,7 +2563,11 @@ $("usage-provider").onchange = () => loadUsage();
 $("pool").addEventListener("pointermove", showPoolTip);
 $("pool").addEventListener("pointerdown", showPoolTip);
 $("pool").addEventListener("pointerleave", hidePoolTip);
-window.addEventListener("scroll", () => { closeMenu(); $("tip").hidden = true; }, { passive: true });
+window.addEventListener("scroll", () => {
+  closeMenu();
+  if (!$("tip").hidden && tipFor && tipFor === document.activeElement) showTip({ target: tipFor });
+  else $("tip").hidden = true;
+}, { passive: true });
 
 $("menu").addEventListener("keydown", (ev) => {
   if (ev.key !== "ArrowDown" && ev.key !== "ArrowUp") return;
