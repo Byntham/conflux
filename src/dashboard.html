@@ -198,7 +198,6 @@
   .col i.codex { background: var(--codex); }
   .col i.grok { background: var(--grok); }
   .col i.muse { background: var(--muse); }
-  .col i.other { background: var(--muted); }
   .col i.failed, .key i.failed { background: repeating-linear-gradient(135deg, var(--bad-fill) 0 2px, color-mix(in srgb, var(--bad-fill) 62%, var(--bg)) 2px 4px); }
   .col i:first-child { border-radius: 3px 3px 0 0; }
   .x-axis { grid-column: 2; display: flex; justify-content: space-between; margin-top: 5px; font-size: 11.5px; color: var(--muted); }
@@ -761,7 +760,6 @@ const HOUR_MS = 3600000;
 const REQUEST_ROWS = 100;
 const STALE_USAGE_MS = 30 * 60000;
 const SETTLE_AFTER_LOAD_MS = 15000;
-const REQUEST_LOG_SIZE = 500;
 const rendered = new Map();
 let latest = null;
 let requestFilter = "all";
@@ -833,10 +831,6 @@ function tokens(n) {
 
 function seconds(ms) {
   return `${(ms / 1000).toFixed(1)}s`;
-}
-
-function percentile(sorted, p) {
-  return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))];
 }
 
 function titleCase(v) {
@@ -996,41 +990,31 @@ function stat(label, value, sub, subClass = "", valueClass = "") {
 
 function renderStats(d) {
   const ready = d.accounts.filter(isReady).length;
-  const now = Date.now();
-  const hour = d.requests.filter((r) => now - new Date(r.at) < HOUR_MS);
-  const failed = hour.filter((r) => r.status >= 400).length;
-  const accountsUsed = new Set(hour.map((r) => r.account)).size;
-  const capped = hour.length >= REQUEST_LOG_SIZE;
-  const success = hour.length ? `${(((hour.length - failed) / hour.length) * 100).toFixed(1)}%` : "–";
-  const latencies = hour.filter((r) => r.status < 400).map((r) => r.latency_ms).sort((x, y) => x - y);
-  const cache = cacheTotals(hour);
+  const hour = d.requests_hour || { total: 0, failed: 0, accounts: 0, latency_p50_ms: null, input: 0, cache_read: 0, cache_write: 0 };
+  const { total, failed } = hour;
+  const success = total ? `${(((total - failed) / total) * 100).toFixed(1)}%` : "–";
+  const cacheHit = cachePercent(hour.cache_read, hour.cache_read + hour.cache_write + hour.input);
   const blocked = d.accounts.filter((a) => a.enabled && (a.needs_login || a.billing_blocked)).length;
   const cooling = d.accounts.filter((a) => a.enabled && !a.needs_login && !a.billing_blocked && (accountCooldown(a) || quotaExhausted(a))).length;
   const disabled = d.accounts.filter((a) => !a.enabled).length;
   const accountParts = [blocked && `<span class="stat-sub bad nb">${blocked} blocked</span>`, cooling && `<span class="stat-sub warn nb">${cooling} cooling</span>`, disabled && `<span class="nb">${disabled} disabled</span>`].filter(Boolean);
   const accountSub = !d.accounts.length ? "No accounts" : accountParts.length ? `<span class="sub-list">${accountParts.join("")}</span>` : "All available";
-  const failureRate = hour.length ? failed / hour.length : 0;
+  const failureRate = total ? failed / total : 0;
   const severityClass = failureRate >= 0.1 ? "bad" : failureRate >= 0.03 ? "warn" : "";
   setHtml("stats", [
     stat("Accounts available", d.accounts.length ? `${ready}<small> of ${d.accounts.length}</small>` : "0", accountSub, "", blocked || (d.accounts.length && !ready) ? "bad" : cooling ? "warn" : ""),
-    stat("Requests, last hour", `${hour.length.toLocaleString()}${capped ? "+" : ""}`, hour.length ? `Across ${accountsUsed} account${accountsUsed === 1 ? "" : "s"}` : "No requests"),
-    stat("Success rate", success, hour.length ? (failed ? `${failed} failed` : "No failures") : "No requests", severityClass, severityClass),
-    stat("Median latency", latencies.length ? seconds(percentile(latencies, 0.5)) : "–", latencies.length ? `p95 ${seconds(percentile(latencies, 0.95))}` : "No requests"),
-    stat("Cache hit", cache.hit === null ? "–" : `${cache.hit}%`, cache.hit === null ? "No requests" : `${tokens(cache.read)} tokens read`),
+    stat("Requests, last hour", `${total.toLocaleString()}${hour.capped ? "+" : ""}`, total ? `Across ${hour.accounts} account${hour.accounts === 1 ? "" : "s"}` : "No requests"),
+    stat("Success rate", success, total ? (failed ? `${failed} failed` : "No failures") : "No requests", severityClass, severityClass),
+    stat("Median latency", hour.latency_p50_ms === null ? "–" : seconds(hour.latency_p50_ms), hour.latency_p50_ms === null ? "No requests" : `p95 ${seconds(hour.latency_p95_ms)}`),
+    stat("Cache hit", cacheHit === null ? "–" : `${cacheHit}%`, cacheHit === null ? "No requests" : `${tokens(hour.cache_read)} tokens read`),
   ].join(""));
 }
 
 function renderChart(d) {
   const count = window.innerWidth <= 760 ? 30 : 60;
-  const currentMinute = Math.floor(Date.now() / 60000);
-  const buckets = Array.from({ length: count }, (_, i) => ({ minute: currentMinute - (count - 1 - i), ...Object.fromEntries(PROVIDERS.map((p) => [p, 0])), other: 0, failed: 0 }));
-  for (const r of d.requests) {
-    const index = count - 1 - (currentMinute - Math.floor(new Date(r.at).getTime() / 60000));
-    if (index < 0 || index >= count) continue;
-    const lane = r.status >= 400 ? "failed" : PROVIDERS.includes(r.provider) ? r.provider : "other";
-    buckets[index][lane]++;
-  }
-  const lanes = [...PROVIDERS, "other", "failed"];
+  const lanes = [...PROVIDERS, "failed"];
+  const minutes = d.requests_hour?.minutes.slice(-count) || [];
+  const buckets = minutes.map((m) => ({ minute: m.minute, ...Object.fromEntries(lanes.map((lane) => [lane, m[lane] || 0])) }));
   const sum = (b) => lanes.reduce((n, lane) => n + b[lane], 0);
   const peak = Math.max(1, ...buckets.map(sum));
   const max = Math.max(2, Math.ceil(peak / 2) * 2);
