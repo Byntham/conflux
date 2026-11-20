@@ -104,6 +104,7 @@ pub async fn data(
         "usage_history": history,
         "machines": machines,
         "requests": if owner { json!(app.requests.recent()) } else { json!([]) },
+        "usage_written_at": owner.then(|| app.requests.ledger().written_at()).flatten(),
         "add_machine": owner.then(|| add_machine(&name)),
     }))
     .into_response()

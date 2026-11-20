@@ -1552,6 +1552,7 @@ let usageMetric = "cost";
 let usageBreakdown = "model";
 let usageToken = 0;
 let usageLoadedAt = 0;
+let usageWrittenAt = null;
 let usageGeom = null;
 
 const amount = (n) => (n < 1000 ? String(Math.round(n)) : compact.format(n));
@@ -1622,8 +1623,9 @@ async function loadUsage(background = false) {
   if (!background) usagePending = null;
   const token = ++usageToken;
   usageLoadedAt = Date.now();
+  usageWrittenAt = latest?.usage_written_at ?? null;
   if (!background) $("usage-body").classList.add("loading");
-  if (!usage) setHtml("usage-body", `<div class="card empty">Loading usage…</div>`);
+  if (!usage && !background) setHtml("usage-body", `<div class="card empty">Loading usage…</div>`);
   const range = usageRange;
   const starts = usageStarts(range);
   const query = qs({ buckets: starts.map((ms) => Math.floor(ms / 1000)).join(","), machine: $("usage-machine").value, provider: $("usage-provider").value });
@@ -1643,6 +1645,7 @@ async function loadUsage(background = false) {
   } catch (e) {
     if (token !== usageToken) return;
     usageInFlight = false;
+    usageWrittenAt = undefined;
     $("usage-body").classList.remove("loading");
     if (usage) {
       if (!background) showError(e);
@@ -2036,7 +2039,8 @@ async function refresh() {
   movingTo = d.hub.state && d.hub.state.state === "moving" ? d.hub.state.hub : null;
   render(d);
   setConnection(true);
-  if (!$("view-usage").hidden && Date.now() - usageLoadedAt > USAGE_REFRESH_MS) loadUsage(true);
+  const stale = (d.usage_written_at ?? null) !== usageWrittenAt || Date.now() - usageLoadedAt > USAGE_REFRESH_MS;
+  if (!$("view-usage").hidden && stale) loadUsage(true);
 }
 
 function toast(message, bad = false, busy = false) {
