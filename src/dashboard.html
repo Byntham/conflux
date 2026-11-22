@@ -616,8 +616,8 @@
     <div class="brand"><svg aria-hidden="true"><use href="#logo"/></svg>conflux</div>
     <nav class="nav" aria-label="Sections">
       <a href="#overview" data-view="overview"><svg class="i" aria-hidden="true"><use href="#i-overview"/></svg>Overview<span id="nav-alert" class="alert" hidden></span></a>
-      <a href="#requests" data-view="requests"><svg class="i" aria-hidden="true"><use href="#i-requests"/></svg>Requests</a>
       <a href="#usage" data-view="usage"><svg class="i" aria-hidden="true"><use href="#i-usage"/></svg>Usage</a>
+      <a href="#requests" data-view="requests"><svg class="i" aria-hidden="true"><use href="#i-requests"/></svg>Requests</a>
       <a href="#machines" data-view="machines"><svg class="i" aria-hidden="true"><use href="#i-machines"/></svg>Machines<span id="nav-machines" class="count"></span></a>
       <a href="#threads" data-view="threads"><svg class="i" aria-hidden="true"><use href="#i-threads"/></svg>Threads</a>
     </nav>
@@ -761,7 +761,7 @@ function mask(text) {
 
 const masked = (text) => esc(mask(text));
 
-const VIEWS = ["overview", "requests", "usage", "machines", "threads"];
+const VIEWS = ["overview", "usage", "requests", "machines", "threads"];
 const HOUR_MS = 3600000;
 const REQUEST_ROWS = 100;
 const STALE_USAGE_MS = 30 * 60000;
