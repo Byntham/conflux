@@ -174,7 +174,7 @@
   .note.info + .note::before { content: none !important; }
   .note.quiet { font-weight: 400; color: var(--muted); }
   .chart-empty { padding: 26px 0 16px; text-align: center; font-size: 13px; color: var(--muted); }
-  .empty { padding: 34px 20px; text-align: center; color: var(--muted); }
+  .empty { padding: 34px 20px; text-align: center; color: var(--muted); white-space: normal; }
   .empty strong { display: block; color: var(--fg); font-size: 14.5px; margin-bottom: 2px; }
   .empty .row { justify-content: center; margin-top: 14px; }
 
@@ -219,28 +219,26 @@
   .code.bad { color: var(--bad); }
   tr.failed td { background: color-mix(in srgb, var(--bad) var(--fail-mix), transparent); }
   tbody tr.failed:hover td { background: color-mix(in srgb, var(--bad) calc(var(--fail-mix) + 4%), transparent); }
-  .log { max-height: calc(100vh - 125px); overflow: auto; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+  .log { max-height: calc(100vh - 125px); overflow: auto; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; container-type: inline-size; }
   main:has(#view-requests:not([hidden])) { padding-bottom: 26px; }
   .log th { position: sticky; top: 0; z-index: 1; background: var(--surface); box-shadow: inset 0 -1px var(--line); }
-  .log { container-type: inline-size; }
   #request-log { table-layout: fixed; }
-  #request-log td { overflow: hidden; text-overflow: ellipsis; }
+  #request-log .acct, #request-log .machine, #request-log .model { white-space: normal; overflow-wrap: anywhere; }
   #request-log .md-up, #request-log .lg-up { display: none; }
   #request-log .acct { padding-left: 16px; }
-  #request-log .status { width: 58px; }
+  #request-log .status { width: 60px; }
   #request-log .lat { width: 80px; padding-right: 16px; }
-  @container (min-width: 760px) {
+  @container (min-width: 770px) {
     #request-log .md-up { display: table-cell; }
     #request-log .sm-only { display: none; }
-    #request-log .acct { padding-left: 12px; }
+    #request-log .acct { width: 168px; padding-left: 12px; }
     #request-log .lat { width: 72px; padding-right: 12px; }
     #request-log .when { width: 84px; }
     #request-log .model { width: 152px; }
-    #request-log .status { width: 60px; }
     #request-log .tok { width: 72px; }
     #request-log .hit { width: 80px; }
   }
-  @container (min-width: 960px) {
+  @container (min-width: 970px) {
     #request-log .lg-up { display: table-cell; }
     #request-log .below-lg { display: none; }
     #request-log .machine { width: 112px; }
@@ -1058,17 +1056,17 @@ function renderChart(d) {
 
 function requestTable(requests) {
   const head = '<thead><tr><th class="when md-up">When</th><th class="machine lg-up">Machine</th><th class="acct">Account</th><th class="model md-up">Model</th><th class="via lg-up">Via</th><th class="num status">Status</th><th class="num lat">Latency</th><th class="num tok md-up">Input</th><th class="num hit md-up">Cache hit</th><th class="num tok md-up">Output</th></tr></thead>';
-  const span = 10;
-  const rows = requests.length ? requests.map((r) => {
+  if (!requests.length) return '<tbody><tr><td><div class="empty"><strong>No requests yet</strong>Requests appear here once a machine sends one through the hub.</div></td></tr></tbody>';
+  const rows = requests.map((r) => {
     const u = r.usage;
     const prompt = u.input + u.cache_read + u.cache_write;
     const hit = cachePercent(u.cache_read, prompt);
     const split = [[u.input, "uncached"], [u.cache_read, "cache read"], [u.cache_write, "cache write"]].filter(([n]) => n).map(([n, label]) => `${n.toLocaleString()} ${label}`).join(", ");
-    const usage = [`${tokens(prompt)} in`, hit === null ? "" : `${hit}% cache hit`, `${tokens(u.output)} out`].filter(Boolean).join(" · ");
-    const model = r.model ? `<span class="sm-only"> · ${esc(r.model)}</span>` : "";
+    const usage = [`${tokens(prompt)} in`, hit === null ? "" : `${hit}% cached`, `${tokens(u.output)} out`].filter(Boolean).join(" · ");
+    const where = [esc(r.machine), r.model && `<span class="sm-only">${esc(r.model)}</span>`].filter(Boolean).join('<span class="sm-only"> · </span>');
     const account = r.email || r.account;
-    return `<tr class="${r.status < 400 ? "" : "failed"}"><td class="when md-up">${esc(ago(r.at))}</td><td class="lg-up dim">${esc(r.machine)}</td><td class="acct">${masked(account)}<div class="cell-sub below-lg">${esc(r.machine)}${model}</div><div class="cell-sub sm-only">${esc(usage)}</div></td><td class="mono md-up dim">${esc(r.model || "")}</td><td class="lg-up dim">${esc(r.transport)}</td><td class="num status"><span class="code ${r.status < 400 ? "ok" : "bad"}">${r.status}</span></td><td class="num lat">${seconds(r.latency_ms)}<div class="cell-sub sm-only">${esc(ago(r.at))}</div></td><td class="num md-up dim"${split ? ` data-tip="${esc(split)}"` : ""}>${tokens(prompt)}</td><td class="num md-up dim">${hit === null ? "–" : `${hit}%`}</td><td class="num md-up dim">${tokens(u.output)}</td></tr>`;
-  }).join("") : `<tr><td colspan="${span}"><div class="empty"><strong>No requests yet</strong>Requests appear here once a machine sends one through the hub.</div></td></tr>`;
+    return `<tr class="${r.status < 400 ? "" : "failed"}"><td class="when md-up">${esc(ago(r.at))}</td><td class="machine lg-up dim">${esc(r.machine)}</td><td class="acct">${masked(account)}<div class="cell-sub below-lg">${where}</div><div class="cell-sub sm-only">${esc(usage)}</div></td><td class="model mono md-up dim">${esc(r.model || "")}</td><td class="lg-up dim">${esc(r.transport)}</td><td class="num status"><span class="code ${r.status < 400 ? "ok" : "bad"}">${r.status}</span></td><td class="num lat">${seconds(r.latency_ms)}<div class="cell-sub sm-only">${esc(ago(r.at))}</div></td><td class="num md-up dim"${split ? ` data-tip="${esc(split)}"` : ""}>${tokens(prompt)}</td><td class="num md-up dim">${hit === null ? "–" : `${hit}%`}</td><td class="num md-up dim">${tokens(u.output)}</td></tr>`;
+  }).join("");
   return `${head}<tbody>${rows}</tbody>`;
 }
 
