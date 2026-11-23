@@ -227,7 +227,7 @@
   #request-log tr:has(.empty) td { border-top: 0; background: none; }
   #request-log .sm-up, #request-log .md-up, #request-log .lg-up { display: none; }
   #request-log .acct { padding-left: 16px; }
-  #request-log .status { width: 60px; }
+  #request-log .status { width: 64px; }
   #request-log .lat { width: 80px; padding-right: 16px; }
   @container (min-width: 580px) {
     #request-log .sm-up { display: table-cell; }
@@ -236,14 +236,14 @@
     #request-log .tok { width: 72px; }
     #request-log .hit { width: 80px; }
   }
-  @container (min-width: 770px) {
+  @container (min-width: 860px) {
     #request-log .md-up { display: table-cell; }
     #request-log .below-md { display: none; }
     #request-log .acct { padding-left: 12px; }
     #request-log .lat { width: 72px; }
     #request-log .when { width: 84px; }
   }
-  @container (min-width: 970px) {
+  @container (min-width: 1060px) {
     #request-log .lg-up { display: table-cell; }
     #request-log .below-lg { display: none; }
     #request-log .machine { width: 152px; }
@@ -576,6 +576,7 @@
     .log { max-height: none; overflow-x: auto; }
     #request-log .lat { padding-right: 14px; }
     #request-log .acct { padding-left: 14px; }
+    @container (min-width: 580px) { #request-log .lat { padding-right: 8px; } }
     #view-threads { display: block; height: auto; min-height: 0; }
     #view-threads:has(.viewing) .toolbar, #view-threads:has(.viewing) #sync-note { display: none; }
     main:has(#view-threads:not([hidden])), main:has(#view-requests:not([hidden])) { padding-bottom: 92px; }
@@ -1066,7 +1067,7 @@ function requestTable(requests) {
     const prompt = u.input + u.cache_read + u.cache_write;
     const hit = cachePercent(u.cache_read, prompt);
     const split = [[u.input, "uncached"], [u.cache_read, "cache read"], [u.cache_write, "cache write"]].filter(([n]) => n).map(([n, label]) => `${n.toLocaleString()} ${label}`).join(", ");
-    const usage = [`${tokens(prompt)} in`, hit === null ? "" : `${hit}% cached`, `${tokens(u.output)} out`].filter(Boolean).join(" · ");
+    const usage = [`${tokens(prompt)}\u00a0in`, hit === null ? "" : `${hit}%\u00a0cached`, `${tokens(u.output)}\u00a0out`].filter(Boolean).join(" · ");
     const where = [esc(r.machine), r.model && `<span class="below-md">${esc(r.model)}</span>`].filter(Boolean).join('<span class="below-md"> · </span>');
     const account = r.email || r.account;
     return `<tr class="${r.status < 400 ? "" : "failed"}"><td class="when md-up">${esc(ago(r.at))}</td><td class="machine lg-up dim">${esc(r.machine)}</td><td class="acct">${breakableEmail(mask(account))}<div class="cell-sub below-lg">${where}</div><div class="cell-sub below-sm">${esc(usage)}</div></td><td class="model mono md-up dim">${esc(r.model || "")}</td><td class="lg-up dim">${esc(r.transport)}</td><td class="num status"><span class="code ${r.status < 400 ? "ok" : "bad"}">${r.status}</span></td><td class="num lat">${seconds(r.latency_ms)}<div class="cell-sub below-md">${esc(ago(r.at))}</div></td><td class="num sm-up dim"${split ? ` data-tip="${esc(split)}"` : ""}>${tokens(prompt)}</td><td class="num sm-up dim">${hit === null ? "–" : `${hit}%`}</td><td class="num sm-up dim">${tokens(u.output)}</td></tr>`;
