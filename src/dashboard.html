@@ -212,7 +212,6 @@
   th:first-child, td:first-child { padding-left: 16px; }
   th:last-child, td:last-child { padding-right: 16px; }
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-  td.acct { max-width: 210px; overflow: hidden; text-overflow: ellipsis; }
   td.when { color: var(--muted); font-variant-numeric: tabular-nums; }
   tbody tr:hover td { background: var(--raised); }
   .code { font-size: 12.5px; font-weight: 500; font-variant-numeric: tabular-nums; }
@@ -223,6 +222,31 @@
   .log { max-height: calc(100vh - 125px); overflow: auto; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
   main:has(#view-requests:not([hidden])) { padding-bottom: 26px; }
   .log th { position: sticky; top: 0; z-index: 1; background: var(--surface); box-shadow: inset 0 -1px var(--line); }
+  .log { container-type: inline-size; }
+  #request-log { table-layout: fixed; }
+  #request-log td { overflow: hidden; text-overflow: ellipsis; }
+  #request-log .md-up, #request-log .lg-up { display: none; }
+  #request-log .acct { padding-left: 16px; }
+  #request-log .status { width: 58px; }
+  #request-log .lat { width: 80px; padding-right: 16px; }
+  @container (min-width: 760px) {
+    #request-log .md-up { display: table-cell; }
+    #request-log .sm-only { display: none; }
+    #request-log .acct { padding-left: 12px; }
+    #request-log .lat { width: 72px; padding-right: 12px; }
+    #request-log .when { width: 84px; }
+    #request-log .model { width: 152px; }
+    #request-log .status { width: 60px; }
+    #request-log .tok { width: 72px; }
+    #request-log .hit { width: 80px; }
+  }
+  @container (min-width: 960px) {
+    #request-log .lg-up { display: table-cell; }
+    #request-log .below-lg { display: none; }
+    #request-log .machine { width: 112px; }
+    #request-log .acct { width: 200px; }
+    #request-log .via { width: 52px; }
+  }
   .show-sm { display: none; }
   .show-sm-inline { display: none; }
   .cell-sub { color: var(--muted); font-size: 12px; white-space: normal; }
@@ -475,15 +499,6 @@
 
   @media (min-width: 761px) {
     .note + .note::before { content: "·"; margin-right: 7px; color: var(--muted); font-weight: 400; }
-    #request-log { table-layout: fixed; min-width: 1120px; }
-    #request-log th.when { width: 76px; }
-    .col-machine { width: 104px; }
-    .col-model { width: 168px; }
-    .col-via { width: 52px; }
-    #request-log th.status { width: 60px; }
-    #request-log th.lat { width: 72px; }
-    .col-tokens { width: 96px; }
-    #request-log td { overflow: hidden; text-overflow: ellipsis; }
   }
   @media (max-width: 420px) { .overview-filter .count { display: none; } }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
@@ -557,12 +572,8 @@
     th:last-child, td:last-child { padding-right: 14px; }
     th, td { padding-left: 8px; padding-right: 8px; }
     .log { max-height: none; overflow-x: auto; }
-    #request-log { table-layout: fixed; }
-    #request-log .when { display: none; }
-    #request-log .status { width: 58px; }
-    #request-log .lat { width: 80px; padding-right: 14px; }
-    #request-log .acct, #request-log th:nth-child(3) { padding-left: 14px; }
-    td.acct { max-width: none; }
+    #request-log .lat { padding-right: 14px; }
+    #request-log .acct { padding-left: 14px; }
     #view-threads { display: block; height: auto; min-height: 0; }
     #view-threads:has(.viewing) .toolbar, #view-threads:has(.viewing) #sync-note { display: none; }
     main:has(#view-threads:not([hidden])), main:has(#view-requests:not([hidden])) { padding-bottom: 92px; }
@@ -1046,16 +1057,17 @@ function renderChart(d) {
 }
 
 function requestTable(requests) {
-  const head = '<thead><tr><th class="when">When</th><th class="hide-sm col-machine">Machine</th><th>Account</th><th class="hide-sm col-model">Model</th><th class="hide-sm col-via">Via</th><th class="num status">Status</th><th class="num lat">Latency</th><th class="num hide-sm col-tokens">Input</th><th class="num hide-sm col-tokens">Cache hit</th><th class="num hide-sm col-tokens">Output</th></tr></thead>';
+  const head = '<thead><tr><th class="when md-up">When</th><th class="machine lg-up">Machine</th><th class="acct">Account</th><th class="model md-up">Model</th><th class="via lg-up">Via</th><th class="num status">Status</th><th class="num lat">Latency</th><th class="num tok md-up">Input</th><th class="num hit md-up">Cache hit</th><th class="num tok md-up">Output</th></tr></thead>';
   const span = 10;
   const rows = requests.length ? requests.map((r) => {
-    const via = `<td class="hide-sm dim">${esc(r.transport)}</td>`;
     const u = r.usage;
     const prompt = u.input + u.cache_read + u.cache_write;
     const hit = cachePercent(u.cache_read, prompt);
     const split = [[u.input, "uncached"], [u.cache_read, "cache read"], [u.cache_write, "cache write"]].filter(([n]) => n).map(([n, label]) => `${n.toLocaleString()} ${label}`).join(", ");
+    const usage = [`${tokens(prompt)} in`, hit === null ? "" : `${hit}% cache hit`, `${tokens(u.output)} out`].filter(Boolean).join(" · ");
+    const model = r.model ? `<span class="sm-only"> · ${esc(r.model)}</span>` : "";
     const account = r.email || r.account;
-    return `<tr class="${r.status < 400 ? "" : "failed"}"><td class="when">${esc(ago(r.at))}</td><td class="hide-sm dim">${esc(r.machine)}</td><td class="acct">${masked(account)}<div class="cell-sub show-sm">${esc([r.machine, r.model].filter(Boolean).join(" · "))}</div></td><td class="mono hide-sm dim">${esc(r.model || "")}</td>${via}<td class="num status"><span class="code ${r.status < 400 ? "ok" : "bad"}">${r.status}</span></td><td class="num lat">${seconds(r.latency_ms)}<div class="cell-sub show-sm">${esc(ago(r.at))}</div></td><td class="num hide-sm dim"${split ? ` data-tip="${esc(split)}"` : ""}>${tokens(prompt)}</td><td class="num hide-sm dim">${hit === null ? "–" : `${hit}%`}</td><td class="num hide-sm dim">${tokens(u.output)}</td></tr>`;
+    return `<tr class="${r.status < 400 ? "" : "failed"}"><td class="when md-up">${esc(ago(r.at))}</td><td class="lg-up dim">${esc(r.machine)}</td><td class="acct">${masked(account)}<div class="cell-sub below-lg">${esc(r.machine)}${model}</div><div class="cell-sub sm-only">${esc(usage)}</div></td><td class="mono md-up dim">${esc(r.model || "")}</td><td class="lg-up dim">${esc(r.transport)}</td><td class="num status"><span class="code ${r.status < 400 ? "ok" : "bad"}">${r.status}</span></td><td class="num lat">${seconds(r.latency_ms)}<div class="cell-sub sm-only">${esc(ago(r.at))}</div></td><td class="num md-up dim"${split ? ` data-tip="${esc(split)}"` : ""}>${tokens(prompt)}</td><td class="num md-up dim">${hit === null ? "–" : `${hit}%`}</td><td class="num md-up dim">${tokens(u.output)}</td></tr>`;
   }).join("") : `<tr><td colspan="${span}"><div class="empty"><strong>No requests yet</strong>Requests appear here once a machine sends one through the hub.</div></td></tr>`;
   return `${head}<tbody>${rows}</tbody>`;
 }
