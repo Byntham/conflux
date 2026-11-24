@@ -741,8 +741,9 @@ fn isolated_clients(paths: &Paths) -> bool {
             && dir.starts_with(copy)
             && !dir.components().any(|part| part == std::path::Component::ParentDir)
     };
+    let lower = |path: &Path| PathBuf::from(path.to_string_lossy().to_lowercase());
     copy.is_absolute()
-        && !home.starts_with(copy)
+        && !lower(&home).starts_with(lower(copy))
         && ["CLAUDE_CONFIG_DIR", "CODEX_HOME", "GROK_HOME", "XDG_CONFIG_HOME"]
             .iter()
             .all(|name| std::env::var(name).is_ok_and(|dir| inside(Path::new(&dir))))
