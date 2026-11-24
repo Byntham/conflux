@@ -332,6 +332,10 @@ impl Daemon {
 }
 
 pub async fn run(cli: Cli) -> Result<()> {
+    #[cfg(windows)]
+    if matches!(cli.command, Some(Command::Tray)) {
+        return tokio::task::spawn_blocking(crate::tray::run).await?;
+    }
     let paths = Paths::from_env()?;
     let cfg = Config::load(&paths)?;
     let daemon = Daemon::new(&cfg);
@@ -364,9 +368,6 @@ pub async fn run(cli: Cli) -> Result<()> {
             Ok(())
         }
         Command::Serve => tokio::task::spawn_blocking(supervisor::run).await?,
-        #[cfg(windows)]
-        Command::Tray => tokio::task::spawn_blocking(crate::tray::run).await?,
-        #[cfg(not(windows))]
         Command::Tray => bail!("the tray app runs only on Windows"),
         Command::Update { machines } => update(&daemon, machines).await,
         Command::Worker => {

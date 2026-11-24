@@ -75,6 +75,7 @@ body { height: 100vh; overflow: hidden auto; }
 ::-webkit-scrollbar-thumb { background: var(--track); border-radius: 3px; }
 #panel { padding: 16px 0 4px; }
 #panel.enter { animation: enter 0.2s cubic-bezier(0.1, 0.9, 0.2, 1); }
+body.entering { overflow: hidden; }
 @keyframes enter { from { transform: translateY(10px); opacity: 0.4; } }
 .pad { padding: 0 16px; }
 .muted { color: var(--muted); }
@@ -221,7 +222,8 @@ window.conflux = {
   },
   tick() {
     if (state.refreshing) return;
-    const fast = state.open || state.busy || updating();
+    const starting = state.phase.kind === "loading" || state.phase.kind === "notRunning";
+    const fast = state.open || state.busy || starting || updating();
     if (fast || Date.now() - state.lastRefresh >= 20000) refresh();
   },
   shown() {
@@ -230,6 +232,7 @@ window.conflux = {
     panel.classList.remove("enter");
     void panel.offsetWidth;
     panel.classList.add("enter");
+    document.body.classList.add("entering");
     refresh();
   },
   hidden() {
@@ -586,7 +589,8 @@ async function run(op, args = {}) {
 async function untilAnswering() {
   const deadline = Date.now() + 10000;
   while (Date.now() < deadline) {
-    if (!(await get("/conflux/node")).unreachable) return;
+    const answer = await get("/conflux/node");
+    if (!answer.unreachable && answer.status < 500) return;
     await new Promise(resolve => setTimeout(resolve, 250));
   }
   throw new Error("conflux didn't answer within 10 seconds.");
@@ -943,6 +947,8 @@ document.addEventListener("keydown", event => {
 });
 
 window.addEventListener("blur", () => call("blur"));
+
+document.getElementById("panel").addEventListener("animationend", () => document.body.classList.remove("entering"));
 
 render();
 refresh();

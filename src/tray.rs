@@ -121,6 +121,7 @@ pub fn run() -> Result<()> {
                 "the tray app needs the Microsoft Edge WebView2 runtime. Install it from Microsoft, then run `conflux tray` again"
             );
         }
+        unsafe { AllowSetForegroundWindow(ASFW_ANY) };
         return spawn(&exe, Launch::Open, None).context("start the tray app");
     }
     let open = std::env::var(MODE).is_ok_and(|mode| mode == "open");
@@ -265,6 +266,14 @@ fn serve(paths: Paths, exe: PathBuf, reopened: Signal, mut open: bool) -> Result
                     flyout.toggle();
                 }
             }
+            Event::UserEvent(Message::Tray(TrayIconEvent::DoubleClick {
+                button: MouseButton::Left,
+                rect,
+                ..
+            })) => {
+                flyout.anchor = Some(center(&rect));
+                flyout.show();
+            }
             Event::UserEvent(Message::Show) => {
                 flyout.anchor = flyout.tray.rect().map(|rect| center(&rect));
                 flyout.show();
@@ -274,7 +283,9 @@ fn serve(paths: Paths, exe: PathBuf, reopened: Signal, mut open: bool) -> Result
                     flyout.anchor = flyout.tray.rect().map(|rect| center(&rect));
                     flyout.show();
                 } else if id == *open_dashboard.id() {
-                    open_url(&bridge.base());
+                    if let Some(base) = bridge.base() {
+                        open_url(&base);
+                    }
                     flyout.hide();
                 } else if id == *exit.id() {
                     *flow = ControlFlow::Exit;
@@ -295,18 +306,17 @@ fn serve(paths: Paths, exe: PathBuf, reopened: Signal, mut open: bool) -> Result
                 let _ = flyout.webview.evaluate_script("conflux.tick()");
             }
             Event::UserEvent(Message::Page(body)) => {
-                if open {
-                    open = false;
-                    flyout.anchor = flyout.tray.rect().map(|rect| center(&rect));
-                    flyout.show();
-                }
                 let Ok(Call { id, request }) = serde_json::from_str::<Call>(&body) else {
                     return;
                 };
                 match request {
                     Request::Size { height } => {
                         flyout.height = height;
-                        if flyout.window.is_visible() {
+                        if open {
+                            open = false;
+                            flyout.anchor = flyout.tray.rect().map(|rect| center(&rect));
+                            flyout.show();
+                        } else if flyout.window.is_visible() {
                             flyout.place();
                         }
                     }
@@ -321,7 +331,9 @@ fn serve(paths: Paths, exe: PathBuf, reopened: Signal, mut open: bool) -> Result
                         return;
                     }
                     Request::OpenDashboard => {
-                        open_url(&bridge.base());
+                        if let Some(base) = bridge.base() {
+                            open_url(&base);
+                        }
                         flyout.hide();
                     }
                     request => {
@@ -428,7 +440,7 @@ impl Flyout {
             }
             let (mut dpi, mut unused) = (96, 96);
             GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi, &mut unused);
-            (info.rcWork, info.rcMonitor, f64::from(dpi) / 96.0)
+            (info.rcWork, info.rcMonitor, f64::from(dpi.max(96)) / 96.0)
         };
         let margin = MARGIN * scale;
         let (left, top, right, bottom) = (
@@ -504,15 +516,18 @@ struct Bridge {
 }
 
 impl Bridge {
-    fn base(&self) -> String {
+    fn base(&self) -> Option<String> {
+        if self.dev_copy && !self.paths.config_file().exists() {
+            return None;
+        }
         let port = Config::load(&self.paths)
             .map(|c| c.port)
             .unwrap_or(crate::config::DEFAULT_PORT);
-        format!("http://127.0.0.1:{port}/")
+        Some(format!("http://127.0.0.1:{port}/"))
     }
 
     fn url(&self, path: &str) -> Option<url::Url> {
-        let base = url::Url::parse(&self.base()).ok()?;
+        let base = url::Url::parse(&self.base()?).ok()?;
         let url = base.join(path).ok()?;
         (url.origin() == base.origin() && url.path().starts_with("/conflux/") && !path.contains('\\')).then_some(url)
     }
@@ -586,11 +601,9 @@ impl Bridge {
             .map(|c| c.role);
         let (light, dark) = accent();
         json!({
-            "port": config.as_ref().map_or(crate::config::DEFAULT_PORT, |c| c.port),
             "role": role,
             "routing": routing,
             "serviceInstalled": !self.dev_copy && crate::service::installed(),
-            "devCopy": self.dev_copy,
             "version": crate::update::CURRENT,
             "accent": { "light": hex(light), "dark": hex(dark) },
         })
@@ -709,7 +722,7 @@ fn spawn(exe: &Path, launch: Launch, replaces: Option<u32>) -> std::io::Result<(
 fn isolated_clients() -> bool {
     ["CLAUDE_CONFIG_DIR", "CODEX_HOME", "GROK_HOME", "XDG_CONFIG_HOME"]
         .iter()
-        .all(|name| std::env::var_os(name).is_some())
+        .all(|name| std::env::var_os(name).is_some_and(|dir| Path::new(&dir).is_absolute()))
 }
 
 fn alert(text: &str) {
