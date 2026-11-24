@@ -237,6 +237,7 @@ window.conflux = {
   },
   hidden() {
     state.open = false;
+    document.body.classList.remove("entering");
     state.checkedForUpdates = false;
   },
 };
@@ -586,11 +587,19 @@ async function run(op, args = {}) {
   return result.output || "";
 }
 
+async function answering() {
+  const node = await get("/conflux/node");
+  if (node.status === 200) return !!(parse(node.body) || {}).hub_link;
+  if (node.status === 409) return !!(parse(node.body) || {}).error;
+  if (node.status !== 404) return false;
+  const status = await get("/conflux/api/status");
+  return status.status === 200 && Array.isArray((parse(status.body) || {}).machines);
+}
+
 async function untilAnswering() {
   const deadline = Date.now() + 10000;
   while (Date.now() < deadline) {
-    const answer = await get("/conflux/node");
-    if (!answer.unreachable && answer.status < 500) return;
+    if (await answering()) return;
     await new Promise(resolve => setTimeout(resolve, 250));
   }
   throw new Error("conflux didn't answer within 10 seconds.");

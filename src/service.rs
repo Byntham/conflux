@@ -239,9 +239,10 @@ pub fn install() -> Result<String> {
     let exe = crate::update::running_exe()?;
     if cfg!(windows) {
         windows_register("conflux", &windows_launch_command(&exe, "serve"))?;
+        let tray = windows_register(WINDOWS_TRAY, &windows_launch_command(&exe, "tray"));
         windows_stop_service();
         windows_start(&exe)?;
-        match windows_register(WINDOWS_TRAY, &windows_launch_command(&exe, "tray")) {
+        match tray {
             Ok(()) => windows_start_tray(&exe),
             Err(e) => eprintln!("Warning: the tray app will not open at sign-in: {e:#}"),
         }

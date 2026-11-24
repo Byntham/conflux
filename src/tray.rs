@@ -271,8 +271,13 @@ fn serve(paths: Paths, exe: PathBuf, reopened: Signal, mut open: bool) -> Result
                 rect,
                 ..
             })) => {
-                flyout.anchor = Some(center(&rect));
-                flyout.show();
+                if flyout.window.is_visible() {
+                    flyout.shown += 1;
+                    flyout.window.set_focus();
+                } else {
+                    flyout.anchor = Some(center(&rect));
+                    flyout.show();
+                }
             }
             Event::UserEvent(Message::Show) => {
                 flyout.anchor = flyout.tray.rect().map(|rect| center(&rect));
@@ -460,6 +465,7 @@ impl Flyout {
         };
         self.window.set_outer_position(PhysicalPosition::new(x, y));
         self.window.set_inner_size(PhysicalSize::new(width, height));
+        self.window.set_outer_position(PhysicalPosition::new(x, y));
     }
 
     fn set_icon(&mut self, badge: Option<String>, dimmed: bool) {
@@ -517,12 +523,11 @@ struct Bridge {
 
 impl Bridge {
     fn base(&self) -> Option<String> {
-        if self.dev_copy && !self.paths.config_file().exists() {
+        let config = Config::load(&self.paths);
+        if self.dev_copy && (!self.paths.config_file().exists() || config.is_err()) {
             return None;
         }
-        let port = Config::load(&self.paths)
-            .map(|c| c.port)
-            .unwrap_or(crate::config::DEFAULT_PORT);
+        let port = config.map(|c| c.port).unwrap_or(crate::config::DEFAULT_PORT);
         Some(format!("http://127.0.0.1:{port}/"))
     }
 
@@ -552,7 +557,7 @@ impl Bridge {
                 }
                 None => json!({ "unreachable": true }),
             },
-            Request::Routing { .. } if self.dev_copy && !isolated_clients() => json!({
+            Request::Routing { .. } if self.dev_copy && !isolated_clients(&self.paths) => json!({
                 "ok": false,
                 "output": "This dev copy would change your real coding tool settings. Start it with `cargo run --example dev -- --app`."
             }),
@@ -719,10 +724,15 @@ fn spawn(exe: &Path, launch: Launch, replaces: Option<u32>) -> std::io::Result<(
     command.spawn().map(drop)
 }
 
-fn isolated_clients() -> bool {
+fn isolated_clients(paths: &Paths) -> bool {
+    let Some(copy) = paths.config_dir.parent().and_then(Path::parent) else {
+        return false;
+    };
     ["CLAUDE_CONFIG_DIR", "CODEX_HOME", "GROK_HOME", "XDG_CONFIG_HOME"]
         .iter()
-        .all(|name| std::env::var_os(name).is_some_and(|dir| Path::new(&dir).is_absolute()))
+        .all(|name| {
+            std::env::var(name).is_ok_and(|dir| Path::new(&dir).is_absolute() && Path::new(&dir).starts_with(copy))
+        })
 }
 
 fn alert(text: &str) {
