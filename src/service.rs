@@ -26,11 +26,15 @@ fn windows_stop() {
 }
 
 fn windows_stop_service() {
+    let exe = std::env::current_exe().unwrap_or_default();
+    let dir = exe.parent().unwrap_or(Path::new("")).display().to_string();
     let script = format!(
         "Get-CimInstance Win32_Process -Filter \"Name = 'conflux.exe' AND ProcessId <> {}\" | \
-         Where-Object {{ $_.CommandLine -match '\\s\"?(serve|worker)\"?\\s*$' }} | \
+         Where-Object {{ $_.ExecutablePath -and [IO.Path]::GetDirectoryName($_.ExecutablePath) -eq '{}' -and \
+         $_.CommandLine -match '\\s\"?(serve|worker)\"?\\s*$' }} | \
          ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}",
-        std::process::id()
+        std::process::id(),
+        dir.replace('\'', "''")
     );
     let stopped = Command::new("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])

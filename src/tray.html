@@ -236,7 +236,6 @@ window.conflux = {
     state.open = false;
     state.checkedForUpdates = false;
   },
-  openDashboard,
 };
 
 function parse(text) {
@@ -305,7 +304,8 @@ async function load() {
       state.dashboard = null;
       state.phase = { kind: "waiting" };
       const status = await get("/conflux/api/status");
-      if (status.status === 200) waitingNow = parse(status.body) || null;
+      const waiting = status.status === 200 ? parse(status.body) : null;
+      if (waiting && Array.isArray(waiting.machines)) waitingNow = waiting;
       if (state.open) {
         const found = await get("/conflux/api/hubs");
         state.hubs = found.status === 200 ? ((parse(found.body) || {}).hubs || []) : [];
@@ -325,7 +325,14 @@ async function load() {
   } finally {
     state.waiting = waitingNow;
     if (state.phase.kind !== "waiting") state.hubs = null;
-    render();
+    try {
+      render();
+    } catch {
+      state.dashboard = null;
+      state.waiting = null;
+      state.phase = { kind: "problem", message: UNREADABLE };
+      render();
+    }
   }
 }
 
@@ -333,7 +340,8 @@ const UNREADABLE = "This app can't read conflux's status. Update conflux on this
 
 function readable(dashboard) {
   return !!dashboard && !!dashboard.hub && Array.isArray(dashboard.machines) && Array.isArray(dashboard.accounts)
-    && dashboard.accounts.every(a => a && Array.isArray(a.cooldowns) && a.usage && Array.isArray(a.usage.windows));
+    && dashboard.accounts.every(a => a && typeof a.provider === "string" && Array.isArray(a.cooldowns)
+      && a.usage && Array.isArray(a.usage.windows));
 }
 
 function applyAccent() {
@@ -576,10 +584,12 @@ async function run(op, args = {}) {
 }
 
 async function untilAnswering() {
-  for (let i = 0; i < 40; i++) {
-    if (!(await get("/conflux/api/status")).unreachable) return;
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline) {
+    if (!(await get("/conflux/node")).unreachable) return;
     await new Promise(resolve => setTimeout(resolve, 250));
   }
+  throw new Error("conflux didn't answer within 10 seconds.");
 }
 
 async function post(path, body = {}) {
@@ -596,7 +606,10 @@ function openDashboard() {
 
 const actions = {
   openDashboard,
-  setRouting: on => perform(on ? "Turning on…" : "Turning off…", () => run("routing", { on })),
+  toggleRouting: () => {
+    const on = !(state.local && state.local.routing);
+    perform(on ? "Turning on…" : "Turning off…", () => run("routing", { on }));
+  },
   setUpHub: () => setUp(true),
   setUpNode: () => setUp(false),
   start: () => perform("Starting…", restartService),
@@ -700,7 +713,7 @@ function content() {
         button("Start conflux", "start", { accent: true }),
       );
     case "waiting": {
-      const hubs = (state.hubs || []).map((hub, i) => button(linkTitle(hub), "link", { accent: true, arg: hub.address })).join("");
+      const hubs = (state.hubs || []).map(hub => button(linkTitle(hub), "link", { accent: true, arg: hub.address })).join("");
       return `<div class="notice pad"><h2>Waiting to be linked</h2><p class="caption muted">${esc(waitingDetail())}</p>
         <div class="buttons stack">${hubs}${button("Make this the hub", "setUpHub")}</div></div>${updateBanner()}`;
     }
@@ -836,7 +849,7 @@ function actionsView() {
     parts.push(`<div class="pad" style="display:flex;align-items:center;min-height:40px" title="Off makes the coding tools on this PC use their own logins.">
       <span style="flex:1">Route this PC through conflux</span>
       <button class="switch${routing ? " on" : ""}" role="switch" aria-checked="${routing}" aria-label="Route this PC through conflux"
-        data-action="setRouting" data-arg="${routing ? "" : "on"}"${state.busy ? " disabled" : ""}>
+        data-action="toggleRouting"${state.busy ? " disabled" : ""}>
         <span class="caption muted">${routing ? "On" : "Off"}</span><span class="track"></span></button></div>`);
     parts.push(`<div class="divider tight"></div>`);
   }
@@ -922,8 +935,7 @@ document.addEventListener("click", event => {
   const action = actions[target.dataset.action];
   if (!action) return;
   const arg = target.dataset.arg;
-  if (target.dataset.action === "setRouting") action(arg === "on");
-  else action(arg);
+  action(arg);
 });
 
 document.addEventListener("keydown", event => {

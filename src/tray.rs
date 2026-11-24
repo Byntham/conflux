@@ -30,9 +30,11 @@ use windows_sys::Win32::System::Threading::{
     CREATE_NO_WINDOW, CreateEventW, INFINITE, OpenProcess, PROCESS_SYNCHRONIZE, SetEvent, WaitForSingleObject,
 };
 use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetDoubleClickTime;
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    ASFW_ANY, AllowSetForegroundWindow, GetForegroundWindow, GetSystemMetrics, SM_CXSMICON, SW_SHOWNORMAL, WSF_VISIBLE,
+    ASFW_ANY, AllowSetForegroundWindow, GetForegroundWindow, GetSystemMetrics, MB_ICONERROR, MB_OK, MessageBoxW,
+    SM_CXSMICON, SW_SHOWNORMAL, WSF_VISIBLE,
 };
 use wry::{WebContext, WebView, WebViewBuilder, WebViewBuilderExtWindows};
 
@@ -43,9 +45,9 @@ const LOGO: &str = include_str!("../assets/icon.svg");
 const WIDTH: f64 = 360.0;
 const MARGIN: f64 = 12.0;
 const TICK: Duration = Duration::from_secs(3);
-const SETTLE: Duration = Duration::from_secs(30);
+const SETTLE: Duration = Duration::from_secs(120);
 const REPLACES: &str = "CONFLUX_TRAY_REPLACES";
-const QUIET: &str = "CONFLUX_TRAY_QUIET";
+const MODE: &str = "CONFLUX_TRAY_MODE";
 
 enum Message {
     Tray(TrayIconEvent),
@@ -96,19 +98,38 @@ enum Request {
     Quit,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum Launch {
+    Quiet,
+    Open,
+}
+
 pub fn run() -> Result<()> {
     if !on_desktop() {
         bail!("the tray app needs a signed-in Windows desktop");
     }
     let paths = Paths::from_env()?;
     let exe = std::env::current_exe().context("find the conflux binary")?;
-    let Some(reopened) = single_instance(&paths.config_dir) else {
+    let quiet = std::env::var(MODE).is_ok_and(|mode| mode == "quiet");
+    let Some(reopened) = single_instance(&paths.config_dir, !quiet) else {
         return Ok(());
     };
     if in_terminal() {
         drop(reopened);
-        return launch(&exe).context("start the tray app");
+        if wry::webview_version().is_err() {
+            bail!(
+                "the tray app needs the Microsoft Edge WebView2 runtime. Install it from Microsoft, then run `conflux tray` again"
+            );
+        }
+        return spawn(&exe, Launch::Open, None).context("start the tray app");
     }
+    let open = std::env::var(MODE).is_ok_and(|mode| mode == "open");
+    let failed = serve(paths, exe, reopened, open).unwrap_err();
+    alert(&format!("conflux could not open its tray app: {failed:#}"));
+    Err(failed)
+}
+
+fn serve(paths: Paths, exe: PathBuf, reopened: Signal, mut open: bool) -> Result<std::convert::Infallible> {
     let dev_copy = std::env::var_os("CONFLUX_HOME").is_some();
 
     let event_loop = EventLoopBuilder::<Message>::with_user_event()
@@ -191,6 +212,7 @@ pub fn run() -> Result<()> {
     let bridge = Arc::new(Bridge {
         proxy,
         http: reqwest::Client::builder()
+            .no_proxy()
             .timeout(Duration::from_secs(5))
             .redirect(reqwest::redirect::Policy::none())
             .build()?,
@@ -207,6 +229,7 @@ pub fn run() -> Result<()> {
         anchor: None,
         badge: (None, false, light_taskbar()),
         shown: 0,
+        shown_at: Instant::now(),
     };
     let mut update = Update {
         built: modified(&exe),
@@ -236,8 +259,11 @@ pub fn run() -> Result<()> {
                 rect,
                 ..
             })) => {
-                flyout.anchor = Some(center(&rect));
-                flyout.toggle();
+                let double_click = Duration::from_millis(u64::from(unsafe { GetDoubleClickTime() }));
+                if !(flyout.window.is_visible() && flyout.shown_at.elapsed() < double_click) {
+                    flyout.anchor = Some(center(&rect));
+                    flyout.toggle();
+                }
             }
             Event::UserEvent(Message::Show) => {
                 flyout.anchor = flyout.tray.rect().map(|rect| center(&rect));
@@ -248,7 +274,8 @@ pub fn run() -> Result<()> {
                     flyout.anchor = flyout.tray.rect().map(|rect| center(&rect));
                     flyout.show();
                 } else if id == *open_dashboard.id() {
-                    open(&bridge.base());
+                    open_url(&bridge.base());
+                    flyout.hide();
                 } else if id == *exit.id() {
                     *flow = ControlFlow::Exit;
                 }
@@ -257,7 +284,7 @@ pub fn run() -> Result<()> {
                 let _ = flyout.webview.evaluate_script(&format!("conflux.reply({id}, {value})"));
             }
             Event::UserEvent(Message::Tick) => {
-                if !dev_copy && update.ready(&exe) && spawn(&exe, Some(std::process::id())).is_ok() {
+                if !dev_copy && update.ready(&exe) && spawn(&exe, Launch::Quiet, Some(std::process::id())).is_ok() {
                     *flow = ControlFlow::Exit;
                     return;
                 }
@@ -268,6 +295,11 @@ pub fn run() -> Result<()> {
                 let _ = flyout.webview.evaluate_script("conflux.tick()");
             }
             Event::UserEvent(Message::Page(body)) => {
+                if open {
+                    open = false;
+                    flyout.anchor = flyout.tray.rect().map(|rect| center(&rect));
+                    flyout.show();
+                }
                 let Ok(Call { id, request }) = serde_json::from_str::<Call>(&body) else {
                     return;
                 };
@@ -289,7 +321,7 @@ pub fn run() -> Result<()> {
                         return;
                     }
                     Request::OpenDashboard => {
-                        open(&bridge.base());
+                        open_url(&bridge.base());
                         flyout.hide();
                     }
                     request => {
@@ -351,6 +383,7 @@ struct Flyout {
     anchor: Option<PhysicalPosition<f64>>,
     badge: (Option<String>, bool, bool),
     shown: u64,
+    shown_at: Instant,
 }
 
 impl Flyout {
@@ -364,6 +397,7 @@ impl Flyout {
 
     fn show(&mut self) {
         self.shown += 1;
+        self.shown_at = Instant::now();
         self.place();
         self.window.set_visible(true);
         self.window.set_focus();
@@ -389,7 +423,9 @@ impl Flyout {
             let monitor = MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST);
             let mut info: MONITORINFO = std::mem::zeroed();
             info.cbSize = size_of::<MONITORINFO>() as u32;
-            GetMonitorInfoW(monitor, &mut info);
+            if GetMonitorInfoW(monitor, &mut info) == 0 {
+                return;
+            }
             let (mut dpi, mut unused) = (96, 96);
             GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi, &mut unused);
             (info.rcWork, info.rcMonitor, f64::from(dpi) / 96.0)
@@ -402,13 +438,13 @@ impl Flyout {
             f64::from(work.bottom) - margin,
         );
         let width = (WIDTH * scale).round().min(right - left).max(1.0);
-        let height = (self.height * scale).round().min(bottom - top).max(1.0);
+        let height = (self.height * scale).ceil().min(bottom - top).max(1.0);
         let (cx, cy) = self.anchor.map_or((right, bottom), |anchor| (anchor.x, anchor.y));
         let (x, y) = match taskbar_edge(&work, &screen, self.anchor) {
-            Edge::Top => ((cx - width / 2.0).clamp(left, right - width), top),
-            Edge::Bottom => ((cx - width / 2.0).clamp(left, right - width), bottom - height),
-            Edge::Left => (left, (cy - height / 2.0).clamp(top, bottom - height)),
-            Edge::Right => (right - width, (cy - height / 2.0).clamp(top, bottom - height)),
+            Edge::Top => ((cx - width / 2.0).min(right - width).max(left), top),
+            Edge::Bottom => ((cx - width / 2.0).min(right - width).max(left), bottom - height),
+            Edge::Left => (left, (cy - height / 2.0).min(bottom - height).max(top)),
+            Edge::Right => (right - width, (cy - height / 2.0).min(bottom - height).max(top)),
         };
         self.window.set_outer_position(PhysicalPosition::new(x, y));
         self.window.set_inner_size(PhysicalSize::new(width, height));
@@ -475,9 +511,10 @@ impl Bridge {
         format!("http://127.0.0.1:{port}/")
     }
 
-    fn url(&self, path: &str) -> Option<String> {
-        let rest = path.strip_prefix("/conflux/")?;
-        Some(format!("{}conflux/{rest}", self.base()))
+    fn url(&self, path: &str) -> Option<url::Url> {
+        let base = url::Url::parse(&self.base()).ok()?;
+        let url = base.join(path).ok()?;
+        (url.origin() == base.origin() && url.path().starts_with("/conflux/") && !path.contains('\\')).then_some(url)
     }
 
     async fn answer(&self, request: Request) -> Value {
@@ -500,6 +537,10 @@ impl Bridge {
                 }
                 None => json!({ "unreachable": true }),
             },
+            Request::Routing { .. } if self.dev_copy && !isolated_clients() => json!({
+                "ok": false,
+                "output": "This dev copy would change your real coding tool settings. Start it with `cargo run --example dev -- --app`."
+            }),
             Request::Routing { on } => self.conflux(&[if on { "on" } else { "off" }]).await,
             Request::SetUp { .. } | Request::Restart if self.dev_copy => {
                 json!({ "ok": false, "output": "This is a dev copy. It has no background service." })
@@ -516,24 +557,20 @@ impl Bridge {
     }
 
     async fn conflux(&self, args: &[&'static str]) -> Value {
-        let exe = self.exe.clone();
-        let args = args.to_vec();
-        let ran = tokio::task::spawn_blocking(move || {
-            Command::new(exe)
-                .args(args)
-                .stdin(Stdio::null())
-                .creation_flags(CREATE_NO_WINDOW)
-                .output()
-        })
-        .await;
-        match ran {
+        let ran = tokio::process::Command::new(&self.exe)
+            .args(args)
+            .stdin(Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW)
+            .kill_on_drop(true)
+            .output();
+        match tokio::time::timeout(Duration::from_secs(120), ran).await {
             Ok(Ok(output)) => {
                 let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
                 text.push_str(&String::from_utf8_lossy(&output.stderr));
                 json!({ "ok": output.status.success(), "output": text.trim() })
             }
             Ok(Err(e)) => json!({ "ok": false, "output": e.to_string() }),
-            Err(e) => json!({ "ok": false, "output": e.to_string() }),
+            Err(_) => json!({ "ok": false, "output": "conflux did not finish within 2 minutes." }),
         }
     }
 
@@ -613,7 +650,7 @@ impl Drop for Signal {
     }
 }
 
-fn single_instance(config_dir: &Path) -> Option<Signal> {
+fn single_instance(config_dir: &Path, show_running: bool) -> Option<Signal> {
     if let Some(pid) = std::env::var(REPLACES).ok().and_then(|pid| pid.parse().ok()) {
         unsafe {
             let previous = OpenProcess(PROCESS_SYNCHRONIZE, 0, pid);
@@ -623,7 +660,7 @@ fn single_instance(config_dir: &Path) -> Option<Signal> {
             }
         }
     }
-    let config_dir = std::fs::canonicalize(config_dir).unwrap_or_else(|_| config_dir.to_path_buf());
+    let config_dir = std::path::absolute(config_dir).unwrap_or_else(|_| config_dir.to_path_buf());
     let digest = Sha256::digest(config_dir.to_string_lossy().to_lowercase().as_bytes());
     let tag: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
     let name = wide(&format!("Local\\conflux-tray-{tag}"));
@@ -634,7 +671,7 @@ fn single_instance(config_dir: &Path) -> Option<Signal> {
         }
         let signal = Signal(event);
         if GetLastError() == ERROR_ALREADY_EXISTS {
-            if std::env::var_os(QUIET).is_none() {
+            if show_running {
                 AllowSetForegroundWindow(ASFW_ANY);
                 SetEvent(signal.0);
             }
@@ -649,10 +686,10 @@ fn modified(exe: &Path) -> Option<SystemTime> {
 }
 
 pub fn launch(exe: &Path) -> std::io::Result<()> {
-    spawn(exe, None)
+    spawn(exe, Launch::Quiet, None)
 }
 
-fn spawn(exe: &Path, replaces: Option<u32>) -> std::io::Result<()> {
+fn spawn(exe: &Path, launch: Launch, replaces: Option<u32>) -> std::io::Result<()> {
     crate::service::keep_std_handles_private();
     let mut command = Command::new(exe);
     command
@@ -661,7 +698,7 @@ fn spawn(exe: &Path, replaces: Option<u32>) -> std::io::Result<()> {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .env(QUIET, "1")
+        .env(MODE, if launch == Launch::Open { "open" } else { "quiet" })
         .env_remove(REPLACES);
     if let Some(pid) = replaces {
         command.env(REPLACES, pid.to_string());
@@ -669,7 +706,25 @@ fn spawn(exe: &Path, replaces: Option<u32>) -> std::io::Result<()> {
     command.spawn().map(drop)
 }
 
-fn open(url: &str) {
+fn isolated_clients() -> bool {
+    ["CLAUDE_CONFIG_DIR", "CODEX_HOME", "GROK_HOME", "XDG_CONFIG_HOME"]
+        .iter()
+        .all(|name| std::env::var_os(name).is_some())
+}
+
+fn alert(text: &str) {
+    let (text, title) = (wide(text), wide("conflux"));
+    unsafe {
+        MessageBoxW(
+            std::ptr::null_mut(),
+            text.as_ptr(),
+            title.as_ptr(),
+            MB_ICONERROR | MB_OK,
+        )
+    };
+}
+
+fn open_url(url: &str) {
     let (verb, target) = (wide("open"), wide(url));
     unsafe {
         ShellExecuteW(
@@ -710,7 +765,7 @@ fn registry<const N: usize>(key: &str, value: &str, kind: u32) -> Option<[u8; N]
             &mut size,
         )
     };
-    (read == 0).then_some(data)
+    (read == 0 && size == N as u32).then_some(data)
 }
 
 fn light_theme(value: &str) -> bool {
