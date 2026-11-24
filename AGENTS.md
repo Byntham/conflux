@@ -20,6 +20,7 @@ Rust proxy that pools Claude Code, Codex, Grok Build, and Muse Code subscription
 
 - Pass `-- --real` to use the real providers. The copy starts with no accounts. Run the `conflux login` command it prints and ask the developer to approve it.
 - On a Mac, pass `-- --app` to build the menu bar app and start it against the copy. The dev build has its own bundle ID, so it runs next to the installed app. It hides Restart and refuses Set up, because the copy has no background service.
+- On Windows, `-- --app` starts the tray app against the copy. It hides Restart and refuses Set up too. Run `conflux tray` with the copy's `CONFLUX_HOME` to open its panel.
 - To see the Mac app's menu, run the `--snapshot` command that `--app` prints. It draws the menu to a PNG, with light and dark side by side. It needs no screen recording permission, so it works over ssh.
 - Point Claude Code at the copy with `CLAUDE_CONFIG_DIR`, as the command prints. Setting `ANTHROPIC_BASE_URL` in the shell does not work. `~/.claude/settings.json` wins, and the request goes to the real hub.
 - The copy's hub cannot install conflux on your other machines. It runs `false` in place of `ssh`, so Install on the dashboard and `conflux add` fail. To fake a machine, set `CONFLUX_SSH` to a script before you start the copy.

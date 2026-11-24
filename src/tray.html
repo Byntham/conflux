@@ -1,0 +1,908 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="light dark">
+<title>conflux</title>
+<style>
+:root {
+  --bg: #f9f9f9;
+  --text: rgba(0, 0, 0, 0.9);
+  --muted: rgba(0, 0, 0, 0.62);
+  --faint: rgba(0, 0, 0, 0.45);
+  --divider: rgba(0, 0, 0, 0.08);
+  --hover: rgba(0, 0, 0, 0.04);
+  --press: rgba(0, 0, 0, 0.025);
+  --card: rgba(255, 255, 255, 0.7);
+  --card-border: rgba(0, 0, 0, 0.06);
+  --control: rgba(255, 255, 255, 0.7);
+  --control-hover: rgba(249, 249, 249, 0.5);
+  --control-border: rgba(0, 0, 0, 0.06);
+  --control-bottom: rgba(0, 0, 0, 0.16);
+  --track: rgba(0, 0, 0, 0.12);
+  --meter: rgba(0, 0, 0, 0.5);
+  --accent: var(--accent-light, #005fb8);
+  --on-accent: #fff;
+  --ok: #0f7b0f;
+  --warn: #9d5d00;
+  --warn-fill: #d97f06;
+  --bad: #c42b1c;
+  --warn-tint: rgba(157, 93, 0, 0.1);
+  --bad-tint: rgba(196, 43, 28, 0.09);
+  --toggle-off: rgba(0, 0, 0, 0.62);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #2c2c2c;
+    --text: #fff;
+    --muted: rgba(255, 255, 255, 0.72);
+    --faint: rgba(255, 255, 255, 0.5);
+    --divider: rgba(255, 255, 255, 0.08);
+    --hover: rgba(255, 255, 255, 0.06);
+    --press: rgba(255, 255, 255, 0.04);
+    --card: rgba(255, 255, 255, 0.04);
+    --card-border: rgba(255, 255, 255, 0.07);
+    --control: rgba(255, 255, 255, 0.06);
+    --control-hover: rgba(255, 255, 255, 0.08);
+    --control-border: rgba(255, 255, 255, 0.07);
+    --control-bottom: rgba(255, 255, 255, 0.05);
+    --track: rgba(255, 255, 255, 0.16);
+    --meter: rgba(255, 255, 255, 0.62);
+    --accent: var(--accent-dark, #60cdff);
+    --on-accent: #000;
+    --ok: #6ccb5f;
+    --warn: #fce100;
+    --warn-fill: #f2b200;
+    --bad: #ff99a4;
+    --warn-tint: rgba(252, 225, 0, 0.1);
+    --bad-tint: rgba(255, 153, 164, 0.12);
+    --toggle-off: rgba(255, 255, 255, 0.72);
+  }
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/20px "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+  overflow: hidden;
+}
+#panel { padding: 16px 0 4px; }
+#panel.enter { animation: enter 0.2s cubic-bezier(0.1, 0.9, 0.2, 1); }
+@keyframes enter { from { transform: translateY(10px); opacity: 0.4; } }
+.pad { padding: 0 16px; }
+.muted { color: var(--muted); }
+.caption { font-size: 12px; line-height: 16px; }
+.strong { font-weight: 600; }
+.divider { height: 1px; background: var(--divider); margin: 12px 0; }
+.divider.tight { margin: 4px 0; }
+
+header { display: flex; align-items: center; gap: 12px; padding: 0 16px; }
+header svg { width: 32px; height: 32px; flex: none; }
+header .names { flex: 1; min-width: 0; }
+header .title { font-weight: 600; }
+header .role { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.summary { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+
+.notice h2 { font-size: 14px; line-height: 20px; font-weight: 600; margin: 0 0 4px; }
+.notice p { margin: 0; }
+.buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.buttons.stack { flex-direction: column; align-items: stretch; }
+
+button {
+  font: inherit;
+  color: var(--text);
+  border: 1px solid var(--control-border);
+  border-bottom-color: var(--control-bottom);
+  background: var(--control);
+  border-radius: 4px;
+  min-height: 32px;
+  padding: 5px 12px 6px;
+  white-space: nowrap;
+}
+button:hover:not(:disabled) { background: var(--control-hover); }
+button:active:not(:disabled) { color: var(--muted); }
+button.accent { background: var(--accent); color: var(--on-accent); border-color: rgba(255, 255, 255, 0.08); border-bottom-color: rgba(0, 0, 0, 0.4); }
+button.accent:hover:not(:disabled) { opacity: 0.9; }
+button:disabled { opacity: 0.45; }
+button:focus-visible, .row:focus-visible, .switch:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
+button.link { border: 0; background: none; color: var(--accent); padding: 0; min-height: 0; }
+button.link:hover:not(:disabled) { background: none; text-decoration: underline; }
+
+.pools-head { display: flex; gap: 8px; margin-bottom: 8px; }
+.pools-head span:first-child { flex: 1; }
+.pool { margin-top: 12px; }
+.pool.off { opacity: 0.55; }
+.pool-name { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.pool-name span:first-child { flex: 1; font-weight: 600; }
+.meter { display: flex; align-items: center; gap: 8px; height: 22px; }
+.meter .label { width: 44px; flex: none; }
+.bar { flex: 1; height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; }
+.bar div { height: 100%; border-radius: 2px; background: var(--meter); }
+.bar div.low { background: var(--warn-fill); }
+.num { font-variant-numeric: tabular-nums; text-align: right; flex: none; }
+.left { width: 36px; }
+.refill { width: 96px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.warn-text { color: var(--warn); }
+.bad-text { color: var(--bad); }
+.pill { font-size: 12px; line-height: 16px; font-weight: 600; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+.pill.warn { color: var(--warn); background: var(--warn-tint); }
+.pill.bad { color: var(--bad); background: var(--bad-tint); }
+.state { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+
+.banner {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+  margin: 12px 16px 0; padding: 12px;
+  background: var(--card); border: 1px solid var(--card-border); border-radius: 8px;
+}
+.banner .glyph { font: 16px/1 "Segoe Fluent Icons", "Segoe MDL2 Assets"; color: var(--muted); width: 20px; text-align: center; flex: none; }
+.banner .text { flex: 1 1 150px; min-width: 0; }
+.banner .detail { overflow-wrap: anywhere; }
+.banner .actions { display: flex; gap: 8px; flex: none; margin-left: auto; }
+.failure { color: var(--bad); margin-top: 8px; overflow-wrap: anywhere; }
+
+.menu { padding: 0 4px; }
+.row {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  min-height: 36px; padding: 0 12px; border: 0; border-radius: 4px;
+  background: none; text-align: left; color: var(--text);
+}
+.row:hover:not(:disabled) { background: var(--hover); }
+.row:active:not(:disabled) { background: var(--press); color: var(--muted); }
+.row span:first-child { flex: 1; }
+.row .glyph { font: 16px/1 "Segoe Fluent Icons", "Segoe MDL2 Assets"; width: 16px; flex: none; color: var(--muted); }
+
+.switch { display: flex; align-items: center; gap: 8px; border: 0; background: none; padding: 0; min-height: 0; color: var(--text); }
+.switch:hover:not(:disabled) { background: none; }
+.switch .track {
+  width: 40px; height: 20px; border-radius: 10px; position: relative; flex: none;
+  border: 1px solid var(--toggle-off);
+}
+.switch .track::after {
+  content: ""; position: absolute; top: 4px; left: 4px; width: 10px; height: 10px;
+  border-radius: 50%; background: var(--toggle-off); transition: left 0.15s, width 0.1s;
+}
+.switch:hover:not(:disabled) .track::after { width: 12px; height: 12px; top: 3px; left: 3px; }
+.switch.on .track { background: var(--accent); border-color: var(--accent); }
+.switch.on .track::after { left: 24px; background: var(--on-accent); }
+.switch.on:hover:not(:disabled) .track::after { left: 23px; }
+
+.spinner {
+  width: 16px; height: 16px; border-radius: 50%; flex: none;
+  border: 2px solid var(--track); border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div id="panel"></div>
+<script>
+"use strict";
+
+const LOGO = "M431 977C405 972 384 950 378 924C376 918 376 908 376 838C376 699 370 664 333 608C316 580 302 564 252 514C207 468 203 463 191 450C138 387 110 322 104 250C102 224 103 119 106 111C116 79 139 56 172 47C183 44 257 45 268 48C299 56 322 78 332 108C336 120 336 125 336 181C336 307 351 368 399 440C415 464 455 509 460 509C463 509 456 477 444 446C427 396 423 382 417 361C409 327 405 302 402 265C400 238 400 129 402 118C409 81 440 52 476 46C488 44 549 45 557 47C589 56 612 80 622 114C624 121 625 229 623 258C619 320 609 366 586 429C571 471 561 509 565 509C567 509 584 492 594 480C648 419 676 356 687 270C688 259 688 243 689 188C690 110 689 114 698 96C711 69 734 52 762 47C772 45 835 44 846 46C885 52 915 83 921 123C923 135 922 250 920 265C907 357 875 411 775 512C696 592 672 627 658 686C650 720 650 723 649 829C648 922 648 922 646 930C638 954 617 973 594 978C584 980 441 980 431 977Z";
+
+const pending = new Map();
+let nextId = 1;
+function call(op, args = {}) {
+  const id = nextId++;
+  return new Promise(resolve => {
+    pending.set(id, resolve);
+    window.ipc.postMessage(JSON.stringify({ id, op, ...args }));
+  });
+}
+
+const state = {
+  phase: { kind: "loading" },
+  local: null,
+  dashboard: null,
+  waiting: null,
+  hubs: null,
+  node: null,
+  busy: null,
+  failure: null,
+  checkedForUpdates: false,
+  open: false,
+  now: Date.now(),
+  lastRefresh: 0,
+  refreshing: null,
+};
+
+window.conflux = {
+  reply(id, value) {
+    const resolve = pending.get(id);
+    pending.delete(id);
+    if (resolve) resolve(value);
+  },
+  tick() {
+    const fast = state.open || state.busy || updating();
+    if (fast || Date.now() - state.lastRefresh >= 20000) refresh();
+    else if (state.open) render();
+  },
+  shown() {
+    state.open = true;
+    const panel = document.getElementById("panel");
+    panel.classList.remove("enter");
+    void panel.offsetWidth;
+    panel.classList.add("enter");
+    refresh();
+  },
+  hidden() {
+    state.open = false;
+    state.checkedForUpdates = false;
+  },
+  openDashboard,
+};
+
+function parse(text) {
+  try { return JSON.parse(text); } catch { return undefined; }
+}
+
+function time(text) {
+  if (!text) return null;
+  const at = Date.parse(text);
+  return Number.isNaN(at) ? null : at;
+}
+
+async function get(path) {
+  return call("get", { path });
+}
+
+function refresh() {
+  if (state.refreshing) {
+    state.refreshing.again = true;
+    return state.refreshing.done;
+  }
+  const run = { again: false };
+  run.done = (async () => {
+    do {
+      run.again = false;
+      await load();
+    } while (run.again);
+    state.refreshing = null;
+  })();
+  state.refreshing = run;
+  return run.done;
+}
+
+async function load() {
+  state.now = Date.now();
+  state.lastRefresh = state.now;
+  let waitingNow = null;
+  try {
+    state.local = await call("local");
+    applyAccent();
+    const nodeAnswer = await get("/conflux/node");
+    state.node = nodeAnswer.status === 200 ? parse(nodeAnswer.body) || null : null;
+    if (state.node && state.node.access && state.node.access.state !== "approved") {
+      state.dashboard = null;
+      state.phase = { kind: "notApproved" };
+      return;
+    }
+    const answer = await get("/conflux/api/dashboard");
+    if (answer.unreachable) {
+      state.dashboard = null;
+      if (state.node) state.phase = { kind: "hubUnreachable" };
+      else state.phase = { kind: state.local.serviceInstalled ? "notRunning" : "notSetUp" };
+    } else if (answer.status === 200) {
+      const dashboard = parse(answer.body);
+      if (dashboard && dashboard.hub && Array.isArray(dashboard.accounts) && Array.isArray(dashboard.machines)) {
+        state.dashboard = dashboard;
+        state.phase = { kind: "ready" };
+      } else {
+        state.dashboard = null;
+        state.phase = { kind: "problem", message: "This app can't read conflux's status. Update conflux on this PC and on the hub." };
+      }
+    } else if (answer.status === 409) {
+      state.dashboard = null;
+      state.phase = { kind: "waiting" };
+      const status = await get("/conflux/api/status");
+      if (status.status === 200) waitingNow = parse(status.body) || null;
+      if (state.open) {
+        const found = await get("/conflux/api/hubs");
+        state.hubs = found.status === 200 ? ((parse(found.body) || {}).hubs || []) : [];
+      }
+    } else {
+      state.dashboard = null;
+      if (state.node && !state.node.hub_link.connected) {
+        state.phase = { kind: "hubUnreachable" };
+      } else {
+        const error = (parse(answer.body) || {}).error;
+        state.phase = { kind: "problem", message: withoutHubAddress(error || `conflux answered HTTP ${answer.status}.`) };
+      }
+    }
+  } finally {
+    state.waiting = waitingNow;
+    if (state.phase.kind !== "waiting") state.hubs = null;
+    render();
+  }
+}
+
+function applyAccent() {
+  const accent = state.local && state.local.accent;
+  if (!accent) return;
+  document.documentElement.style.setProperty("--accent-light", accent.light);
+  document.documentElement.style.setProperty("--accent-dark", accent.dark);
+}
+
+function withoutHubAddress(text) {
+  return state.node ? text.split(` (${state.node.hub})`).join("") : text;
+}
+
+const accounts = () => (state.dashboard ? state.dashboard.accounts : []);
+const machines = () => (state.dashboard ? state.dashboard.machines : state.waiting ? state.waiting.machines : []);
+const isUpdating = m => !!m.update && m.update.state !== "failed";
+const updating = () => machines().some(m => m.online && isUpdating(m));
+const guestsWaiting = () => (state.dashboard ? state.dashboard.machines.filter(m => m.access === "pending") : []);
+
+function isThisPC(machine) {
+  if (state.node) return machine.hostname === state.node.hostname && !!machine.guest === !!state.node.guest;
+  return machine.role === "hub" || machine.role === "waiting";
+}
+
+function canUpdate(machine) {
+  return isThisPC(machine) || (!(state.node && state.node.guest) && !machine.guest);
+}
+
+const outdatedMachines = () => machines().filter(m => m.outdated && m.online && !isUpdating(m) && canUpdate(m));
+
+function latestVersion() {
+  const latest = (state.dashboard && state.dashboard.latest_version) || (state.waiting && state.waiting.latest_version);
+  return latest && outdatedMachines().length ? latest : null;
+}
+
+function updateFailure() {
+  const machine = machines().find(m => m.online && m.update && m.update.state === "failed");
+  return machine ? `${machine.hostname}: ${machine.update.error || "update failed"}` : null;
+}
+
+const upToDate = () => state.checkedForUpdates && !updating() && !machines().some(m => m.outdated && canUpdate(m));
+
+function accountState(account, now) {
+  if (account.needs_login != null) return { kind: "needsLogin" };
+  if (account.billing_blocked != null) return { kind: "billingBlocked" };
+  if (!account.enabled) return { kind: "disabled" };
+  const cooldown = account.cooldowns.find(c => c.scope === "account");
+  if (cooldown) return { kind: "cooling", until: time(cooldown.until) };
+  if (quotaFull(account, now)) return { kind: "quotaFull" };
+  if (account.cooldowns.length) return { kind: "modelsCooling", count: account.cooldowns.length };
+  return { kind: "ready" };
+}
+
+const canServe = s => s.kind === "ready" || s.kind === "modelsCooling";
+const isProblem = s => s.kind === "needsLogin" || s.kind === "billingBlocked";
+const sameState = (a, b) => a.kind === b.kind && a.until === b.until && a.count === b.count;
+
+function quotaFull(account, now) {
+  const updated = time(account.usage.updated_at);
+  if (account.allow_overage || updated == null || now - updated >= 30 * 60 * 1000) return false;
+  return account.usage.overage_in_use || account.usage.windows.some(w => {
+    const resets = time(w.resets_at);
+    return w.model_scope == null && w.used_pct >= 100 && (resets == null || resets > now);
+  });
+}
+
+const sharedWindows = account => account.usage.windows
+  .filter(w => w.model_scope == null)
+  .sort((a, b) => (a.duration_secs || 0) - (b.duration_secs || 0));
+
+function pools() {
+  const groups = new Map();
+  for (const account of accounts()) {
+    if (!groups.has(account.provider)) groups.set(account.provider, []);
+    groups.get(account.provider).push(account);
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([provider, list]) => ({ provider, accounts: list }));
+}
+
+function poolName(provider) {
+  if (provider === "claude") return "Claude";
+  if (provider === "codex") return "Codex";
+  return provider.charAt(0).toUpperCase() + provider.slice(1);
+}
+
+function poolWindows(pool, now) {
+  const members = pool.accounts.filter(a => a.enabled && a.needs_login == null && a.billing_blocked == null && sharedWindows(a).length);
+  const shared = members.flatMap(sharedWindows)
+    .sort((a, b) => (a.duration_secs ?? Infinity) - (b.duration_secs ?? Infinity));
+  const bucket = w => (w.duration_secs != null ? (w.duration_secs >= 2 * 86400 ? "long" : "short") : w.key);
+  const buckets = [];
+  for (const w of shared) if (!buckets.includes(bucket(w))) buckets.push(bucket(w));
+  return buckets.map(name => {
+    const group = shared.filter(w => bucket(w) === name);
+    const used = group.map(w => {
+      const resets = time(w.resets_at);
+      return resets != null && resets <= now ? 0 : Math.min(100, Math.max(0, w.used_pct));
+    });
+    const refills = new Map();
+    group.forEach((w, i) => {
+      const resets = time(w.resets_at);
+      if (used[i] > 0 && resets != null) refills.set(resets, (refills.get(resets) || 0) + used[i]);
+    });
+    const refill = [...refills.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([at, amount]) => [at, amount / members.length])
+      .find(([, amount]) => amount >= 0.5);
+    return {
+      key: name,
+      usedPct: used.reduce((a, b) => a + b, 0) / members.length,
+      resetsAt: refill ? refill[0] : null,
+      durationSecs: group[0].duration_secs,
+      refillPct: refill ? refill[1] : 0,
+    };
+  });
+}
+
+function windowName(w) {
+  if (w.key === "five_hour") return "5 hour";
+  if (w.key === "seven_day") return "7 day";
+  if (w.durationSecs == null) return w.key;
+  const hours = w.durationSecs / 3600;
+  return hours >= 48 ? `${Math.round(hours / 24)} day` : `${Math.round(hours)} hour`;
+}
+
+function countdown(at, now) {
+  let seconds = Math.round((at - now) / 1000);
+  if (seconds <= 0) return "now";
+  const days = Math.floor(seconds / 86400);
+  seconds -= days * 86400;
+  const hours = Math.floor(seconds / 3600);
+  seconds -= hours * 3600;
+  const minutes = Math.floor(seconds / 60);
+  if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  return `${Math.max(1, minutes)}m`;
+}
+
+const readyCount = () => accounts().filter(a => canServe(accountState(a, state.now))).length;
+
+function attention() {
+  switch (state.phase.kind) {
+    case "notRunning":
+    case "hubUnreachable":
+    case "problem":
+      return "red";
+    case "ready": {
+      if (accounts().some(a => isProblem(accountState(a, state.now))) || updateFailure()) return "red";
+      const enabled = accounts().filter(a => a.enabled);
+      if (enabled.length && readyCount() === 0) return "orange";
+      return guestsWaiting().length ? "accent" : null;
+    }
+    case "waiting":
+      return updateFailure() ? "red" : null;
+    default:
+      return null;
+  }
+}
+
+function problemSummary() {
+  const problems = accounts().filter(a => isProblem(accountState(a, state.now)));
+  if (!problems.length) return updateFailure() ? "Update failed" : null;
+  if (problems.every(a => a.needs_login != null)) return problems.length === 1 ? "1 needs login" : `${problems.length} need login`;
+  return problems.length === 1 ? "1 needs attention" : `${problems.length} need attention`;
+}
+
+const isDown = () => state.phase.kind === "notRunning" || state.phase.kind === "hubUnreachable";
+
+function summary() {
+  switch (state.phase.kind) {
+    case "ready": {
+      if (!accounts().length) return { color: "var(--faint)", text: "No accounts" };
+      const ready = `${readyCount()} of ${accounts().length} ready`;
+      const color = attention();
+      if (color === "red") return { color: "var(--bad)", text: problemSummary() || ready };
+      if (color === "orange") return { color: "var(--warn-fill)", text: ready };
+      if (color === "accent") return { color: "var(--accent)", text: ready };
+      return { color: "var(--ok)", text: ready };
+    }
+    case "notRunning": return { color: "var(--bad)", text: "Stopped" };
+    case "hubUnreachable": return { color: "var(--bad)", text: "Offline" };
+    case "waiting": return { color: "var(--warn-fill)", text: "Waiting" };
+    default: return null;
+  }
+}
+
+function roleLine() {
+  const version = v => (v ? `v${v}` : null);
+  const running = state.local ? version(state.local.version) : null;
+  switch (state.phase.kind) {
+    case "ready": {
+      const hub = latestVersion() == null && state.dashboard ? version(state.dashboard.hub.version) : null;
+      if (state.node) return hub || "";
+      return ["This PC is the hub", hub].filter(Boolean).join(" · ");
+    }
+    case "hubUnreachable":
+    case "notApproved":
+      return "Linked to a hub";
+    case "waiting":
+      return "Waiting to be linked";
+    case "notRunning":
+      switch (state.local && state.local.role) {
+        case "hub": return "This PC is the hub";
+        case "node": return "Linked to a hub";
+        case "waiting": return "Waiting to be linked";
+        default: return running || "";
+      }
+    case "loading":
+      return "Connecting…";
+    default:
+      return running || "";
+  }
+}
+
+function perform(label, work) {
+  if (state.busy) return;
+  state.busy = label;
+  state.failure = null;
+  render();
+  (async () => {
+    try {
+      await work();
+    } catch (error) {
+      state.failure = withoutHubAddress(error.message || String(error));
+    }
+    state.busy = null;
+    await refresh();
+  })();
+}
+
+async function cli(...args) {
+  const result = await call("conflux", { args });
+  if (!result.ok) {
+    const lines = (result.output || "").split("\n").filter(Boolean);
+    throw new Error(lines.length ? lines[lines.length - 1] : "conflux failed");
+  }
+  return result.output;
+}
+
+async function post(path, body = {}) {
+  const answer = await call("post", { path, body });
+  if (answer.unreachable) throw new Error("conflux isn't answering.");
+  const fields = parse(answer.body) || {};
+  if (answer.status < 200 || answer.status >= 300) throw new Error(fields.error || `conflux answered HTTP ${answer.status}.`);
+  return fields;
+}
+
+function openDashboard() {
+  call("open", { url: dashboardUrl() });
+}
+
+function dashboardUrl() {
+  return `http://127.0.0.1:${state.local ? state.local.port : 8317}/`;
+}
+
+const actions = {
+  openDashboard,
+  setRouting: on => perform(on ? "Turning on…" : "Turning off…", () => cli(on ? "on" : "off")),
+  setUpHub: () => setUp(true),
+  setUpNode: () => setUp(false),
+  start: () => perform("Starting…", restartService),
+  restart: () => perform("Restarting…", restartService),
+  checkForUpdates: () => perform("Checking…", async () => {
+    state.checkedForUpdates = false;
+    await post("/conflux/api/update/check");
+    await refresh();
+    state.checkedForUpdates = true;
+  }),
+  updateAll: () => perform("Starting update…", async () => {
+    const names = outdatedMachines().map(m => m.hostname);
+    if (!names.length) throw new Error("Nothing to update right now.");
+    const answer = await post("/conflux/api/update", { machines: names });
+    const started = answer.started || [];
+    const skipped = answer.skipped || [];
+    if (!started.length && skipped.length) {
+      throw new Error(`${skipped[0].machine || "A machine"} was skipped: ${skipped[0].reason || "no reason given"}`);
+    }
+  }),
+  link: index => {
+    const hub = (state.hubs || [])[index];
+    if (!hub) return;
+    perform("Linking…", async () => {
+      await post("/conflux/api/join", { address: hub.address });
+      for (let i = 0; i < 20; i++) {
+        const node = await get("/conflux/node");
+        if (node.status === 200 && (!hub.guest || (parse(node.body) || {}).access)) break;
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+    });
+  },
+  approve: id => perform("Approving…", () => post(`/conflux/api/guests/${encodeURIComponent(id)}`, { approve: true })),
+  deny: id => perform("Turning down…", () => post(`/conflux/api/guests/${encodeURIComponent(id)}`, { approve: false })),
+  askAgain: () => perform("Asking…", () => post("/conflux/node/ask")),
+  quit: () => call("quit"),
+};
+
+function setUp(asHub) {
+  perform("Setting up…", async () => {
+    if (state.local.devCopy) throw new Error("This is a dev copy. It has no background service to set up.");
+    const output = await cli(...(asHub ? ["join", "self"] : ["wait"]));
+    const local = await call("local");
+    if (!local.serviceInstalled) throw new Error(output.split("\n")[0] || output);
+  });
+}
+
+async function restartService() {
+  const result = await call("restart");
+  if (!result.ok) throw new Error(result.output || "conflux didn't restart.");
+}
+
+function esc(text) {
+  return String(text ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+
+function logo() {
+  return `<svg viewBox="0 0 1024 1024" aria-hidden="true"><rect width="1024" height="1024" rx="224" fill="var(--logo-bg, #0e5f72)"/><path d="${LOGO}" transform="translate(112 112) scale(0.78)" fill="#fff"/></svg>`;
+}
+
+function notice(title, detail, buttons = "") {
+  return `<div class="notice pad"><h2>${esc(title)}</h2>${detail ? `<p class="caption muted">${esc(detail)}</p>` : ""}${buttons ? `<div class="buttons">${buttons}</div>` : ""}</div>`;
+}
+
+const button = (label, action, { accent = false, arg = "" } = {}) =>
+  `<button class="${accent ? "accent" : ""}" data-action="${action}" data-arg="${esc(arg)}"${state.busy ? " disabled" : ""}>${esc(label)}</button>`;
+
+function waitingDetail() {
+  const hubs = state.hubs;
+  if (!hubs) return "Looking for your hub on the tailnet…";
+  if (hubs.length === 0) return "No hub found on your tailnet. On your hub's dashboard, open Machines and click Find machines.";
+  if (hubs.length === 1 && hubs[0].guest) {
+    return `Found ${hubs[0].name} on your tailnet. Joining sends the coding tools on this PC through ${hubs[0].owner || "its owner"}'s hub, once they approve.`;
+  }
+  if (hubs.length === 1) return `Found your hub, ${hubs[0].name}, on your tailnet. Linking sends the coding tools on this PC through it.`;
+  return `Found ${hubs.length} hubs on your tailnet. Pick the one to link this PC to.`;
+}
+
+function linkTitle(hub) {
+  if (!hub.guest) return `Link to ${hub.name}`;
+  return hub.owner ? `Join ${hub.owner}'s hub as a guest` : `Join ${hub.name} as a guest`;
+}
+
+function content() {
+  const phase = state.phase;
+  switch (phase.kind) {
+    case "loading":
+      return notice("Connecting to conflux…", null);
+    case "notSetUp":
+      return notice(
+        "conflux isn't set up on this PC",
+        "Link this PC to the hub on another machine, or make this PC the hub that holds your accounts.",
+        button("Link to a hub", "setUpNode", { accent: true }) + button("Make this the hub", "setUpHub"),
+      );
+    case "notRunning":
+      return notice(
+        "conflux isn't running",
+        state.local && state.local.routing === true
+          ? "Start conflux to reconnect your coding tools. To use their own logins, turn off routing below, then restart them."
+          : "Your coding tools can't reach it until it starts.",
+        button("Start conflux", "start", { accent: true }),
+      );
+    case "waiting": {
+      const hubs = (state.hubs || []).map((hub, i) => button(linkTitle(hub), "link", { accent: true, arg: i })).join("");
+      return `<div class="notice pad"><h2>Waiting to be linked</h2><p class="caption muted">${esc(waitingDetail())}</p>
+        <div class="buttons stack">${hubs}${button("Make this the hub", "setUpHub")}</div></div>${updateBanner()}`;
+    }
+    case "problem":
+      return notice("conflux reported a problem", phase.message);
+    case "hubUnreachable":
+      return notice("Can't reach the hub", "The hub isn't answering. To keep working, turn off routing below, then restart your coding tools.");
+    case "notApproved": {
+      const owner = state.node && state.node.access && state.node.access.owner;
+      if (state.node.access.state === "pending") {
+        return notice(`Waiting for ${owner || "the hub's owner"} to approve this PC`, "Your coding tools use this PC's own logins until then.");
+      }
+      return notice(
+        `${owner || "The hub's owner"} didn't approve this PC`,
+        "Your coding tools use this PC's own logins. You can ask again.",
+        button("Ask again", "askAgain", { accent: true }),
+      );
+    }
+    case "ready":
+      return poolsView() + guestBanner() + updateBanner();
+  }
+  return "";
+}
+
+function poolsView() {
+  if (!accounts().length) {
+    return notice("No accounts yet", "Add an account from the dashboard.", button("Add account…", "openDashboard", { accent: true }));
+  }
+  const now = state.now;
+  const rows = pools().map(pool => {
+    const windows = poolWindows(pool, now);
+    const enabled = pool.accounts.some(a => a.enabled);
+    let extra = "";
+    if (pool.accounts.some(a => a.needs_login != null)) {
+      extra = `<button class="link caption" data-action="openDashboard">Log in again in the dashboard</button>`;
+    } else if (!windows.length && pool.accounts.some(a => a.enabled && a.billing_blocked == null)) {
+      extra = `<div class="caption muted">No usage data yet</div>`;
+    }
+    return `<div class="pool${enabled ? "" : " off"}">
+      <div class="pool-name"><span>${esc(poolName(pool.provider))}</span>${poolStatus(pool, now)}</div>
+      ${windows.map(w => meter(w, now)).join("")}${extra}</div>`;
+  }).join("");
+  return `<div class="pad"><div class="pools-head caption muted"><span>Pools</span><span class="num left">Left</span><span class="num refill">Next refill</span></div>${rows}</div>`;
+}
+
+function poolStatus(pool, now) {
+  const states = pool.accounts.map(a => accountState(a, now)).filter(s => s.kind !== "disabled");
+  const cooling = states.filter(s => s.kind === "cooling").map(s => s.until);
+  if (!states.length) return statePill({ kind: "disabled" }, now);
+  if (states.every(s => sameState(s, states[0]))) return statePill(states[0], now);
+  if (cooling.length && cooling.length === states.length) return statePill({ kind: "cooling", until: Math.min(...cooling) }, now);
+  if (states.every(canServe)) return statePill(states.find(s => s.kind !== "ready") || { kind: "ready" }, now);
+  const ready = states.filter(canServe).length;
+  const problem = states.some(isProblem);
+  return `<span class="pill ${problem ? "bad" : "warn"}">${ready} of ${states.length} ready</span>`;
+}
+
+function statePill(s, now) {
+  switch (s.kind) {
+    case "ready": return `<span class="state"><span class="dot" style="background: var(--ok)"></span>Ready</span>`;
+    case "disabled": return `<span class="state">Disabled</span>`;
+    case "needsLogin": return `<span class="pill bad">Needs login</span>`;
+    case "billingBlocked": return `<span class="pill bad">Billing blocked</span>`;
+    case "cooling": return `<span class="pill warn">Cooling ${countdown(s.until, now)}</span>`;
+    case "quotaFull": return `<span class="pill warn">Out of quota</span>`;
+    case "modelsCooling": return `<span class="pill warn">${s.count} ${s.count === 1 ? "model" : "models"} cooling</span>`;
+  }
+  return "";
+}
+
+function meter(w, now) {
+  const left = 100 - Math.min(100, Math.max(0, Math.round(w.usedPct)));
+  const name = windowName(w);
+  const refill = w.resetsAt != null ? { gain: Math.round(w.refillPct), wait: countdown(w.resetsAt, now) } : null;
+  const tone = left <= 0 ? "bad-text" : left <= 20 ? "warn-text" : "";
+  const help = `${left}% of the ${name} limit left, averaged across accounts${refill ? `. Next refill: +${refill.gain}% in ${refill.wait}` : ""}`;
+  const width = left > 0 ? Math.max(3, left) : 0;
+  return `<div class="meter" title="${esc(help)}">
+    <span class="label caption muted">${esc(name)}</span>
+    <div class="bar"><div class="${left <= 20 ? "low" : ""}" style="width: ${width}%"></div></div>
+    <span class="num left caption ${tone}">${left}%</span>
+    <span class="num refill caption muted">${refill ? `+${refill.gain}% ${refill.wait}` : ""}</span></div>`;
+}
+
+function banner(glyph, title, detail, actionsHtml) {
+  return `<div class="banner"><span class="glyph" aria-hidden="true">${glyph}</span>
+    <div class="text"><div>${esc(title)}</div><div class="detail caption muted">${esc(detail)}</div></div>
+    <div class="actions">${actionsHtml}</div></div>`;
+}
+
+function guestBanner() {
+  const waiting = guestsWaiting();
+  if (waiting.length === 1) {
+    const guest = waiting[0];
+    return banner("&#xE8FA;", `${guest.hostname} wants to join`, guest.user || "Tagged machine",
+      button("Deny", "deny", { arg: guest.id }) + button("Approve", "approve", { accent: true, arg: guest.id }));
+  }
+  if (waiting.length > 1) {
+    return banner("&#xE8FA;", `${waiting.length} machines want to join`, waiting.map(m => m.hostname).join(", "), button("Review", "openDashboard"));
+  }
+  return "";
+}
+
+function updateBanner() {
+  if (updating()) {
+    return banner("&#xE896;", "Updating…", "Machines switch over as they finish their current requests.", `<div class="spinner"></div>`);
+  }
+  const failure = updateFailure();
+  if (failure) return banner("&#xE896;", "An update failed", failure, button("Try again", "updateAll"));
+  const latest = latestVersion();
+  if (latest) {
+    const behind = outdatedMachines();
+    const detail = behind.length === 1
+      ? `${isThisPC(behind[0]) ? "This PC" : behind[0].hostname} · v${behind[0].version} → v${latest}`
+      : `${behind.length} machines · v${latest}`;
+    return banner("&#xE896;", "Update available", detail, button(behind.length === 1 ? "Update" : "Update all", "updateAll"));
+  }
+  return "";
+}
+
+function showsRouting() {
+  return ["ready", "notApproved", "hubUnreachable", "notRunning", "problem"].includes(state.phase.kind);
+}
+
+function row(title, action, { trailing = "", help = "" } = {}) {
+  return `<button class="row" data-action="${action}"${help ? ` title="${esc(help)}"` : ""}${state.busy ? " disabled" : ""}><span>${esc(title)}</span>${trailing}</button>`;
+}
+
+function actionsView() {
+  const parts = [];
+  const routing = state.local ? state.local.routing : null;
+  if (routing != null && showsRouting()) {
+    parts.push(`<div class="pad" style="display:flex;align-items:center;min-height:40px" title="Off makes the coding tools on this PC use their own logins.">
+      <span style="flex:1">Route this PC through conflux</span>
+      <button class="switch${routing ? " on" : ""}" role="switch" aria-checked="${routing}" aria-label="Route this PC through conflux"
+        data-action="setRouting" data-arg="${routing ? "" : "on"}"${state.busy ? " disabled" : ""}>
+        <span class="caption muted">${routing ? "On" : "Off"}</span><span class="track"></span></button></div>`);
+    parts.push(`<div class="divider tight"></div>`);
+  }
+  const kind = state.phase.kind;
+  const guest = !!(state.node && state.node.guest);
+  const showsDashboard = kind === "ready" || kind === "hubUnreachable";
+  const showsRestart = state.local && state.local.serviceInstalled && kind !== "notRunning";
+  const showsUpdateCheck = (kind === "ready" || kind === "waiting") && !guest;
+  const rows = [];
+  if (showsDashboard) {
+    rows.push(row("Open dashboard", "openDashboard"));
+    if (!guest) rows.push(row("Add account…", "openDashboard"));
+  }
+  if (showsUpdateCheck) {
+    rows.push(row("Check for updates", "checkForUpdates", { trailing: upToDate() ? `<span class="caption muted">Up to date</span>` : "" }));
+  }
+  if (showsRestart) rows.push(row("Restart conflux", "restart", { help: "Active coding tool requests through this PC are cut off." }));
+  if (rows.length) parts.push(`<div class="menu">${rows.join("")}</div><div class="divider tight"></div>`);
+  parts.push(`<div class="menu">${row("Exit tray app", "quit", { help: "conflux keeps running in the background." })}</div>`);
+  return parts.join("");
+}
+
+function header() {
+  const s = summary();
+  const role = roleLine();
+  const right = state.busy
+    ? `<div class="summary caption muted"><div class="spinner"></div>${esc(state.busy)}</div>`
+    : s ? `<div class="summary caption muted"><span class="dot" style="background:${s.color}"></span>${esc(s.text)}</div>` : "";
+  return `<header>${logo()}<div class="names"><div class="title">conflux</div>${role ? `<div class="role caption muted">${esc(role)}</div>` : ""}</div>${right}</header>`;
+}
+
+let lastIcon = "";
+let lastHeight = 0;
+
+function render() {
+  state.now = Date.now();
+  const kind = state.phase.kind;
+  const tight = (kind === "ready" || kind === "waiting") && (updateBanner() || guestBanner());
+  const panel = document.getElementById("panel");
+  const focused = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.action : null;
+  panel.innerHTML = header()
+    + `<div class="divider"></div>`
+    + content()
+    + (state.failure ? `<div class="failure caption pad">${esc(state.failure)}</div>` : "")
+    + (tight ? `<div style="height:12px"></div>` : `<div class="divider"></div>`)
+    + actionsView();
+  if (focused) {
+    const again = panel.querySelector(`[data-action="${focused}"]`);
+    if (again) again.focus();
+  }
+  const s = summary();
+  const icon = { badge: attention(), dimmed: isDown(), tooltip: s && s.text ? `conflux · ${s.text}` : "conflux" };
+  const key = JSON.stringify(icon);
+  if (key !== lastIcon) {
+    lastIcon = key;
+    call("icon", icon);
+  }
+  const height = Math.ceil(panel.getBoundingClientRect().height);
+  if (height !== lastHeight) {
+    lastHeight = height;
+    call("size", { height });
+  }
+}
+
+document.addEventListener("click", event => {
+  const target = event.target.closest("[data-action]");
+  if (!target || target.disabled) return;
+  const action = actions[target.dataset.action];
+  if (!action) return;
+  const arg = target.dataset.arg;
+  if (target.dataset.action === "setRouting") action(arg === "on");
+  else if (target.dataset.action === "link") action(Number(arg));
+  else action(arg);
+});
+
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape") call("hide");
+});
+
+window.addEventListener("blur", () => call("blur"));
+
+render();
+refresh();
+</script>
+</body>
+</html>

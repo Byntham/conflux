@@ -27,6 +27,8 @@ pub mod supervisor;
 pub mod tailnet;
 pub mod transcript_sync;
 pub mod transcripts;
+#[cfg(windows)]
+pub mod tray;
 pub mod update;
 pub mod usage;
 pub mod ws;

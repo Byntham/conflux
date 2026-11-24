@@ -552,9 +552,12 @@ fn build_conflux() -> Result<PathBuf> {
     Ok(profile_dir.join(format!("conflux{}", std::env::consts::EXE_SUFFIX)))
 }
 
-fn build_mac_app(conflux: &Path) -> Result<PathBuf> {
+fn build_app(conflux: &Path) -> Result<PathBuf> {
+    if cfg!(windows) {
+        return Ok(conflux.to_path_buf());
+    }
     if !cfg!(target_os = "macos") {
-        bail!("--app needs macOS");
+        bail!("--app needs macOS or Windows");
     }
     let out = conflux.parent().context("find the target directory")?.join("dev-app");
     let built = std::process::Command::new(Path::new(env!("CARGO_MANIFEST_DIR")).join("macos/build-app.sh"))
@@ -673,9 +676,9 @@ async fn stop_requested() {
 async fn main() -> Result<()> {
     let real = std::env::args().any(|a| a == "--real");
     let conflux = build_conflux()?;
-    let mac_app = std::env::args()
+    let app = std::env::args()
         .any(|a| a == "--app")
-        .then(|| build_mac_app(&conflux))
+        .then(|| build_app(&conflux))
         .transpose()?;
     let dir = tempfile::tempdir()?;
     let hub_home = dir.path().join("hub");
@@ -737,10 +740,14 @@ async fn main() -> Result<()> {
     }
     .start(&env)?;
     wait_until_up(&mut node, node_port, "the dev node").await?;
-    let menu_bar = mac_app
+    let menu_bar = app
         .as_ref()
         .map(|app| {
-            Command::new(app)
+            let mut command = Command::new(app);
+            if cfg!(windows) {
+                command.arg("tray");
+            }
+            command
                 .env("CONFLUX_HOME", &node_home)
                 .env("CLAUDE_CONFIG_DIR", dir.path().join("claude"))
                 .env("CODEX_HOME", dir.path().join("codex"))
@@ -749,7 +756,7 @@ async fn main() -> Result<()> {
                 .stdin(Stdio::null())
                 .kill_on_drop(true)
                 .spawn()
-                .context("start the Mac app")
+                .context("start the app")
         })
         .transpose()?;
 
@@ -794,7 +801,9 @@ async fn main() -> Result<()> {
             println!("  CONFLUX_HOME={hub_home} {conflux} login muse");
         }
     }
-    if let Some(app) = &mac_app {
+    if app.is_some() && cfg!(windows) {
+        println!("The tray app is in the notification area and shows the node.");
+    } else if let Some(app) = &app {
         println!("The Mac app is in the menu bar and shows the node. Draw its menu to a picture:");
         println!("  CONFLUX_HOME={node_home} {} --snapshot menu.png", app.display());
     }

@@ -12,9 +12,10 @@ fn home() -> Result<PathBuf> {
 }
 
 const WINDOWS_RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+const WINDOWS_TRAY: &str = "conflux-tray";
 
-pub fn windows_launch_command(exe: &Path) -> String {
-    format!(r#"conhost.exe --headless "{}" serve"#, exe.display())
+pub fn windows_launch_command(exe: &Path, command: &str) -> String {
+    format!(r#"conhost.exe --headless "{}" {command}"#, exe.display())
 }
 
 fn windows_stop() {
@@ -23,6 +24,35 @@ fn windows_stop() {
         .args(["/F", "/IM", "conflux.exe", "/FI", &not_me])
         .output();
 }
+
+fn windows_stop_service() {
+    let script = format!(
+        "Get-CimInstance Win32_Process -Filter \"Name = 'conflux.exe' AND ProcessId <> {}\" | \
+         Where-Object {{ $_.CommandLine -notmatch '\\stray\\s*$' }} | \
+         ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}",
+        std::process::id()
+    );
+    let _ = Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .output();
+}
+
+fn windows_register(name: &str, command: &str) -> Result<()> {
+    run(
+        "reg",
+        &["add", WINDOWS_RUN_KEY, "/v", name, "/t", "REG_SZ", "/d", command, "/f"],
+    )
+}
+
+#[cfg(windows)]
+fn windows_start_tray(exe: &Path) {
+    if let Err(e) = crate::tray::launch(exe) {
+        eprintln!("Warning: could not open the tray app: {e}");
+    }
+}
+
+#[cfg(not(windows))]
+fn windows_start_tray(_exe: &Path) {}
 
 fn windows_start(exe: &Path) -> Result<()> {
     Command::new("conhost.exe")
@@ -154,24 +184,14 @@ fn unit_path() -> Result<PathBuf> {
 pub fn install() -> Result<String> {
     let exe = crate::update::running_exe()?;
     if cfg!(windows) {
-        let launch = windows_launch_command(&exe);
-        run(
-            "reg",
-            &[
-                "add",
-                WINDOWS_RUN_KEY,
-                "/v",
-                "conflux",
-                "/t",
-                "REG_SZ",
-                "/d",
-                &launch,
-                "/f",
-            ],
-        )?;
-        windows_stop();
+        windows_register("conflux", &windows_launch_command(&exe, "serve"))?;
+        windows_stop_service();
         windows_start(&exe)?;
-        Ok("a startup entry that runs conflux when you sign in".to_string())
+        match windows_register(WINDOWS_TRAY, &windows_launch_command(&exe, "tray")) {
+            Ok(()) => windows_start_tray(&exe),
+            Err(e) => eprintln!("Warning: the tray app will not open at sign-in: {e:#}"),
+        }
+        Ok("a startup entry that runs conflux and its tray app when you sign in".to_string())
     } else if cfg!(target_os = "macos") {
         let log = home()?.join("Library/Logs/conflux.log");
         launchd_load(LAUNCHD_LABEL, &launchd_plist(&exe, &log))?;
@@ -213,7 +233,7 @@ pub fn install() -> Result<String> {
 
 pub fn restart() -> Result<()> {
     if cfg!(windows) {
-        windows_stop();
+        windows_stop_service();
         windows_start(&std::env::current_exe().context("find the conflux binary")?)
     } else if cfg!(target_os = "macos") {
         run(
@@ -243,9 +263,11 @@ pub fn installed() -> bool {
 pub fn uninstall() -> Result<()> {
     if cfg!(windows) {
         windows_stop();
-        let _ = Command::new("reg")
-            .args(["delete", WINDOWS_RUN_KEY, "/v", "conflux", "/f"])
-            .output();
+        for name in ["conflux", WINDOWS_TRAY] {
+            let _ = Command::new("reg")
+                .args(["delete", WINDOWS_RUN_KEY, "/v", name, "/f"])
+                .output();
+        }
     } else if cfg!(target_os = "macos") {
         launchd_unload(LAUNCHD_LABEL)?;
         launchd_unload(MENU_BAR_LABEL)?;
@@ -268,7 +290,7 @@ mod tests {
 
     #[test]
     fn windows_command_quotes_the_path() {
-        let c = windows_launch_command(Path::new(r"C:\Users\Me Too\conflux.exe"));
+        let c = windows_launch_command(Path::new(r"C:\Users\Me Too\conflux.exe"), "serve");
         assert_eq!(c, r#"conhost.exe --headless "C:\Users\Me Too\conflux.exe" serve"#);
     }
 }

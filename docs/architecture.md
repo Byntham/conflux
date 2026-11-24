@@ -209,6 +209,7 @@ The config dir is `$XDG_CONFIG_HOME/conflux`, or `~/.config/conflux`. The data d
 | `src/transcripts.rs` | Transcript storage, index, and search on the hub |
 | `src/setup.rs` | Edits to Claude Code, Codex, Grok Build, and Muse Code config |
 | `src/service.rs` | systemd, launchd, and Windows service install |
+| `src/tray.rs`, `src/tray.html` | Windows tray app |
 | `src/tailnet.rs` | Tailscale status, peers, and addresses |
 | `src/access.rs` | Host and origin checks |
 | `src/config.rs` | Paths, `config.toml`, upstream endpoints |

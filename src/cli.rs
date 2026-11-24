@@ -197,6 +197,15 @@ pub enum Command {
                       CONFLUX_LOG to change the log level."
     )]
     Serve,
+    #[command(
+        about = "Show conflux in the Windows notification area",
+        long_about = "Show conflux in the Windows notification area.\n\n\
+                      The icon shows each provider's limits, pooled across its accounts. Click it \
+                      to update machines, turn routing on or off for this PC, and open the dashboard. \
+                      conflux starts it when you sign in."
+    )]
+    #[cfg_attr(not(windows), command(hide = true))]
+    Tray,
     #[command(hide = true)]
     Worker,
 }
@@ -355,6 +364,10 @@ pub async fn run(cli: Cli) -> Result<()> {
             Ok(())
         }
         Command::Serve => tokio::task::spawn_blocking(supervisor::run).await?,
+        #[cfg(windows)]
+        Command::Tray => tokio::task::spawn_blocking(crate::tray::run).await?,
+        #[cfg(not(windows))]
+        Command::Tray => bail!("the tray app runs only on Windows"),
         Command::Update { machines } => update(&daemon, machines).await,
         Command::Worker => {
             if cfg.role == Role::Hub
