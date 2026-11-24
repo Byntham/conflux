@@ -64,7 +64,7 @@ Windows, in PowerShell:
 irm https://raw.githubusercontent.com/Byntham/conflux/main/install.ps1 | iex
 ```
 
-conflux now runs as a background service and waits. On a Mac, you also get a [menu bar app](docs/install.md#the-mac-menu-bar-app). If the installer says it changed your PATH, open a new terminal.
+conflux now runs as a background service and waits. On a Mac, you also get a [menu bar app](docs/install.md#the-mac-menu-bar-app), and on Windows a [tray app](docs/install.md#the-windows-tray-app). If the installer says it changed your PATH, open a new terminal.
 
 Then make this machine the hub:
 

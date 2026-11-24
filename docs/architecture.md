@@ -23,7 +23,7 @@ A machine gets its role in one of these ways:
 
 ## Process model
 
-`conflux serve` is a supervisor (`src/supervisor.rs`). It starts the hidden `conflux worker` subcommand and gives it a pipe on stdin as a lifeline. Every worker inherits that pipe. When the last worker exits, the pipe closes, and the supervisor starts a new worker 3 seconds later. The installed service (`src/service.rs`) runs `conflux serve` as a systemd user unit, a launchd agent, or a Windows Run key entry.
+`conflux serve` is a supervisor (`src/supervisor.rs`). It starts the hidden `conflux worker` subcommand and gives it a pipe on stdin as a lifeline. Every worker inherits that pipe. When the last worker exits, the pipe closes, and the supervisor starts a new worker 3 seconds later. The installed service (`src/service.rs`) runs `conflux serve` as a systemd user unit, a launchd agent, or a Windows Run key entry. On Windows, the supervisor of an installed service also opens the tray app when it starts on a signed-in desktop, unless `CONFLUX_HOME` is set.
 
 A hub takes an exclusive file lock on `hub.lock` in the data directory, so two hubs cannot share one account store.
 
@@ -209,6 +209,7 @@ The config dir is `$XDG_CONFIG_HOME/conflux`, or `~/.config/conflux`. The data d
 | `src/transcripts.rs` | Transcript storage, index, and search on the hub |
 | `src/setup.rs` | Edits to Claude Code, Codex, Grok Build, and Muse Code config |
 | `src/service.rs` | systemd, launchd, and Windows service install |
+| `src/tray.rs`, `src/tray.html` | Windows tray app |
 | `src/tailnet.rs` | Tailscale status, peers, and addresses |
 | `src/access.rs` | Host and origin checks |
 | `src/config.rs` | Paths, `config.toml`, upstream endpoints |

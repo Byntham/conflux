@@ -1,6 +1,6 @@
 # Install
 
-Everything the [quick start](../README.md#quick-start) leaves out: [installing over ssh](#install-from-the-hub-over-ssh), [linking from the hub](#link-a-machine-from-the-hub), [linking by name](#link-a-machine-by-name), [guests](#join-as-a-guest), [other ways to install](#other-ways-to-install), [the Mac menu bar app](#the-mac-menu-bar-app), [updates](#update), and [uninstalling](#uninstall).
+Everything the [quick start](../README.md#quick-start) leaves out: [installing over ssh](#install-from-the-hub-over-ssh), [linking from the hub](#link-a-machine-from-the-hub), [linking by name](#link-a-machine-by-name), [guests](#join-as-a-guest), [other ways to install](#other-ways-to-install), [the Mac menu bar app](#the-mac-menu-bar-app), [the Windows tray app](#the-windows-tray-app), [updates](#update), and [uninstalling](#uninstall).
 
 ## Requirements
 
@@ -59,6 +59,14 @@ Conflux.app adds an icon to the menu bar. It shows each provider's limits, poole
 Quitting the app doesn't stop conflux. The app opens again at your next login.
 
 If you set `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`, or `XDG_CONFIG_HOME`, use `conflux on` and `conflux off` instead of the app's routing switch. The app edits only the default folders.
+
+## The Windows tray app
+
+On Windows, conflux adds an icon to the notification area. Click it to see each provider's limits, pooled across its accounts, update machines, turn routing on or off for this PC, and open the dashboard. Right-click it to open the panel or the dashboard, or to exit. A dot on the icon means something needs you, such as an account that needs a new login. Windows 11 puts new icons behind the arrow next to the clock. To keep the icon on the taskbar, drag it there.
+
+The background service opens the tray app when you sign in. Exiting the app doesn't stop conflux. It stays closed until you sign in again, restart the service, or run `conflux tray`.
+
+The tray app needs the Microsoft Edge WebView2 runtime. Windows 11 includes it, and most Windows 10 PCs have it. Without it, the app doesn't open at sign-in. Run `conflux tray` to see why, then install the runtime from Microsoft.
 
 ## Update
 

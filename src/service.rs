@@ -24,14 +24,80 @@ fn windows_stop() {
         .output();
 }
 
+fn windows_stop_service() {
+    let exe = std::env::current_exe().unwrap_or_default();
+    let dir = exe.parent().unwrap_or(Path::new("")).display().to_string();
+    let script = format!(
+        "Get-CimInstance Win32_Process -Filter \"Name = 'conflux.exe' AND ProcessId <> {}\" | \
+         Where-Object {{ $_.ExecutablePath -and [IO.Path]::GetDirectoryName($_.ExecutablePath) -eq '{}' -and \
+         $_.CommandLine -match '\\s\"?(serve|worker)\"?\\s*$' }} | \
+         ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}",
+        std::process::id(),
+        dir.replace('\'', "''")
+    );
+    let stopped = Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .output()
+        .is_ok_and(|o| o.status.success());
+    if !stopped {
+        windows_stop();
+    }
+}
+
+#[cfg(windows)]
+pub fn keep_std_handles_private() {
+    use windows_sys::Win32::Foundation::{HANDLE_FLAG_INHERIT, SetHandleInformation};
+    use windows_sys::Win32::System::Console::{GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE};
+    for id in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+        unsafe { SetHandleInformation(GetStdHandle(id), HANDLE_FLAG_INHERIT, 0) };
+    }
+}
+
+#[cfg(windows)]
 fn windows_start(exe: &Path) -> Result<()> {
-    Command::new("conhost.exe")
-        .arg("--headless")
-        .arg(exe)
+    use std::os::windows::process::CommandExt;
+    use std::process::Stdio;
+    keep_std_handles_private();
+    Command::new(exe)
         .arg("serve")
+        .creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .spawn()
         .context("start conflux")?;
     Ok(())
+}
+
+#[cfg(not(windows))]
+fn windows_start(_exe: &Path) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(windows)]
+fn windows_installed() -> bool {
+    use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_ANY, RegGetValueW};
+    let wide = |text: &str| text.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
+    let key = wide(r"Software\Microsoft\Windows\CurrentVersion\Run");
+    let value = wide("conflux");
+    let mut size = 0u32;
+    let read = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            key.as_ptr(),
+            value.as_ptr(),
+            RRF_RT_ANY,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut size,
+        )
+    };
+    read == 0
+}
+
+#[cfg(not(windows))]
+fn windows_installed() -> bool {
+    false
 }
 
 pub fn systemd_unit(exe: &Path) -> String {
@@ -169,9 +235,9 @@ pub fn install() -> Result<String> {
                 "/f",
             ],
         )?;
-        windows_stop();
+        windows_stop_service();
         windows_start(&exe)?;
-        Ok("a startup entry that runs conflux when you sign in".to_string())
+        Ok("a startup entry that runs conflux and its tray app when you sign in".to_string())
     } else if cfg!(target_os = "macos") {
         let log = home()?.join("Library/Logs/conflux.log");
         launchd_load(LAUNCHD_LABEL, &launchd_plist(&exe, &log))?;
@@ -213,7 +279,7 @@ pub fn install() -> Result<String> {
 
 pub fn restart() -> Result<()> {
     if cfg!(windows) {
-        windows_stop();
+        windows_stop_service();
         windows_start(&std::env::current_exe().context("find the conflux binary")?)
     } else if cfg!(target_os = "macos") {
         run(
@@ -227,10 +293,7 @@ pub fn restart() -> Result<()> {
 
 pub fn installed() -> bool {
     if cfg!(windows) {
-        return Command::new("reg")
-            .args(["query", WINDOWS_RUN_KEY, "/v", "conflux"])
-            .output()
-            .is_ok_and(|o| o.status.success());
+        return windows_installed();
     }
     if cfg!(target_os = "macos") {
         plist_path()

@@ -9,7 +9,7 @@ Some commands change only the machine you run them on. The account commands send
 An account ID looks like `claude-1a2b3c4d5e6f` or `codex-1a2b3c4d5e6f`. `conflux status` lists them.
 
 - [Accounts](#accounts): `status`, `login`, `usage`, `enable`, `disable`, `overage`, `remove`
-- [This machine](#this-machine): `join`, `wait`, `off`, `on`, `leave`, `sync`, `serve`
+- [This machine](#this-machine): `join`, `wait`, `off`, `on`, `leave`, `sync`, `serve`, `tray`
 - [Every machine](#every-machine): `add`, `update`, `guest`
 - [Moving the hub](#moving-the-hub): `hub move`, `hub resume`
 - [Other](#other): `t3-key`
@@ -149,6 +149,10 @@ The hub keeps the copies in `~/conflux/transcripts`. The dashboard's Threads tab
 ### `conflux serve`
 
 Runs conflux in the foreground until you stop it. The background service runs this command for you. Run it yourself after `conflux join <hub> --no-service`, or to watch logs while you debug. To watch logs, stop the background service first. See [Troubleshooting](troubleshooting.md#logs-and-the-background-service). Set `CONFLUX_LOG` to change the log level. See [Configuration](configuration.md).
+
+### `conflux tray`
+
+Windows only. Opens the [tray app](install.md#the-windows-tray-app). If it is already open, shows its panel. The background service opens it when you sign in.
 
 ## Every machine
 

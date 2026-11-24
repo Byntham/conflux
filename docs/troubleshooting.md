@@ -8,7 +8,7 @@
 | --- | --- | --- | --- |
 | Linux | systemd user unit `conflux.service` in `~/.config/systemd/user/` | `journalctl --user -u conflux` | `systemctl --user restart conflux` |
 | macOS | launchd agent `dev.conflux` in `~/Library/LaunchAgents/` | `~/Library/Logs/conflux.log` | `launchctl kickstart -k gui/$(id -u)/dev.conflux` |
-| Windows | `conflux` entry in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` | none | `conflux wait`, or sign out and back in |
+| Windows | `conflux` entry in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. It also opens the tray app. | none | `conflux wait`, or sign out and back in |
 
 On Windows, conflux runs in a hidden console and keeps no log file.
 
@@ -16,7 +16,7 @@ To watch logs in a terminal, stop the background service, then run `conflux serv
 
 - Linux: `systemctl --user stop conflux`. Start it again with `systemctl --user start conflux`.
 - macOS: `launchctl bootout gui/$(id -u)/dev.conflux`. Start it again with `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.conflux.plist`.
-- Windows: end every `conflux.exe` in Task Manager. Start it again with `conflux wait`.
+- Windows: end every `conflux.exe` in Task Manager. Start it again with `conflux wait`, which opens the tray app too.
 
 ## Common problems
 
