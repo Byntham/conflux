@@ -274,6 +274,7 @@ fn serve(paths: Paths, exe: PathBuf, reopened: Signal, mut open: bool) -> Result
                 if flyout.window.is_visible() {
                     flyout.shown += 1;
                     flyout.window.set_focus();
+                    let _ = flyout.webview.focus();
                 } else {
                     flyout.anchor = Some(center(&rect));
                     flyout.show();
@@ -523,11 +524,17 @@ struct Bridge {
 
 impl Bridge {
     fn base(&self) -> Option<String> {
-        let config = Config::load(&self.paths);
-        if self.dev_copy && (!self.paths.config_file().exists() || config.is_err()) {
+        let port = Config::load(&self.paths).map(|c| c.port);
+        if self.dev_copy
+            && (!self.paths.config_file().exists() || port.as_ref().is_ok_and(|p| *p == crate::config::DEFAULT_PORT))
+        {
             return None;
         }
-        let port = config.map(|c| c.port).unwrap_or(crate::config::DEFAULT_PORT);
+        let port = match port {
+            Ok(port) => port,
+            Err(_) if self.dev_copy => return None,
+            Err(_) => crate::config::DEFAULT_PORT,
+        };
         Some(format!("http://127.0.0.1:{port}/"))
     }
 
@@ -728,11 +735,17 @@ fn isolated_clients(paths: &Paths) -> bool {
     let Some(copy) = paths.config_dir.parent().and_then(Path::parent) else {
         return false;
     };
-    ["CLAUDE_CONFIG_DIR", "CODEX_HOME", "GROK_HOME", "XDG_CONFIG_HOME"]
-        .iter()
-        .all(|name| {
-            std::env::var(name).is_ok_and(|dir| Path::new(&dir).is_absolute() && Path::new(&dir).starts_with(copy))
-        })
+    let home = crate::config::home_dir().unwrap_or_default();
+    let inside = |dir: &Path| {
+        dir.is_absolute()
+            && dir.starts_with(copy)
+            && !dir.components().any(|part| part == std::path::Component::ParentDir)
+    };
+    copy.is_absolute()
+        && !home.starts_with(copy)
+        && ["CLAUDE_CONFIG_DIR", "CODEX_HOME", "GROK_HOME", "XDG_CONFIG_HOME"]
+            .iter()
+            .all(|name| std::env::var(name).is_ok_and(|dir| inside(Path::new(&dir))))
 }
 
 fn alert(text: &str) {

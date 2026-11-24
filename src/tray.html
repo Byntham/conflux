@@ -591,9 +591,9 @@ async function answering() {
   const node = await get("/conflux/node");
   if (node.status === 200) return !!(parse(node.body) || {}).hub_link;
   if (node.status === 409) return !!(parse(node.body) || {}).error;
-  if (node.status !== 404) return false;
+  if (node.status !== 404 && node.status !== 503) return false;
   const status = await get("/conflux/api/status");
-  return status.status === 200 && Array.isArray((parse(status.body) || {}).machines);
+  return status.status === 200 && typeof (parse(status.body) || {}).pid === "number";
 }
 
 async function untilAnswering() {
@@ -957,7 +957,9 @@ document.addEventListener("keydown", event => {
 
 window.addEventListener("blur", () => call("blur"));
 
-document.getElementById("panel").addEventListener("animationend", () => document.body.classList.remove("entering"));
+document.getElementById("panel").addEventListener("animationend", event => {
+  if (event.target === event.currentTarget) document.body.classList.remove("entering");
+});
 
 render();
 refresh();
