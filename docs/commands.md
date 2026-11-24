@@ -152,7 +152,7 @@ Runs conflux in the foreground until you stop it. The background service runs th
 
 ### `conflux tray`
 
-Windows only. Opens the [tray app](install.md#the-windows-tray-app). If it is already open, shows its panel. `conflux join` and `conflux wait` set it to open when you sign in.
+Windows only. Opens the [tray app](install.md#the-windows-tray-app). If it is already open, shows its panel. The background service opens it when you sign in.
 
 ## Every machine
 

@@ -8,6 +8,8 @@ const RESTART_AFTER: Duration = Duration::from_secs(3);
 
 pub fn run() -> Result<()> {
     let exe = std::env::current_exe().context("find the conflux binary")?;
+    #[cfg(windows)]
+    crate::tray::open_with_service();
     loop {
         let (mut workers_alive, lifeline) = std::io::pipe().context("create the worker lifeline")?;
         let spawned = Command::new(&exe).arg("worker").stdin(lifeline).spawn();

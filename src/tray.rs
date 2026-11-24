@@ -126,7 +126,9 @@ pub fn run() -> Result<()> {
     }
     let open = std::env::var(MODE).is_ok_and(|mode| mode == "open");
     let failed = serve(paths, exe, reopened, open).unwrap_err();
-    alert(&format!("conflux could not open its tray app: {failed:#}"));
+    if open {
+        alert(&format!("conflux could not open its tray app: {failed:#}"));
+    }
     Err(failed)
 }
 
@@ -710,8 +712,13 @@ fn modified(exe: &Path) -> Option<SystemTime> {
     std::fs::metadata(exe).and_then(|m| m.modified()).ok()
 }
 
-pub fn launch(exe: &Path) -> std::io::Result<()> {
-    spawn(exe, Launch::Quiet, None)
+pub fn open_with_service() {
+    if std::env::var_os("CONFLUX_HOME").is_some() || !crate::service::installed() || !on_desktop() {
+        return;
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        let _ = spawn(&exe, Launch::Quiet, None);
+    }
 }
 
 fn spawn(exe: &Path, launch: Launch, replaces: Option<u32>) -> std::io::Result<()> {

@@ -202,7 +202,7 @@ pub enum Command {
         long_about = "Show conflux in the Windows notification area.\n\n\
                       The icon shows each provider's limits, pooled across its accounts. Click it \
                       to update machines, turn routing on or off for this PC, and open the dashboard. \
-                      conflux starts it when you sign in."
+                      The background service opens it when you sign in."
     )]
     #[cfg_attr(not(windows), command(hide = true))]
     Tray,

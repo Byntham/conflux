@@ -8,7 +8,7 @@
 | --- | --- | --- | --- |
 | Linux | systemd user unit `conflux.service` in `~/.config/systemd/user/` | `journalctl --user -u conflux` | `systemctl --user restart conflux` |
 | macOS | launchd agent `dev.conflux` in `~/Library/LaunchAgents/` | `~/Library/Logs/conflux.log` | `launchctl kickstart -k gui/$(id -u)/dev.conflux` |
-| Windows | `conflux` entry in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, and `conflux-tray` for the tray app | none | `conflux wait`, or sign out and back in |
+| Windows | `conflux` entry in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. It also opens the tray app. | none | `conflux wait`, or sign out and back in |
 
 On Windows, conflux runs in a hidden console and keeps no log file.
 
