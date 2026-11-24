@@ -1,6 +1,6 @@
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -8,7 +8,7 @@ use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use tao::dpi::{PhysicalPosition, PhysicalSize};
+use tao::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
 use tao::platform::windows::{EventLoopBuilderExtWindows, WindowBuilderExtWindows, WindowExtWindows};
@@ -17,10 +17,11 @@ use tiny_skia::{BlendMode, FillRule, Paint, PathBuilder, Pixmap, Transform};
 use tray_icon::menu::{Menu, MenuEvent, MenuId, MenuItem};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND, POINT, WAIT_OBJECT_0,
+    CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND, POINT, RECT, WAIT_OBJECT_0,
 };
 use windows_sys::Win32::Graphics::Dwm::{DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute};
 use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint};
+use windows_sys::Win32::System::Console::GetConsoleProcessList;
 use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_BINARY, RRF_RT_REG_DWORD, RegGetValueW};
 use windows_sys::Win32::System::StationsAndDesktops::{
     GetProcessWindowStation, GetUserObjectInformationW, UOI_FLAGS, USEROBJECTFLAGS,
@@ -42,14 +43,16 @@ const LOGO: &str = include_str!("../assets/icon.svg");
 const WIDTH: f64 = 360.0;
 const MARGIN: f64 = 12.0;
 const TICK: Duration = Duration::from_secs(3);
+const SETTLE: Duration = Duration::from_secs(30);
 const REPLACES: &str = "CONFLUX_TRAY_REPLACES";
+const QUIET: &str = "CONFLUX_TRAY_QUIET";
 
 enum Message {
     Tray(TrayIconEvent),
     Menu(MenuId),
     Page(String),
     Reply(u64, Value),
-    CheckFocus,
+    CheckFocus(u64),
     Show,
     Tick,
 }
@@ -72,13 +75,14 @@ enum Request {
         path: String,
         body: Value,
     },
-    Conflux {
-        args: Vec<String>,
+    Routing {
+        on: bool,
+    },
+    SetUp {
+        hub: bool,
     },
     Restart,
-    Open {
-        url: String,
-    },
+    OpenDashboard,
     Size {
         height: f64,
     },
@@ -97,11 +101,14 @@ pub fn run() -> Result<()> {
         bail!("the tray app needs a signed-in Windows desktop");
     }
     let paths = Paths::from_env()?;
+    let exe = std::env::current_exe().context("find the conflux binary")?;
     let Some(reopened) = single_instance(&paths.config_dir) else {
         return Ok(());
     };
-    let exe = std::env::current_exe().context("find the conflux binary")?;
-    let built = modified(&exe);
+    if in_terminal() {
+        drop(reopened);
+        return launch(&exe).context("start the tray app");
+    }
     let dev_copy = std::env::var_os("CONFLUX_HOME").is_some();
 
     let event_loop = EventLoopBuilder::<Message>::with_user_event()
@@ -116,29 +123,41 @@ pub fn run() -> Result<()> {
         .with_always_on_top(true)
         .with_skip_taskbar(true)
         .with_undecorated_shadow(true)
-        .with_inner_size(PhysicalSize::new(WIDTH, 200.0))
+        .with_inner_size(LogicalSize::new(WIDTH, 200.0))
         .build(&event_loop)
         .context("open the tray window")?;
     round_corners(&window);
 
     let mut context = WebContext::new(Some(paths.data_dir.join("tray")));
     let page_proxy = proxy.clone();
+    let background = if light_apps() {
+        (0xf9, 0xf9, 0xf9, 0xff)
+    } else {
+        (0x2c, 0x2c, 0x2c, 0xff)
+    };
     let webview = WebViewBuilder::new_with_web_context(&mut context)
-        .with_html(PAGE)
+        .with_html(PAGE.replace("__LOGO__", logo_data().unwrap_or_default()))
+        .with_background_color(background)
         .with_ipc_handler(move |request| {
             let _ = page_proxy.send_event(Message::Page(request.into_body()));
         })
-        .with_navigation_handler(|url| url.starts_with("about:") || url.starts_with("data:"))
+        .with_navigation_handler(|url| url.starts_with("data:"))
         .with_new_window_req_handler(|_, _| wry::NewWindowResponse::Deny)
         .with_default_context_menus(false)
         .with_browser_accelerator_keys(false)
         .with_hotkeys_zoom(false)
         .build(&window)
-        .context("start WebView2. Install the WebView2 runtime from Microsoft and try again")?;
+        .with_context(|| {
+            format!(
+                "start WebView2 with its data in {}. If the WebView2 runtime is missing, install it from Microsoft",
+                paths.data_dir.join("tray").display()
+            )
+        })?;
 
+    let open_panel = MenuItem::new("Open conflux", true, None);
     let open_dashboard = MenuItem::new("Open dashboard", true, None);
     let exit = MenuItem::new("Exit tray app", true, None);
-    let menu = Menu::with_items(&[&open_dashboard, &exit])?;
+    let menu = Menu::with_items(&[&open_panel, &open_dashboard, &exit])?;
     let tray = TrayIconBuilder::new()
         .with_icon(icon(None, false))
         .with_tooltip("conflux")
@@ -171,7 +190,10 @@ pub fn run() -> Result<()> {
     let runtime = tokio::runtime::Handle::current();
     let bridge = Arc::new(Bridge {
         proxy,
-        http: reqwest::Client::builder().timeout(Duration::from_secs(5)).build()?,
+        http: reqwest::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()?,
         exe: exe.clone(),
         paths,
         dev_copy,
@@ -184,6 +206,11 @@ pub fn run() -> Result<()> {
         hidden_at: Instant::now(),
         anchor: None,
         badge: (None, false, light_taskbar()),
+        shown: 0,
+    };
+    let mut update = Update {
+        built: modified(&exe),
+        seen: None,
     };
 
     event_loop.run(move |event, _, flow| {
@@ -193,9 +220,13 @@ pub fn run() -> Result<()> {
             Event::WindowEvent {
                 event: WindowEvent::Focused(false),
                 ..
-            } => check_focus_soon(&bridge.proxy),
-            Event::UserEvent(Message::CheckFocus) => {
-                if unsafe { GetForegroundWindow() } != flyout.window.hwnd() as HWND {
+            } => check_focus_soon(&bridge.proxy, flyout.shown),
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                ..
+            } => flyout.hide(),
+            Event::UserEvent(Message::CheckFocus(shown)) => {
+                if shown == flyout.shown && unsafe { GetForegroundWindow() } != flyout.window.hwnd() as HWND {
                     flyout.hide();
                 }
             }
@@ -205,24 +236,19 @@ pub fn run() -> Result<()> {
                 rect,
                 ..
             })) => {
-                flyout.anchor = Some(PhysicalPosition::new(
-                    rect.position.x + f64::from(rect.size.width) / 2.0,
-                    rect.position.y + f64::from(rect.size.height) / 2.0,
-                ));
+                flyout.anchor = Some(center(&rect));
                 flyout.toggle();
             }
             Event::UserEvent(Message::Show) => {
-                flyout.anchor = flyout.tray.rect().map(|rect| {
-                    PhysicalPosition::new(
-                        rect.position.x + f64::from(rect.size.width) / 2.0,
-                        rect.position.y + f64::from(rect.size.height) / 2.0,
-                    )
-                });
+                flyout.anchor = flyout.tray.rect().map(|rect| center(&rect));
                 flyout.show();
             }
             Event::UserEvent(Message::Menu(id)) => {
-                if id == *open_dashboard.id() {
-                    let _ = flyout.webview.evaluate_script("conflux.openDashboard()");
+                if id == *open_panel.id() {
+                    flyout.anchor = flyout.tray.rect().map(|rect| center(&rect));
+                    flyout.show();
+                } else if id == *open_dashboard.id() {
+                    open(&bridge.base());
                 } else if id == *exit.id() {
                     *flow = ControlFlow::Exit;
                 }
@@ -231,13 +257,11 @@ pub fn run() -> Result<()> {
                 let _ = flyout.webview.evaluate_script(&format!("conflux.reply({id}, {value})"));
             }
             Event::UserEvent(Message::Tick) => {
-                if modified(&exe).is_some_and(|now| Some(now) != built) {
-                    let _ = spawn(&exe, Some(std::process::id()));
+                if !dev_copy && update.ready(&exe) && spawn(&exe, Some(std::process::id())).is_ok() {
                     *flow = ControlFlow::Exit;
                     return;
                 }
-                let light = light_taskbar();
-                if light != flyout.badge.2 {
+                if light_taskbar() != flyout.badge.2 {
                     let (badge, dimmed, _) = flyout.badge.clone();
                     flyout.set_icon(badge, dimmed);
                 }
@@ -259,12 +283,15 @@ pub fn run() -> Result<()> {
                         let _ = flyout.tray.set_tooltip(Some(tooltip));
                     }
                     Request::Hide => flyout.hide(),
-                    Request::Blur => check_focus_soon(&bridge.proxy),
+                    Request::Blur => check_focus_soon(&bridge.proxy, flyout.shown),
                     Request::Quit => {
                         *flow = ControlFlow::Exit;
                         return;
                     }
-                    Request::Open { url } => open(&url),
+                    Request::OpenDashboard => {
+                        open(&bridge.base());
+                        flyout.hide();
+                    }
                     request => {
                         let bridge = bridge.clone();
                         runtime.spawn(async move {
@@ -281,6 +308,40 @@ pub fn run() -> Result<()> {
     })
 }
 
+struct Update {
+    built: Option<SystemTime>,
+    seen: Option<(SystemTime, Instant)>,
+}
+
+impl Update {
+    fn ready(&mut self, exe: &Path) -> bool {
+        let Some(now) = modified(exe) else {
+            return false;
+        };
+        if self.built.is_none() {
+            self.built = Some(now);
+        }
+        if Some(now) == self.built {
+            self.seen = None;
+            return false;
+        }
+        match self.seen {
+            Some((seen, since)) if seen == now => since.elapsed() >= SETTLE,
+            _ => {
+                self.seen = Some((now, Instant::now()));
+                false
+            }
+        }
+    }
+}
+
+fn center(rect: &tray_icon::Rect) -> PhysicalPosition<f64> {
+    PhysicalPosition::new(
+        rect.position.x + f64::from(rect.size.width) / 2.0,
+        rect.position.y + f64::from(rect.size.height) / 2.0,
+    )
+}
+
 struct Flyout {
     window: Window,
     webview: WebView,
@@ -289,6 +350,7 @@ struct Flyout {
     hidden_at: Instant,
     anchor: Option<PhysicalPosition<f64>>,
     badge: (Option<String>, bool, bool),
+    shown: u64,
 }
 
 impl Flyout {
@@ -301,6 +363,7 @@ impl Flyout {
     }
 
     fn show(&mut self) {
+        self.shown += 1;
         self.place();
         self.window.set_visible(true);
         self.window.set_focus();
@@ -331,24 +394,24 @@ impl Flyout {
             GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi, &mut unused);
             (info.rcWork, info.rcMonitor, f64::from(dpi) / 96.0)
         };
-        let width = (WIDTH * scale).round();
-        let height = (self.height * scale)
-            .round()
-            .min(f64::from(work.bottom - work.top) - 2.0 * MARGIN * scale);
         let margin = MARGIN * scale;
-        let center = self.anchor.map_or(f64::from(work.right), |anchor| anchor.x);
-        let x = (center - width / 2.0)
-            .min(f64::from(work.right) - width - margin)
-            .max(f64::from(work.left) + margin);
-        let taskbar_hidden = work.top == screen.top && work.bottom == screen.bottom;
-        let taskbar_on_top = work.top > screen.top || (taskbar_hidden && point.y < (screen.top + screen.bottom) / 2);
-        let y = if taskbar_on_top {
-            f64::from(work.top) + margin
-        } else {
-            f64::from(work.bottom) - height - margin
+        let (left, top, right, bottom) = (
+            f64::from(work.left) + margin,
+            f64::from(work.top) + margin,
+            f64::from(work.right) - margin,
+            f64::from(work.bottom) - margin,
+        );
+        let width = (WIDTH * scale).round().min(right - left).max(1.0);
+        let height = (self.height * scale).round().min(bottom - top).max(1.0);
+        let (cx, cy) = self.anchor.map_or((right, bottom), |anchor| (anchor.x, anchor.y));
+        let (x, y) = match taskbar_edge(&work, &screen, self.anchor) {
+            Edge::Top => ((cx - width / 2.0).clamp(left, right - width), top),
+            Edge::Bottom => ((cx - width / 2.0).clamp(left, right - width), bottom - height),
+            Edge::Left => (left, (cy - height / 2.0).clamp(top, bottom - height)),
+            Edge::Right => (right - width, (cy - height / 2.0).clamp(top, bottom - height)),
         };
-        self.window.set_inner_size(PhysicalSize::new(width, height));
         self.window.set_outer_position(PhysicalPosition::new(x, y));
+        self.window.set_inner_size(PhysicalSize::new(width, height));
     }
 
     fn set_icon(&mut self, badge: Option<String>, dimmed: bool) {
@@ -359,6 +422,41 @@ impl Flyout {
         let _ = self.tray.set_icon(Some(icon(badge.as_deref(), dimmed)));
         self.badge = (badge, dimmed, light);
     }
+}
+
+enum Edge {
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
+fn taskbar_edge(work: &RECT, screen: &RECT, anchor: Option<PhysicalPosition<f64>>) -> Edge {
+    if work.bottom < screen.bottom {
+        return Edge::Bottom;
+    }
+    if work.top > screen.top {
+        return Edge::Top;
+    }
+    if work.left > screen.left {
+        return Edge::Left;
+    }
+    if work.right < screen.right {
+        return Edge::Right;
+    }
+    let Some(anchor) = anchor else {
+        return Edge::Bottom;
+    };
+    let distances = [
+        (anchor.y - f64::from(screen.top), Edge::Top),
+        (f64::from(screen.bottom) - anchor.y, Edge::Bottom),
+        (anchor.x - f64::from(screen.left), Edge::Left),
+        (f64::from(screen.right) - anchor.x, Edge::Right),
+    ];
+    distances
+        .into_iter()
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map_or(Edge::Bottom, |(_, edge)| edge)
 }
 
 struct Bridge {
@@ -374,46 +472,40 @@ impl Bridge {
         let port = Config::load(&self.paths)
             .map(|c| c.port)
             .unwrap_or(crate::config::DEFAULT_PORT);
-        format!("http://127.0.0.1:{port}")
+        format!("http://127.0.0.1:{port}/")
+    }
+
+    fn url(&self, path: &str) -> Option<String> {
+        let rest = path.strip_prefix("/conflux/")?;
+        Some(format!("{}conflux/{rest}", self.base()))
     }
 
     async fn answer(&self, request: Request) -> Value {
         match request {
             Request::Local => tokio::task::block_in_place(|| self.local()),
-            Request::Get { path } => answered(self.http.get(format!("{}{path}", self.base())).send().await).await,
-            Request::Post { path, body } => {
-                let sent = self
-                    .http
-                    .post(format!("{}{path}", self.base()))
-                    .timeout(Duration::from_secs(30))
-                    .json(&body)
-                    .send()
-                    .await;
-                answered(sent).await
-            }
-            Request::Conflux { args } => {
-                let exe = self.exe.clone();
-                let ran = tokio::task::spawn_blocking(move || {
-                    Command::new(exe)
-                        .args(args)
-                        .stdin(std::process::Stdio::null())
-                        .creation_flags(CREATE_NO_WINDOW)
-                        .output()
-                })
-                .await;
-                match ran {
-                    Ok(Ok(output)) => {
-                        let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
-                        text.push_str(&String::from_utf8_lossy(&output.stderr));
-                        json!({ "ok": output.status.success(), "output": text.trim() })
-                    }
-                    Ok(Err(e)) => json!({ "ok": false, "output": e.to_string() }),
-                    Err(e) => json!({ "ok": false, "output": e.to_string() }),
+            Request::Get { path } => match self.url(&path) {
+                Some(url) => answered(self.http.get(url).send().await).await,
+                None => json!({ "unreachable": true }),
+            },
+            Request::Post { path, body } => match self.url(&path) {
+                Some(url) => {
+                    let sent = self
+                        .http
+                        .post(url)
+                        .timeout(Duration::from_secs(30))
+                        .json(&body)
+                        .send()
+                        .await;
+                    answered(sent).await
                 }
+                None => json!({ "unreachable": true }),
+            },
+            Request::Routing { on } => self.conflux(&[if on { "on" } else { "off" }]).await,
+            Request::SetUp { .. } | Request::Restart if self.dev_copy => {
+                json!({ "ok": false, "output": "This is a dev copy. It has no background service." })
             }
-            Request::Restart if self.dev_copy => {
-                json!({ "ok": false, "output": "This is a dev copy. It has no background service to restart." })
-            }
+            Request::SetUp { hub: true } => self.conflux(&["join", "self"]).await,
+            Request::SetUp { hub: false } => self.conflux(&["wait"]).await,
             Request::Restart => match tokio::task::spawn_blocking(crate::service::restart).await {
                 Ok(Ok(())) => json!({ "ok": true }),
                 Ok(Err(e)) => json!({ "ok": false, "output": format!("{e:#}") }),
@@ -423,21 +515,47 @@ impl Bridge {
         }
     }
 
+    async fn conflux(&self, args: &[&'static str]) -> Value {
+        let exe = self.exe.clone();
+        let args = args.to_vec();
+        let ran = tokio::task::spawn_blocking(move || {
+            Command::new(exe)
+                .args(args)
+                .stdin(Stdio::null())
+                .creation_flags(CREATE_NO_WINDOW)
+                .output()
+        })
+        .await;
+        match ran {
+            Ok(Ok(output)) => {
+                let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+                text.push_str(&String::from_utf8_lossy(&output.stderr));
+                json!({ "ok": output.status.success(), "output": text.trim() })
+            }
+            Ok(Err(e)) => json!({ "ok": false, "output": e.to_string() }),
+            Err(e) => json!({ "ok": false, "output": e.to_string() }),
+        }
+    }
+
     fn local(&self) -> Value {
         let config = Config::load(&self.paths).ok();
         let routing = crate::setup::load_joined(&self.paths.config_dir)
             .ok()
             .flatten()
             .map(|joined| joined.active);
+        let role = config
+            .as_ref()
+            .filter(|_| self.paths.config_file().exists())
+            .map(|c| c.role);
         let (light, dark) = accent();
         json!({
             "port": config.as_ref().map_or(crate::config::DEFAULT_PORT, |c| c.port),
-            "role": config.as_ref().map(|c| c.role),
+            "role": role,
             "routing": routing,
             "serviceInstalled": !self.dev_copy && crate::service::installed(),
             "devCopy": self.dev_copy,
             "version": crate::update::CURRENT,
-            "accent": { "light": light, "dark": dark },
+            "accent": { "light": hex(light), "dark": hex(dark) },
         })
     }
 }
@@ -453,11 +571,11 @@ async fn answered(sent: reqwest::Result<reqwest::Response>) -> Value {
     }
 }
 
-fn check_focus_soon(proxy: &EventLoopProxy<Message>) {
+fn check_focus_soon(proxy: &EventLoopProxy<Message>, shown: u64) {
     let proxy = proxy.clone();
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(80));
-        let _ = proxy.send_event(Message::CheckFocus);
+        let _ = proxy.send_event(Message::CheckFocus(shown));
     });
 }
 
@@ -480,9 +598,20 @@ fn on_desktop() -> bool {
     }
 }
 
+fn in_terminal() -> bool {
+    let mut processes = [0u32; 4];
+    unsafe { GetConsoleProcessList(processes.as_mut_ptr(), processes.len() as u32) > 1 }
+}
+
 struct Signal(HANDLE);
 
 unsafe impl Send for Signal {}
+
+impl Drop for Signal {
+    fn drop(&mut self) {
+        unsafe { CloseHandle(self.0) };
+    }
+}
 
 fn single_instance(config_dir: &Path) -> Option<Signal> {
     if let Some(pid) = std::env::var(REPLACES).ok().and_then(|pid| pid.parse().ok()) {
@@ -494,6 +623,7 @@ fn single_instance(config_dir: &Path) -> Option<Signal> {
             }
         }
     }
+    let config_dir = std::fs::canonicalize(config_dir).unwrap_or_else(|_| config_dir.to_path_buf());
     let digest = Sha256::digest(config_dir.to_string_lossy().to_lowercase().as_bytes());
     let tag: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
     let name = wide(&format!("Local\\conflux-tray-{tag}"));
@@ -502,13 +632,15 @@ fn single_instance(config_dir: &Path) -> Option<Signal> {
         if event.is_null() {
             return None;
         }
+        let signal = Signal(event);
         if GetLastError() == ERROR_ALREADY_EXISTS {
-            AllowSetForegroundWindow(ASFW_ANY);
-            SetEvent(event);
-            CloseHandle(event);
+            if std::env::var_os(QUIET).is_none() {
+                AllowSetForegroundWindow(ASFW_ANY);
+                SetEvent(signal.0);
+            }
             return None;
         }
-        Some(Signal(event))
+        Some(signal)
     }
 }
 
@@ -521,10 +653,15 @@ pub fn launch(exe: &Path) -> std::io::Result<()> {
 }
 
 fn spawn(exe: &Path, replaces: Option<u32>) -> std::io::Result<()> {
+    crate::service::keep_std_handles_private();
     let mut command = Command::new(exe);
     command
         .arg("tray")
         .creation_flags(CREATE_NO_WINDOW)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .env(QUIET, "1")
         .env_remove(REPLACES);
     if let Some(pid) = replaces {
         command.env(REPLACES, pid.to_string());
@@ -533,9 +670,6 @@ fn spawn(exe: &Path, replaces: Option<u32>) -> std::io::Result<()> {
 }
 
 fn open(url: &str) {
-    if !url.starts_with("http://127.0.0.1:") {
-        return;
-    }
     let (verb, target) = (wide("open"), wide(url));
     unsafe {
         ShellExecuteW(
@@ -579,37 +713,46 @@ fn registry<const N: usize>(key: &str, value: &str, kind: u32) -> Option<[u8; N]
     (read == 0).then_some(data)
 }
 
-fn light_taskbar() -> bool {
+fn light_theme(value: &str) -> bool {
     registry::<4>(
         r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
-        "SystemUsesLightTheme",
+        value,
         RRF_RT_REG_DWORD,
     )
     .is_some_and(|value| u32::from_le_bytes(value) != 0)
 }
 
-fn accent() -> (String, String) {
-    let hex = |palette: &[u8; 32], i: usize| {
-        format!(
-            "#{:02x}{:02x}{:02x}",
-            palette[i * 4],
-            palette[i * 4 + 1],
-            palette[i * 4 + 2]
-        )
-    };
+fn light_taskbar() -> bool {
+    light_theme("SystemUsesLightTheme")
+}
+
+fn light_apps() -> bool {
+    light_theme("AppsUseLightTheme")
+}
+
+fn accent() -> ([u8; 3], [u8; 3]) {
+    let color = |palette: &[u8; 32], i: usize| [palette[i * 4], palette[i * 4 + 1], palette[i * 4 + 2]];
     match registry::<32>(
         r"Software\Microsoft\Windows\CurrentVersion\Explorer\Accent",
         "AccentPalette",
         RRF_RT_REG_BINARY,
     ) {
-        Some(palette) => (hex(&palette, 4), hex(&palette, 1)),
-        None => ("#005fb8".into(), "#60cdff".into()),
+        Some(palette) => (color(&palette, 4), color(&palette, 1)),
+        None => ([0x00, 0x5f, 0xb8], [0x60, 0xcd, 0xff]),
     }
 }
 
-fn logo() -> Option<tiny_skia::Path> {
+fn hex([r, g, b]: [u8; 3]) -> String {
+    format!("#{r:02x}{g:02x}{b:02x}")
+}
+
+fn logo_data() -> Option<&'static str> {
     let start = LOGO.find(" d=\"")? + 4;
     let end = start + LOGO[start..].find('"')?;
+    Some(&LOGO[start..end])
+}
+
+fn logo() -> Option<tiny_skia::Path> {
     let mut builder = PathBuilder::new();
     let mut numbers: Vec<f32> = Vec::new();
     let mut command = 'M';
@@ -640,7 +783,7 @@ fn logo() -> Option<tiny_skia::Path> {
         }
         numbers.clear();
     };
-    for c in LOGO[start..end].chars().chain(std::iter::once(' ')) {
+    for c in logo_data()?.chars().chain(std::iter::once(' ')) {
         if c.is_ascii_digit() || c == '.' {
             token.push(c);
             continue;
@@ -716,7 +859,7 @@ fn badge_color(name: &str, light: bool) -> [u8; 3] {
         ("red", false) => [0xff, 0x6b, 0x6b],
         ("orange", true) => [0xd9, 0x7f, 0x06],
         ("orange", false) => [0xfb, 0xbf, 0x24],
-        (_, true) => [0x00, 0x5f, 0xb8],
-        (_, false) => [0x60, 0xcd, 0xff],
+        (_, true) => accent().0,
+        (_, false) => accent().1,
     }
 }

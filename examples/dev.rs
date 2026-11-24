@@ -744,9 +744,10 @@ async fn main() -> Result<()> {
         .as_ref()
         .map(|app| {
             let mut command = Command::new(app);
-            if cfg!(windows) {
-                command.arg("tray");
-            }
+            #[cfg(windows)]
+            command
+                .arg("tray")
+                .creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
             command
                 .env("CONFLUX_HOME", &node_home)
                 .env("CLAUDE_CONFIG_DIR", dir.path().join("claude"))

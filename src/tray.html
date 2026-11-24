@@ -68,15 +68,17 @@ html, body {
   -webkit-user-select: none;
   user-select: none;
   cursor: default;
-  overflow: hidden;
 }
+html { overflow: hidden; }
+body { height: 100vh; overflow: hidden auto; }
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-thumb { background: var(--track); border-radius: 3px; }
 #panel { padding: 16px 0 4px; }
 #panel.enter { animation: enter 0.2s cubic-bezier(0.1, 0.9, 0.2, 1); }
 @keyframes enter { from { transform: translateY(10px); opacity: 0.4; } }
 .pad { padding: 0 16px; }
 .muted { color: var(--muted); }
 .caption { font-size: 12px; line-height: 16px; }
-.strong { font-weight: 600; }
 .divider { height: 1px; background: var(--divider); margin: 12px 0; }
 .divider.tight { margin: 4px 0; }
 
@@ -154,7 +156,6 @@ button.link:hover:not(:disabled) { background: none; text-decoration: underline;
 .row:hover:not(:disabled) { background: var(--hover); }
 .row:active:not(:disabled) { background: var(--press); color: var(--muted); }
 .row span:first-child { flex: 1; }
-.row .glyph { font: 16px/1 "Segoe Fluent Icons", "Segoe MDL2 Assets"; width: 16px; flex: none; color: var(--muted); }
 
 .switch { display: flex; align-items: center; gap: 8px; border: 0; background: none; padding: 0; min-height: 0; color: var(--text); }
 .switch:hover:not(:disabled) { background: none; }
@@ -184,7 +185,7 @@ button.link:hover:not(:disabled) { background: none; text-decoration: underline;
 <script>
 "use strict";
 
-const LOGO = "M431 977C405 972 384 950 378 924C376 918 376 908 376 838C376 699 370 664 333 608C316 580 302 564 252 514C207 468 203 463 191 450C138 387 110 322 104 250C102 224 103 119 106 111C116 79 139 56 172 47C183 44 257 45 268 48C299 56 322 78 332 108C336 120 336 125 336 181C336 307 351 368 399 440C415 464 455 509 460 509C463 509 456 477 444 446C427 396 423 382 417 361C409 327 405 302 402 265C400 238 400 129 402 118C409 81 440 52 476 46C488 44 549 45 557 47C589 56 612 80 622 114C624 121 625 229 623 258C619 320 609 366 586 429C571 471 561 509 565 509C567 509 584 492 594 480C648 419 676 356 687 270C688 259 688 243 689 188C690 110 689 114 698 96C711 69 734 52 762 47C772 45 835 44 846 46C885 52 915 83 921 123C923 135 922 250 920 265C907 357 875 411 775 512C696 592 672 627 658 686C650 720 650 723 649 829C648 922 648 922 646 930C638 954 617 973 594 978C584 980 441 980 431 977Z";
+const LOGO = "__LOGO__";
 
 const pending = new Map();
 let nextId = 1;
@@ -219,9 +220,9 @@ window.conflux = {
     if (resolve) resolve(value);
   },
   tick() {
+    if (state.refreshing) return;
     const fast = state.open || state.busy || updating();
     if (fast || Date.now() - state.lastRefresh >= 20000) refresh();
-    else if (state.open) render();
   },
   shown() {
     state.open = true;
@@ -257,16 +258,19 @@ function refresh() {
     state.refreshing.again = true;
     return state.refreshing.done;
   }
-  const run = { again: false };
-  run.done = (async () => {
-    do {
-      run.again = false;
-      await load();
-    } while (run.again);
-    state.refreshing = null;
+  const pass = { again: false };
+  pass.done = (async () => {
+    try {
+      do {
+        pass.again = false;
+        await load();
+      } while (pass.again);
+    } finally {
+      state.refreshing = null;
+    }
   })();
-  state.refreshing = run;
-  return run.done;
+  state.refreshing = pass;
+  return pass.done;
 }
 
 async function load() {
@@ -274,7 +278,7 @@ async function load() {
   state.lastRefresh = state.now;
   let waitingNow = null;
   try {
-    state.local = await call("local");
+    state.local = (await call("local")) || state.local;
     applyAccent();
     const nodeAnswer = await get("/conflux/node");
     state.node = nodeAnswer.status === 200 ? parse(nodeAnswer.body) || null : null;
@@ -290,12 +294,12 @@ async function load() {
       else state.phase = { kind: state.local.serviceInstalled ? "notRunning" : "notSetUp" };
     } else if (answer.status === 200) {
       const dashboard = parse(answer.body);
-      if (dashboard && dashboard.hub && Array.isArray(dashboard.accounts) && Array.isArray(dashboard.machines)) {
+      if (readable(dashboard)) {
         state.dashboard = dashboard;
         state.phase = { kind: "ready" };
       } else {
         state.dashboard = null;
-        state.phase = { kind: "problem", message: "This app can't read conflux's status. Update conflux on this PC and on the hub." };
+        state.phase = { kind: "problem", message: UNREADABLE };
       }
     } else if (answer.status === 409) {
       state.dashboard = null;
@@ -308,18 +312,28 @@ async function load() {
       }
     } else {
       state.dashboard = null;
-      if (state.node && !state.node.hub_link.connected) {
+      if (state.node && state.node.hub_link && !state.node.hub_link.connected) {
         state.phase = { kind: "hubUnreachable" };
       } else {
         const error = (parse(answer.body) || {}).error;
         state.phase = { kind: "problem", message: withoutHubAddress(error || `conflux answered HTTP ${answer.status}.`) };
       }
     }
+  } catch {
+    state.dashboard = null;
+    state.phase = { kind: "problem", message: UNREADABLE };
   } finally {
     state.waiting = waitingNow;
     if (state.phase.kind !== "waiting") state.hubs = null;
     render();
   }
+}
+
+const UNREADABLE = "This app can't read conflux's status. Update conflux on this PC and on the hub.";
+
+function readable(dashboard) {
+  return !!dashboard && !!dashboard.hub && Array.isArray(dashboard.machines) && Array.isArray(dashboard.accounts)
+    && dashboard.accounts.every(a => a && Array.isArray(a.cooldowns) && a.usage && Array.isArray(a.usage.windows));
 }
 
 function applyAccent() {
@@ -552,13 +566,20 @@ function perform(label, work) {
   })();
 }
 
-async function cli(...args) {
-  const result = await call("conflux", { args });
+async function run(op, args = {}) {
+  const result = (await call(op, args)) || {};
   if (!result.ok) {
     const lines = (result.output || "").split("\n").filter(Boolean);
     throw new Error(lines.length ? lines[lines.length - 1] : "conflux failed");
   }
-  return result.output;
+  return result.output || "";
+}
+
+async function untilAnswering() {
+  for (let i = 0; i < 40; i++) {
+    if (!(await get("/conflux/api/status")).unreachable) return;
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
 }
 
 async function post(path, body = {}) {
@@ -570,16 +591,12 @@ async function post(path, body = {}) {
 }
 
 function openDashboard() {
-  call("open", { url: dashboardUrl() });
-}
-
-function dashboardUrl() {
-  return `http://127.0.0.1:${state.local ? state.local.port : 8317}/`;
+  call("openDashboard");
 }
 
 const actions = {
   openDashboard,
-  setRouting: on => perform(on ? "Turning on…" : "Turning off…", () => cli(on ? "on" : "off")),
+  setRouting: on => perform(on ? "Turning on…" : "Turning off…", () => run("routing", { on })),
   setUpHub: () => setUp(true),
   setUpNode: () => setUp(false),
   start: () => perform("Starting…", restartService),
@@ -600,8 +617,8 @@ const actions = {
       throw new Error(`${skipped[0].machine || "A machine"} was skipped: ${skipped[0].reason || "no reason given"}`);
     }
   }),
-  link: index => {
-    const hub = (state.hubs || [])[index];
+  link: address => {
+    const hub = (state.hubs || []).find(h => h.address === address);
     if (!hub) return;
     perform("Linking…", async () => {
       await post("/conflux/api/join", { address: hub.address });
@@ -620,16 +637,16 @@ const actions = {
 
 function setUp(asHub) {
   perform("Setting up…", async () => {
-    if (state.local.devCopy) throw new Error("This is a dev copy. It has no background service to set up.");
-    const output = await cli(...(asHub ? ["join", "self"] : ["wait"]));
-    const local = await call("local");
+    const output = await run("setUp", { hub: asHub });
+    const local = (await call("local")) || {};
     if (!local.serviceInstalled) throw new Error(output.split("\n")[0] || output);
+    await untilAnswering();
   });
 }
 
 async function restartService() {
-  const result = await call("restart");
-  if (!result.ok) throw new Error(result.output || "conflux didn't restart.");
+  await run("restart");
+  await untilAnswering();
 }
 
 function esc(text) {
@@ -637,7 +654,7 @@ function esc(text) {
 }
 
 function logo() {
-  return `<svg viewBox="0 0 1024 1024" aria-hidden="true"><rect width="1024" height="1024" rx="224" fill="var(--logo-bg, #0e5f72)"/><path d="${LOGO}" transform="translate(112 112) scale(0.78)" fill="#fff"/></svg>`;
+  return `<svg viewBox="0 0 1024 1024" aria-hidden="true"><rect width="1024" height="1024" rx="224" fill="#0e5f72"/><path d="${LOGO}" transform="translate(112 112) scale(0.78)" fill="#fff"/></svg>`;
 }
 
 function notice(title, detail, buttons = "") {
@@ -683,7 +700,7 @@ function content() {
         button("Start conflux", "start", { accent: true }),
       );
     case "waiting": {
-      const hubs = (state.hubs || []).map((hub, i) => button(linkTitle(hub), "link", { accent: true, arg: i })).join("");
+      const hubs = (state.hubs || []).map((hub, i) => button(linkTitle(hub), "link", { accent: true, arg: hub.address })).join("");
       return `<div class="notice pad"><h2>Waiting to be linked</h2><p class="caption muted">${esc(waitingDetail())}</p>
         <div class="buttons stack">${hubs}${button("Make this the hub", "setUpHub")}</div></div>${updateBanner()}`;
     }
@@ -853,22 +870,37 @@ function header() {
 
 let lastIcon = "";
 let lastHeight = 0;
+let lastHtml = "";
+
+function sameTarget(element) {
+  const action = element.dataset.action;
+  const arg = element.dataset.arg;
+  return [...document.querySelectorAll("[data-action]")]
+    .filter(e => e.dataset.action === action && e.dataset.arg === arg);
+}
 
 function render() {
   state.now = Date.now();
   const kind = state.phase.kind;
   const tight = (kind === "ready" || kind === "waiting") && (updateBanner() || guestBanner());
   const panel = document.getElementById("panel");
-  const focused = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.action : null;
-  panel.innerHTML = header()
+  const html = header()
     + `<div class="divider"></div>`
     + content()
     + (state.failure ? `<div class="failure caption pad">${esc(state.failure)}</div>` : "")
     + (tight ? `<div style="height:12px"></div>` : `<div class="divider"></div>`)
     + actionsView();
-  if (focused) {
-    const again = panel.querySelector(`[data-action="${focused}"]`);
-    if (again) again.focus();
+  if (html !== lastHtml) {
+    lastHtml = html;
+    const focused = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.action
+      ? document.activeElement : null;
+    const target = focused && { action: focused.dataset.action, arg: focused.dataset.arg, index: sameTarget(focused).indexOf(focused) };
+    panel.innerHTML = html;
+    if (target) {
+      const again = [...panel.querySelectorAll("[data-action]")]
+        .filter(e => e.dataset.action === target.action && e.dataset.arg === target.arg)[target.index];
+      if (again) again.focus();
+    }
   }
   const s = summary();
   const icon = { badge: attention(), dimmed: isDown(), tooltip: s && s.text ? `conflux · ${s.text}` : "conflux" };
@@ -891,7 +923,6 @@ document.addEventListener("click", event => {
   if (!action) return;
   const arg = target.dataset.arg;
   if (target.dataset.action === "setRouting") action(arg === "on");
-  else if (target.dataset.action === "link") action(Number(arg));
   else action(arg);
 });
 

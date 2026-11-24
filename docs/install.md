@@ -62,11 +62,11 @@ If you set `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`, or `XDG_CONFIG_HOME`,
 
 ## The Windows tray app
 
-On Windows, conflux adds an icon to the notification area. Click it to see each provider's limits, pooled across its accounts, update machines, turn routing on or off for this PC, and open the dashboard. Right-click it for Open dashboard and Exit. A dot on the icon means something needs you, such as an account that needs a new login. Windows 11 puts new icons behind the arrow next to the clock. To keep the icon on the taskbar, drag it there.
+On Windows, conflux adds an icon to the notification area. Click it to see each provider's limits, pooled across its accounts, update machines, turn routing on or off for this PC, and open the dashboard. Right-click it to open the panel or the dashboard, or to exit. A dot on the icon means something needs you, such as an account that needs a new login. Windows 11 puts new icons behind the arrow next to the clock. To keep the icon on the taskbar, drag it there.
 
 Exiting the tray app doesn't stop conflux. The app opens again when you sign in, or when you run `conflux tray`. To add it to an existing Windows install, run `conflux wait`. It keeps the machine's role.
 
-The tray app needs the Microsoft Edge WebView2 runtime, which Windows 10 and 11 include.
+The tray app needs the Microsoft Edge WebView2 runtime. Windows 11 includes it, and most Windows 10 PCs have it. If the tray app says it is missing, install it from Microsoft.
 
 ## Update
 
