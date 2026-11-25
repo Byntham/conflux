@@ -97,22 +97,22 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         if panel.isVisible {
             close()
         } else if Date().timeIntervalSince(closedAt) > 0.3 {
-            open()
+            open(pressed: NSEvent.pressedMouseButtons & 1 != 0)
         }
     }
 
-    private func open() {
+    private func open(pressed: Bool) {
         model.menuOpened()
         place()
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
-        if NSApp.currentEvent?.type != .leftMouseDown {
-            showHighlight()
-        } else {
+        if pressed {
             mouseUp = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
                 self?.showHighlight()
                 return event
             }
+        } else {
+            showHighlight()
         }
         outsideClicks = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             Task { @MainActor in self?.close() }
@@ -173,7 +173,7 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !panel.isVisible { open() }
+        if !panel.isVisible { open(pressed: false) }
         return false
     }
 }
