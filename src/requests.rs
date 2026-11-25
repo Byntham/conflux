@@ -138,6 +138,10 @@ impl RequestLog {
         self.state.lock().unwrap().change(id, |r| r.usage = usage);
     }
 
+    pub fn stop_streaming(&self, id: u64) {
+        self.state.lock().unwrap().change(id, |r| r.streaming = false);
+    }
+
     pub fn set_transport(&self, id: u64, transport: &'static str) {
         self.state
             .lock()

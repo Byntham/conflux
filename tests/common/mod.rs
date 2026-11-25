@@ -166,6 +166,7 @@ async fn fake_ws(fake: Arc<Fake>, req: Request) -> Response {
                 WsScript::ErroredTurn => vec![
                     json!({"type": "response.created", "response": {"id": format!("resp_{token}_{n}")}}),
                     json!({"type": "error", "status": 500, "error": {"type": "server_error", "message": "boom"}}),
+                    json!({"type": "response.completed", "response": {"id": format!("resp_{token}_{n}"), "usage": {"output_tokens": 5}}}),
                 ],
                 WsScript::RestartedTurn => vec![
                     json!({"type": "response.created", "response": {"id": format!("resp_{token}_{n}_a")}}),

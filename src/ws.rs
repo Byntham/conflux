@@ -96,7 +96,7 @@ impl TurnTracker {
 
     pub fn upstream_sent(&mut self, text: &str) {
         let kind = serde_json::from_str::<FrameKind>(text).ok().and_then(|f| f.kind);
-        if ends_turn(kind.as_deref()) {
+        if requests::is_response_end(kind.as_deref()) || kind.as_deref() == Some("error") {
             self.running = false;
         }
     }
@@ -104,10 +104,6 @@ impl TurnTracker {
     pub fn idle(&self) -> bool {
         !self.running
     }
-}
-
-fn ends_turn(kind: Option<&str>) -> bool {
-    requests::is_response_end(kind) || kind == Some("error")
 }
 
 pub fn error_frame(status: u16, kind: &str, message: &str, resets_in_seconds: Option<i64>) -> String {
@@ -460,11 +456,17 @@ fn inspect_event(app: &App, account: &AccountEntry, route: &RouteRequest, turn: 
         return false;
     };
     let kind = v["type"].as_str();
-    if ends_turn(kind)
+    if requests::is_response_end(kind)
         && let Some(mut record) = turn.record.take()
     {
         requests::apply_event(Provider::Codex, &mut record.usage, &v);
         app.requests.finish(&record);
+    }
+    if kind == Some("error")
+        && let Some(record) = turn.record.take()
+    {
+        app.requests.stop_streaming(record.id);
+        turn.record.set(Some(record));
     }
     match kind {
         Some("response.created") => {
