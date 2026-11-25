@@ -72,6 +72,10 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         highlight.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         capsule.wantsLayer = true
         highlight.contentView?.addSubview(capsule)
+        if #unavailable(macOS 26) {
+            item.button?.wantsLayer = true
+            item.button?.layer?.cornerRadius = 6
+        }
         item.button?.target = self
         item.button?.action = #selector(toggle)
         updateIcon()
@@ -107,7 +111,7 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         place()
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
-        if pressed {
+        if #available(macOS 26, *), pressed {
             mouseUp = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
                 self?.showHighlight()
                 return event
@@ -125,6 +129,7 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         panel.orderOut(nil)
         closedAt = Date()
         highlight.orderOut(nil)
+        item.button?.layer?.backgroundColor = nil
         stopWaitingForMouseUp()
         model.menuClosed()
         if let outsideClicks {
@@ -143,6 +148,12 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
     private func showHighlight() {
         stopWaitingForMouseUp()
         guard panel.isVisible, let button = item.button, let anchor = button.window else { return }
+        guard #available(macOS 26, *) else {
+            button.effectiveAppearance.performAsCurrentDrawingAppearance {
+                button.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.18).cgColor
+            }
+            return
+        }
         let rect = anchor.convertToScreen(button.convert(button.bounds, to: nil)).insetBy(dx: -2, dy: -1)
         let frame = rect.integral
         highlight.setFrame(frame, display: false)
