@@ -298,6 +298,7 @@ async fn the_row_is_logged_when_the_upstream_starts_answering() {
     assert_eq!(next_json(&mut ws).await.unwrap()["type"], "response.failed");
     let usage = h.app.requests.recent()[0].usage;
     assert_eq!((usage.input, usage.cache_read, usage.output), (10, 40, 3));
+    assert_eq!(usage.speed, Speed::Fast);
 
     h.ws_script("at-c", WsScript::ErroredTurn);
     let mut errored = open(&h, &[]).await.unwrap();
@@ -308,7 +309,17 @@ async fn the_row_is_logged_when_the_upstream_starts_answering() {
         !h.app.requests.recent()[0].streaming,
         "a turn that ends in an error stops showing as streaming while the socket stays open"
     );
-    assert_eq!(usage.speed, Speed::Fast);
+
+    h.ws_script("at-c", WsScript::RestartedTurn);
+    let mut restarted = open(&h, &[]).await.unwrap();
+    restarted.send(create("m")).await.unwrap();
+    for kind in ["response.created", "response.created", "response.completed"] {
+        assert_eq!(next_json(&mut restarted).await.unwrap()["type"], kind);
+    }
+    assert!(
+        h.app.requests.recent().iter().all(|r| !r.streaming),
+        "a turn replaced by a new response stops showing as streaming"
+    );
     let now = chrono::Utc::now();
     let kept: Vec<_> = h
         .app

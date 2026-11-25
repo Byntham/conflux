@@ -1093,7 +1093,6 @@ function renderRequests(d) {
   const shown = list.slice(0, REQUEST_ROWS);
   $("requests-sub").textContent = list.length > shown.length ? `Latest ${shown.length} of ${list.length} logged` : `${shown.length} logged`;
   setHtml("request-log", requestTable(shown), { isolateLayout: !$("view-requests").hidden });
-  for (const pulse of $("request-log").getAnimations({ subtree: true })) pulse.startTime = 0;
 }
 
 const UPDATE_REPORT_STALE_MS = 60000;
@@ -1675,6 +1674,7 @@ let pressing = false;
 const usageTipOpen = () => Boolean(document.querySelector(".usage-chart .usage-tip:not([hidden])"));
 const flushUsage = () => setTimeout(() => { if (usagePending && !pressing && !usageTipOpen()) renderUsage(); }, 0);
 const endPress = () => { pressing = false; flushUsage(); };
+document.addEventListener("animationstart", (ev) => { if (ev.animationName === "live") for (const pulse of ev.target.getAnimations()) pulse.startTime = 0; });
 document.addEventListener("pointerdown", (ev) => { if (ev.button === 0 && ev.target.closest?.("#usage-body")) pressing = true; }, true);
 document.addEventListener("contextmenu", endPress, true);
 document.addEventListener("pointerup", endPress, true);

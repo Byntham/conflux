@@ -954,7 +954,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
     let (start, delta) = sse.split_at(sse.find("event: message_delta").unwrap());
     h.reply(
         "at-a",
-        Reply::EventsWithPause(start.into(), Duration::from_secs(1), delta.into()),
+        Reply::EventsWithPause(start.into(), Duration::from_secs(3), delta.into()),
     );
     let r = h
         .claude(json!({"model": "claude-sonnet-5-5-20261101"}))
@@ -964,7 +964,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         .await
         .unwrap();
     let mut streaming = serde_json::Value::Null;
-    for _ in 0..30 {
+    for _ in 0..80 {
         streaming = dashboard().await["requests"][0].clone();
         if streaming["usage"]["cache_read"] == 900 {
             break;

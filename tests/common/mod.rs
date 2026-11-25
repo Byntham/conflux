@@ -32,6 +32,7 @@ pub enum WsScript {
     SlowTurn,
     FailedTurn,
     ErroredTurn,
+    RestartedTurn,
     CutTurn,
     RejectHandshake429,
     RejectHandshake401,
@@ -165,6 +166,11 @@ async fn fake_ws(fake: Arc<Fake>, req: Request) -> Response {
                 WsScript::ErroredTurn => vec![
                     json!({"type": "response.created", "response": {"id": format!("resp_{token}_{n}")}}),
                     json!({"type": "error", "status": 500, "error": {"type": "server_error", "message": "boom"}}),
+                ],
+                WsScript::RestartedTurn => vec![
+                    json!({"type": "response.created", "response": {"id": format!("resp_{token}_{n}_a")}}),
+                    json!({"type": "response.created", "response": {"id": format!("resp_{token}_{n}_b")}}),
+                    json!({"type": "response.completed", "response": {"id": format!("resp_{token}_{n}_b")}}),
                 ],
                 WsScript::FailedTurn => vec![
                     json!({"type": "response.created", "response": {"id": format!("resp_{token}_{n}")}}),
