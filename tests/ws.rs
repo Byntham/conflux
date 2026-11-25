@@ -298,6 +298,16 @@ async fn the_row_is_logged_when_the_upstream_starts_answering() {
     assert_eq!(next_json(&mut ws).await.unwrap()["type"], "response.failed");
     let usage = h.app.requests.recent()[0].usage;
     assert_eq!((usage.input, usage.cache_read, usage.output), (10, 40, 3));
+
+    h.ws_script("at-c", WsScript::ErroredTurn);
+    let mut errored = open(&h, &[]).await.unwrap();
+    errored.send(create("m")).await.unwrap();
+    assert_eq!(next_json(&mut errored).await.unwrap()["type"], "response.created");
+    assert_eq!(next_json(&mut errored).await.unwrap()["type"], "error");
+    assert!(
+        !h.app.requests.recent()[0].streaming,
+        "a turn that ends in an error stops showing as streaming while the socket stays open"
+    );
     assert_eq!(usage.speed, Speed::Fast);
     let now = chrono::Utc::now();
     let kept: Vec<_> = h

@@ -293,7 +293,10 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
         async || {
             let d: Value = reqwest::get(&dashboard).await.ok()?.json().await.ok()?;
             let requests = d["requests"].as_array()?;
-            requests.iter().any(|r| r["usage"]["output"] == 77).then_some(())
+            requests
+                .iter()
+                .any(|r| r["usage"]["output"] == 77 && r["streaming"] == false)
+                .then_some(())
         },
     )
     .await;

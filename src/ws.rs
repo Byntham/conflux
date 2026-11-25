@@ -96,7 +96,7 @@ impl TurnTracker {
 
     pub fn upstream_sent(&mut self, text: &str) {
         let kind = serde_json::from_str::<FrameKind>(text).ok().and_then(|f| f.kind);
-        if requests::is_response_end(kind.as_deref()) || kind.as_deref() == Some("error") {
+        if ends_turn(kind.as_deref()) {
             self.running = false;
         }
     }
@@ -104,6 +104,10 @@ impl TurnTracker {
     pub fn idle(&self) -> bool {
         !self.running
     }
+}
+
+fn ends_turn(kind: Option<&str>) -> bool {
+    requests::is_response_end(kind) || kind == Some("error")
 }
 
 pub fn error_frame(status: u16, kind: &str, message: &str, resets_in_seconds: Option<i64>) -> String {
@@ -456,7 +460,7 @@ fn inspect_event(app: &App, account: &AccountEntry, route: &RouteRequest, turn: 
         return false;
     };
     let kind = v["type"].as_str();
-    if requests::is_response_end(kind)
+    if ends_turn(kind)
         && let Some(mut record) = turn.record.take()
     {
         requests::apply_event(Provider::Codex, &mut record.usage, &v);
@@ -474,9 +478,7 @@ fn inspect_event(app: &App, account: &AccountEntry, route: &RouteRequest, turn: 
                 turn.started.get(),
             );
             app.requests.set_transport(record.id, "ws");
-            if let Some(unfinished) = turn.record.replace(Some(record)) {
-                app.requests.finish(&unfinished);
-            }
+            turn.record.set(Some(record));
             false
         }
         Some("codex.rate_limits") => {
