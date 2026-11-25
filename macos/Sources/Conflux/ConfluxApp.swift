@@ -37,9 +37,12 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
     private let model: Model
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let panel: Panel
+    private let highlight = NSWindow(contentRect: .zero, styleMask: .borderless, backing: .buffered, defer: true)
+    private let capsule = NSView()
     private let host: NSHostingView<AnyView>
     private var changes: AnyCancellable?
     private var outsideClicks: Any?
+    private var mouseUp: Any?
     private var closedAt = Date.distantPast
 
     init(model: Model) {
@@ -60,6 +63,13 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.delegate = self
         panel.dismiss = { [weak self] in self?.close() }
+        highlight.isOpaque = false
+        highlight.backgroundColor = .clear
+        highlight.ignoresMouseEvents = true
+        highlight.level = .statusBar
+        highlight.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        capsule.wantsLayer = true
+        highlight.contentView?.addSubview(capsule)
         item.button?.target = self
         item.button?.action = #selector(toggle)
         updateIcon()
@@ -94,9 +104,13 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         place()
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
-        DispatchQueue.main.async { [weak self] in
-            guard let self, self.panel.isVisible else { return }
-            self.item.button?.highlight(true)
+        if NSEvent.pressedMouseButtons & 1 == 0 {
+            showHighlight()
+        } else {
+            mouseUp = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
+                self?.showHighlight()
+                return event
+            }
         }
         outsideClicks = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             Task { @MainActor in self?.close() }
@@ -107,12 +121,35 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         guard panel.isVisible else { return }
         panel.orderOut(nil)
         closedAt = Date()
-        item.button?.highlight(false)
+        highlight.orderOut(nil)
+        stopWaitingForMouseUp()
         model.menuClosed()
         if let outsideClicks {
             NSEvent.removeMonitor(outsideClicks)
             self.outsideClicks = nil
         }
+    }
+
+    private func stopWaitingForMouseUp() {
+        if let mouseUp {
+            NSEvent.removeMonitor(mouseUp)
+            self.mouseUp = nil
+        }
+    }
+
+    private func showHighlight() {
+        stopWaitingForMouseUp()
+        guard panel.isVisible, let button = item.button, let anchor = button.window else { return }
+        let rect = anchor.convertToScreen(button.convert(button.bounds, to: nil)).insetBy(dx: -2, dy: -1)
+        let frame = rect.integral
+        highlight.setFrame(frame, display: false)
+        capsule.frame = rect.offsetBy(dx: -frame.minX, dy: -frame.minY)
+        capsule.layer?.cornerRadius = rect.height / 2
+        capsule.layer?.cornerCurve = .continuous
+        button.effectiveAppearance.performAsCurrentDrawingAppearance {
+            capsule.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.15).cgColor
+        }
+        highlight.order(.below, relativeTo: anchor.windowNumber)
     }
 
     private func place() {
