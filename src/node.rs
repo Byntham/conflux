@@ -676,7 +676,7 @@ pub async fn serve(cfg: Config, paths: Paths) -> Result<()> {
         drop(in_flight);
     });
     if let Some(takeover) = takeover {
-        takeover.ready(|_| {}).await?;
+        takeover.ready(None, |_| {}).await?;
     }
     node.resume_move().await?;
     let background = [tokio::spawn(node.clone().run_control()), tokio::spawn(sync.run())];

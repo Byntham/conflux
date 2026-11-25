@@ -994,7 +994,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         let v = dashboard().await;
         assert_eq!(v["accounts"].as_array().unwrap().len(), 1);
         record = v["requests"][0].clone();
-        if record["usage"]["output"] == 44 {
+        if record["usage"]["output"] == 44 && record["streaming"] == false {
             break;
         }
         tokio::time::sleep(Duration::from_millis(25)).await;

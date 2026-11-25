@@ -328,12 +328,38 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
         "the old hub stays up while its stream is open"
     );
 
+    let asked: Value = http
+        .post(format!("{base}/conflux/api/update"))
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(asked["started"].as_array().unwrap().len(), 1, "{asked}");
+    let third_pid = eventually("a second update to take over", async || {
+        pid_at(&status).await.filter(|pid| *pid != new_pid)
+    })
+    .await;
+    hub.later_pids.push(third_pid);
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
     drop(stream);
     eventually("the old hub to exit", async || {
         hub.child.try_wait().unwrap().map(|_| ())
     })
     .await;
-    assert_eq!(pid_at(&status).await, Some(new_pid));
+    eventually(
+        "the newest hub to see the first hub's stream end through the hub between them",
+        async || {
+            let d: Value = reqwest::get(&dashboard).await.ok()?.json().await.ok()?;
+            let requests = d["requests"].as_array()?;
+            requests.iter().all(|r| r["streaming"] == false).then_some(())
+        },
+    )
+    .await;
+    assert_eq!(pid_at(&status).await, Some(third_pid));
 }
 
 #[tokio::test]

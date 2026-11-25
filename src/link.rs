@@ -701,7 +701,7 @@ pub async fn serve(cfg: Config, paths: Paths) -> Result<bool> {
     let listener = waiting.lifecycle.listen(addr).with_context(|| format!("bind {addr}"))?;
     tracing::info!(%addr, "conflux is waiting to be linked to a hub");
     if let Some(takeover) = takeover {
-        takeover.ready(|_| {}).await?;
+        takeover.ready(None, |_| {}).await?;
     }
     update::remove_old_binaries(&exe);
     let checks = tokio::spawn(waiting.updater.clone().run_checks());

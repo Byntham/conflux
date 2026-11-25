@@ -252,9 +252,14 @@ pub struct Takeover {
 }
 
 impl Takeover {
-    pub async fn ready(mut self, mut later: impl FnMut(Value) + Send + 'static) -> Result<()> {
+    pub async fn ready(
+        mut self,
+        in_flight: Option<InFlight>,
+        mut later: impl FnMut(Value) + Send + 'static,
+    ) -> Result<()> {
         send(&mut self.link, &json!({ "ready": true })).await?;
         tokio::spawn(async move {
+            let _predecessor_running = in_flight;
             let mut line = String::new();
             while let Ok(read) = self.link.read_line(&mut line).await
                 && read > 0
