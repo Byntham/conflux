@@ -219,7 +219,8 @@
   .code.bad { color: var(--bad); }
   tr.failed td { background: color-mix(in srgb, var(--bad) var(--fail-mix), transparent); }
   tbody tr.failed:hover td { background: color-mix(in srgb, var(--bad) calc(var(--fail-mix) + 4%), transparent); }
-  .log { overflow: hidden; }
+  .log { position: relative; overflow: hidden; }
+  .log::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px; z-index: 2; background: var(--surface); pointer-events: none; }
   .log:has(> .log-scroll:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
   .log-scroll { max-height: calc(100vh - 127px); overflow: auto; border-top: 1px solid var(--surface); scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; container-type: inline-size; }
   .log-scroll:focus-visible { outline: 0; }
