@@ -219,11 +219,12 @@
   .code.bad { color: var(--bad); }
   tr.failed td { background: color-mix(in srgb, var(--bad) var(--fail-mix), transparent); }
   tbody tr.failed:hover td { background: color-mix(in srgb, var(--bad) calc(var(--fail-mix) + 4%), transparent); }
-  .log { position: relative; overflow: hidden; padding-top: 1px; }
-  .log::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px; z-index: 2; background: var(--surface); }
-  .log-scroll { max-height: calc(100vh - 128px); overflow: auto; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; container-type: inline-size; }
+  .log { overflow: hidden; }
+  .log:has(> .log-scroll:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .log-scroll { max-height: calc(100vh - 127px); overflow: auto; border-top: 1px solid var(--surface); scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; container-type: inline-size; }
+  .log-scroll:focus-visible { outline: 0; }
   main:has(#view-requests:not([hidden])) { padding-bottom: 26px; }
-  .log th { position: sticky; top: 0; z-index: 1; background: var(--surface); box-shadow: inset 0 -1px var(--line); }
+  .log th { position: sticky; top: -1px; z-index: 1; background: var(--surface); box-shadow: inset 0 -1px var(--line); }
   #request-log { table-layout: fixed; }
   #request-log .acct, #request-log .machine, #request-log .model { white-space: normal; overflow-wrap: anywhere; }
   #request-log tr:has(.empty) td { border-top: 0; background: none; }
