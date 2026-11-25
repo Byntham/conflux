@@ -163,10 +163,12 @@ async fn fake_ws(fake: Arc<Fake>, req: Request) -> Response {
                     "error": {"type": "usage_limit_reached", "message": "limit", "resets_in_seconds": 600}
                 })],
                 WsScript::CutTurn => vec![json!({"type": "response.created", "response": {"id": format!("resp_{token}_{n}")}})],
-                WsScript::ErroredTurn => vec![
-                    json!({"type": "response.created", "response": {"id": format!("resp_{token}_{n}")}}),
+                WsScript::ErroredTurn if n == 1 => vec![
+                    json!({"type": "response.created", "response": {"id": format!("resp_{token}_1")}}),
                     json!({"type": "error", "status": 500, "error": {"type": "server_error", "message": "boom"}}),
-                    json!({"type": "response.completed", "response": {"id": format!("resp_{token}_{n}"), "usage": {"output_tokens": 5}}}),
+                ],
+                WsScript::ErroredTurn => vec![
+                    json!({"type": "response.completed", "response": {"id": format!("resp_{token}_1"), "usage": {"output_tokens": 5}}}),
                 ],
                 WsScript::RestartedTurn => vec![
                     json!({"type": "response.created", "response": {"id": format!("resp_{token}_{n}_a")}}),

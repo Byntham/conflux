@@ -309,6 +309,7 @@ async fn the_row_is_logged_when_the_upstream_starts_answering() {
         !h.app.requests.recent()[0].streaming,
         "a turn that ends in an error stops showing as streaming while the socket stays open"
     );
+    errored.send(create("m")).await.unwrap();
     assert_eq!(next_json(&mut errored).await.unwrap()["type"], "response.completed");
     assert_eq!(
         h.app.requests.recent()[0].usage.output,
