@@ -343,6 +343,15 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
     })
     .await;
     hub.later_pids.push(third_pid);
+    let open_row = eventually("the newest hub to list the open stream", async || {
+        let d: Value = reqwest::get(&dashboard).await.ok()?.json().await.ok()?;
+        let requests = d["requests"].as_array()?;
+        requests
+            .iter()
+            .find(|r| r["streaming"] == true)
+            .map(|r| r["id"].clone())
+    })
+    .await;
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     drop(stream);
@@ -355,7 +364,8 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
         async || {
             let d: Value = reqwest::get(&dashboard).await.ok()?.json().await.ok()?;
             let requests = d["requests"].as_array()?;
-            requests.iter().all(|r| r["streaming"] == false).then_some(())
+            let row = requests.iter().find(|r| r["id"] == open_row)?;
+            (row["streaming"] == false).then_some(())
         },
     )
     .await;
