@@ -65,6 +65,7 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         panel.dismiss = { [weak self] in self?.close() }
         highlight.isOpaque = false
         highlight.backgroundColor = .clear
+        highlight.hasShadow = false
         highlight.ignoresMouseEvents = true
         highlight.level = .statusBar
         highlight.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -84,6 +85,7 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
     private func modelChanged() {
         updateIcon()
         if panel.isVisible { place() }
+        if highlight.isVisible { showHighlight() }
     }
 
     private func updateIcon() {
@@ -104,7 +106,7 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         place()
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
-        if NSEvent.pressedMouseButtons & 1 == 0 {
+        if NSApp.currentEvent?.type != .leftMouseDown {
             showHighlight()
         } else {
             mouseUp = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
