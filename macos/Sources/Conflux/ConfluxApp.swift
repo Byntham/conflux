@@ -129,7 +129,9 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         panel.orderOut(nil)
         closedAt = Date()
         highlight.orderOut(nil)
-        item.button?.layer?.backgroundColor = nil
+        if #unavailable(macOS 26) {
+            item.button?.layer?.backgroundColor = nil
+        }
         stopWaitingForMouseUp()
         model.menuClosed()
         if let outsideClicks {
