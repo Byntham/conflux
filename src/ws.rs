@@ -406,6 +406,9 @@ async fn relay(app: Arc<App>, mut client: WebSocket, headers: HeaderMap, upstrea
             }
         }
     }
+    if let Some(unfinished) = turn.record.take() {
+        app.requests.finish(&unfinished);
+    }
 }
 
 fn apply_rejection(app: &App, account: &AccountEntry, rejection: &Rejection) {
@@ -459,6 +462,12 @@ fn inspect_event(app: &App, account: &AccountEntry, route: &RouteRequest, turn: 
         requests::apply_event(Provider::Codex, &mut record.usage, &v);
         app.requests.finish(&record);
     }
+    if kind == Some("error")
+        && let Some(record) = turn.record.take()
+    {
+        app.requests.stop_streaming(record.id);
+        turn.record.set(Some(record));
+    }
     match kind {
         Some("response.created") => {
             let record = proxy::log_attempt(
@@ -471,7 +480,9 @@ fn inspect_event(app: &App, account: &AccountEntry, route: &RouteRequest, turn: 
                 turn.started.get(),
             );
             app.requests.set_transport(record.id, "ws");
-            turn.record.set(Some(record));
+            if let Some(unfinished) = turn.record.replace(Some(record)) {
+                app.requests.finish(&unfinished);
+            }
             false
         }
         Some("codex.rate_limits") => {

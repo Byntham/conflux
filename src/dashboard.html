@@ -111,6 +111,8 @@
   .icon-btn:hover { background: var(--hover); color: var(--fg); }
   .spin svg { animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
+  .live { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); vertical-align: middle; animation: live 1.6s ease-in-out infinite; }
+  @keyframes live { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
 
   .alerts { display: grid; margin-bottom: 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
   .alerts.urgent { border-color: color-mix(in srgb, var(--bad) 35%, var(--line)); }
@@ -1070,15 +1072,18 @@ function renderChart(d) {
 function requestTable(requests) {
   if (!requests.length) return '<tbody><tr><td><div class="empty"><strong>No requests yet</strong>Requests appear here once a machine sends one through the hub.</div></td></tr></tbody>';
   const head = '<thead><tr><th class="when md-up">When</th><th class="machine lg-up">Machine</th><th class="acct">Account</th><th class="model md-up">Model</th><th class="via lg-up">Via</th><th class="num status">Status</th><th class="num lat">Latency</th><th class="num tok sm-up">Input</th><th class="num hit sm-up">Cache hit</th><th class="num tok sm-up">Output</th></tr></thead>';
+  const live = '<span class="live" role="img" aria-label="Still streaming"></span>';
+  const pendingTip = ' data-tip="Still streaming"';
   const rows = requests.map((r) => {
     const u = r.usage;
     const prompt = u.input + u.cache_read + u.cache_write;
     const hit = cachePercent(u.cache_read, prompt);
     const split = [[u.input, "uncached"], [u.cache_read, "cache read"], [u.cache_write, "cache write"]].filter(([n]) => n).map(([n, label]) => `${n.toLocaleString()} ${label}`).join(", ");
-    const usage = [`${tokens(prompt)}\u00a0in`, hit === null ? "" : `${hit}%\u00a0cached`, `${tokens(u.output)}\u00a0out`].filter(Boolean).join("\u00a0· ");
+    const promptPending = r.streaming && !prompt;
+    const usage = promptPending ? "Streaming" : [`${tokens(prompt)}\u00a0in`, hit === null ? "" : `${hit}%\u00a0cached`, r.streaming ? "streaming" : `${tokens(u.output)}\u00a0out`].filter(Boolean).join("\u00a0· ");
     const where = [[r.machine, ""], [r.model, "below-md"], [r.transport, ""]].filter(([v]) => v).map(([v, cls], i, all) => `<span${cls ? ` class="${cls}"` : ""}><span class="whole">${esc(v)}${i < all.length - 1 ? "\u00a0·" : ""}</span> </span>`).join("");
     const account = r.email || r.account;
-    return `<tr class="${r.status < 400 ? "" : "failed"}"><td class="when md-up">${esc(ago(r.at))}</td><td class="machine lg-up dim">${esc(r.machine)}</td><td class="acct">${breakableEmail(mask(account))}<div class="cell-sub below-lg">${where}</div><div class="cell-sub below-sm"${split ? ` data-tip="${esc(split)}"` : ""}>${esc(usage)}</div></td><td class="model mono md-up dim">${esc(r.model || "")}</td><td class="via lg-up dim">${esc(r.transport)}</td><td class="num status"><span class="code ${r.status < 400 ? "ok" : "bad"}">${r.status}</span></td><td class="num lat">${seconds(r.latency_ms)}<div class="cell-sub below-md">${esc(ago(r.at))}</div></td><td class="num sm-up dim"${split ? ` data-tip="${esc(split)}"` : ""}>${tokens(prompt)}</td><td class="num sm-up dim">${hit === null ? "–" : `${hit}%`}</td><td class="num sm-up dim">${tokens(u.output)}</td></tr>`;
+    return `<tr class="${r.status < 400 ? "" : "failed"}"><td class="when md-up">${esc(ago(r.at))}</td><td class="machine lg-up dim">${esc(r.machine)}</td><td class="acct">${breakableEmail(mask(account))}<div class="cell-sub below-lg">${where}</div><div class="cell-sub below-sm"${split ? ` data-tip="${esc(split)}"` : ""}>${esc(usage)}</div></td><td class="model mono md-up dim">${esc(r.model || "")}</td><td class="via lg-up dim">${esc(r.transport)}</td><td class="num status"><span class="code ${r.status < 400 ? "ok" : "bad"}">${r.status}</span></td><td class="num lat">${seconds(r.latency_ms)}<div class="cell-sub below-md">${esc(ago(r.at))}</div></td><td class="num sm-up dim"${split ? ` data-tip="${esc(split)}"` : promptPending ? pendingTip : ""}>${promptPending ? live : tokens(prompt)}</td><td class="num sm-up dim"${promptPending ? pendingTip : ""}>${promptPending ? live : hit === null ? "–" : `${hit}%`}</td><td class="num sm-up dim"${r.streaming ? pendingTip : ""}>${r.streaming ? live : tokens(u.output)}</td></tr>`;
   }).join("");
   return `${head}<tbody>${rows}</tbody>`;
 }
@@ -1669,6 +1674,7 @@ let pressing = false;
 const usageTipOpen = () => Boolean(document.querySelector(".usage-chart .usage-tip:not([hidden])"));
 const flushUsage = () => setTimeout(() => { if (usagePending && !pressing && !usageTipOpen()) renderUsage(); }, 0);
 const endPress = () => { pressing = false; flushUsage(); };
+document.addEventListener("animationstart", (ev) => { if (ev.animationName === "live") for (const pulse of ev.target.getAnimations()) pulse.startTime = 0; });
 document.addEventListener("pointerdown", (ev) => { if (ev.button === 0 && ev.target.closest?.("#usage-body")) pressing = true; }, true);
 document.addEventListener("contextmenu", endPress, true);
 document.addEventListener("pointerup", endPress, true);

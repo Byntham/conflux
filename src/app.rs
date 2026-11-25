@@ -576,7 +576,9 @@ pub async fn serve(cfg: Config, paths: Paths, ep: Endpoints) -> Result<()> {
     tracing::info!(%addr, accounts = app.store.all().len(), "conflux hub listening");
     if let Some(takeover) = takeover {
         let app = app.clone();
-        takeover.ready(move |change| app.import_later(&change)).await?;
+        takeover
+            .ready(Some(app.lifecycle.in_flight()), move |change| app.import_later(&change))
+            .await?;
     }
     update::remove_old_binaries(&exe);
     lifecycle.drain_started().await;

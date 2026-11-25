@@ -62,6 +62,8 @@ pub struct RequestRecord {
     pub status: u16,
     pub latency_ms: u64,
     pub usage: TokenUsage,
+    #[serde(default)]
+    pub streaming: bool,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -136,6 +138,10 @@ impl RequestLog {
         self.state.lock().unwrap().change(id, |r| r.usage = usage);
     }
 
+    pub fn stop_streaming(&self, id: u64) {
+        self.state.lock().unwrap().change(id, |r| r.streaming = false);
+    }
+
     pub fn set_transport(&self, id: u64, transport: &'static str) {
         self.state
             .lock()
@@ -144,7 +150,10 @@ impl RequestLog {
     }
 
     pub fn finish(&self, record: &RequestRecord) {
-        self.set_usage(record.id, record.usage);
+        self.state.lock().unwrap().change(record.id, |r| {
+            r.usage = record.usage;
+            r.streaming = false;
+        });
         let u = &record.usage;
         if record.status < 400 && u.input + u.cache_read + u.cache_write + u.output > 0 {
             self.ledger.append(&Row::from(record));
@@ -459,7 +468,13 @@ impl ResponseTap {
     }
 
     fn take(&mut self, v: Value) {
+        let before = self.usage;
         apply_event(self.provider, &mut self.usage, &v);
+        if let Some(record) = &self.record
+            && self.usage != before
+        {
+            self.log.set_usage(record.id, self.usage);
+        }
         if let Some((usage, account)) = &self.quota {
             usage.observe_muse_event(account, &v);
         }
@@ -620,6 +635,7 @@ mod tests {
             status: 200,
             latency_ms: 1,
             usage: TokenUsage::default(),
+            streaming: false,
         };
         let first = log.add(rec("first")).id;
         log.set_usage(

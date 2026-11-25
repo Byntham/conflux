@@ -541,6 +541,7 @@ pub fn log_attempt(
         status,
         latency_ms: started.elapsed().as_millis() as u64,
         usage: TokenUsage::default(),
+        streaming: status < 400,
     })
 }
 

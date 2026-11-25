@@ -299,6 +299,34 @@ async fn the_row_is_logged_when_the_upstream_starts_answering() {
     let usage = h.app.requests.recent()[0].usage;
     assert_eq!((usage.input, usage.cache_read, usage.output), (10, 40, 3));
     assert_eq!(usage.speed, Speed::Fast);
+
+    h.ws_script("at-c", WsScript::ErroredTurn);
+    let mut errored = open(&h, &[]).await.unwrap();
+    errored.send(create("m")).await.unwrap();
+    assert_eq!(next_json(&mut errored).await.unwrap()["type"], "response.created");
+    assert_eq!(next_json(&mut errored).await.unwrap()["type"], "error");
+    assert!(
+        !h.app.requests.recent()[0].streaming,
+        "a turn that ends in an error stops showing as streaming while the socket stays open"
+    );
+    errored.send(create("m")).await.unwrap();
+    assert_eq!(next_json(&mut errored).await.unwrap()["type"], "response.completed");
+    assert_eq!(
+        h.app.requests.recent()[0].usage.output,
+        5,
+        "a response that completes after an error frame keeps its usage"
+    );
+
+    h.ws_script("at-c", WsScript::RestartedTurn);
+    let mut restarted = open(&h, &[]).await.unwrap();
+    restarted.send(create("m")).await.unwrap();
+    for kind in ["response.created", "response.created", "response.completed"] {
+        assert_eq!(next_json(&mut restarted).await.unwrap()["type"], kind);
+    }
+    assert!(
+        h.app.requests.recent().iter().all(|r| !r.streaming),
+        "a turn replaced by a new response stops showing as streaming"
+    );
     let now = chrono::Utc::now();
     let kept: Vec<_> = h
         .app
@@ -309,7 +337,7 @@ async fn the_row_is_logged_when_the_upstream_starts_answering() {
         .into_iter()
         .map(|r| (r.usage.output, r.usage.speed))
         .collect();
-    assert_eq!(kept, [(7, Speed::Standard), (3, Speed::Fast)]);
+    assert_eq!(kept, [(7, Speed::Standard), (3, Speed::Fast), (5, Speed::Standard)]);
 
     h.ws_script("at-c", WsScript::CutTurn);
     let mut ws = open(&h, &[]).await.unwrap();
@@ -324,7 +352,11 @@ async fn the_row_is_logged_when_the_upstream_starts_answering() {
         .ledger()
         .read(now - chrono::Duration::hours(1), now)
         .unwrap();
-    assert_eq!(rows.len(), 2, "a turn cut off before it ends records nothing");
+    assert_eq!(rows.len(), 3, "a turn cut off before it ends records nothing");
+    assert!(
+        h.app.requests.recent().iter().all(|r| !r.streaming),
+        "a cut turn stops showing as streaming"
+    );
 }
 
 #[tokio::test]
