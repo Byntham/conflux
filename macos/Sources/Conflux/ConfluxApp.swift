@@ -37,9 +37,12 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
     private let model: Model
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let panel: Panel
+    private let highlight = NSWindow(contentRect: .zero, styleMask: .borderless, backing: .buffered, defer: true)
+    private let capsule = NSView()
     private let host: NSHostingView<AnyView>
     private var changes: AnyCancellable?
     private var outsideClicks: Any?
+    private var mouseUp: Any?
     private var closedAt = Date.distantPast
 
     init(model: Model) {
@@ -56,12 +59,23 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
+        panel.hidesOnDeactivate = false
         panel.level = .popUpMenu
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.delegate = self
         panel.dismiss = { [weak self] in self?.close() }
-        item.button?.wantsLayer = true
-        item.button?.layer?.cornerRadius = 6
+        highlight.isOpaque = false
+        highlight.backgroundColor = .clear
+        highlight.hasShadow = false
+        highlight.ignoresMouseEvents = true
+        highlight.level = .statusBar
+        highlight.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        capsule.wantsLayer = true
+        highlight.contentView?.addSubview(capsule)
+        if #unavailable(macOS 26) {
+            item.button?.wantsLayer = true
+            item.button?.layer?.cornerRadius = 6
+        }
         item.button?.target = self
         item.button?.action = #selector(toggle)
         updateIcon()
@@ -76,6 +90,7 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
     private func modelChanged() {
         updateIcon()
         if panel.isVisible { place() }
+        if highlight.isVisible { showHighlight() }
     }
 
     private func updateIcon() {
@@ -87,17 +102,22 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         if panel.isVisible {
             close()
         } else if Date().timeIntervalSince(closedAt) > 0.3 {
-            open()
+            open(pressed: NSEvent.pressedMouseButtons & 1 != 0)
         }
     }
 
-    private func open() {
+    private func open(pressed: Bool) {
         model.menuOpened()
         place()
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
-        item.button?.effectiveAppearance.performAsCurrentDrawingAppearance {
-            self.item.button?.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.18).cgColor
+        if #available(macOS 26, *), pressed {
+            mouseUp = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
+                self?.showHighlight()
+                return event
+            }
+        } else {
+            showHighlight()
         }
         outsideClicks = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             Task { @MainActor in self?.close() }
@@ -108,12 +128,44 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         guard panel.isVisible else { return }
         panel.orderOut(nil)
         closedAt = Date()
-        item.button?.layer?.backgroundColor = nil
+        highlight.orderOut(nil)
+        if #unavailable(macOS 26) {
+            item.button?.layer?.backgroundColor = nil
+        }
+        stopWaitingForMouseUp()
         model.menuClosed()
         if let outsideClicks {
             NSEvent.removeMonitor(outsideClicks)
             self.outsideClicks = nil
         }
+    }
+
+    private func stopWaitingForMouseUp() {
+        if let mouseUp {
+            NSEvent.removeMonitor(mouseUp)
+            self.mouseUp = nil
+        }
+    }
+
+    private func showHighlight() {
+        stopWaitingForMouseUp()
+        guard panel.isVisible, let button = item.button, let anchor = button.window else { return }
+        guard #available(macOS 26, *) else {
+            button.effectiveAppearance.performAsCurrentDrawingAppearance {
+                button.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.18).cgColor
+            }
+            return
+        }
+        let rect = anchor.convertToScreen(button.convert(button.bounds, to: nil)).insetBy(dx: -2, dy: -1)
+        let frame = rect.integral
+        highlight.setFrame(frame, display: false)
+        capsule.frame = rect.offsetBy(dx: -frame.minX, dy: -frame.minY)
+        capsule.layer?.cornerRadius = rect.height / 2
+        capsule.layer?.cornerCurve = .continuous
+        button.effectiveAppearance.performAsCurrentDrawingAppearance {
+            capsule.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.15).cgColor
+        }
+        highlight.order(.below, relativeTo: anchor.windowNumber)
     }
 
     private func place() {
@@ -135,7 +187,7 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !panel.isVisible { open() }
+        if !panel.isVisible { open(pressed: false) }
         return false
     }
 }
