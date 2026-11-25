@@ -60,8 +60,6 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.delegate = self
         panel.dismiss = { [weak self] in self?.close() }
-        item.button?.wantsLayer = true
-        item.button?.layer?.cornerRadius = 6
         item.button?.target = self
         item.button?.action = #selector(toggle)
         updateIcon()
@@ -96,8 +94,9 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         place()
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
-        item.button?.effectiveAppearance.performAsCurrentDrawingAppearance {
-            self.item.button?.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.18).cgColor
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.panel.isVisible else { return }
+            self.item.button?.highlight(true)
         }
         outsideClicks = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             Task { @MainActor in self?.close() }
@@ -108,7 +107,7 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         guard panel.isVisible else { return }
         panel.orderOut(nil)
         closedAt = Date()
-        item.button?.layer?.backgroundColor = nil
+        item.button?.highlight(false)
         model.menuClosed()
         if let outsideClicks {
             NSEvent.removeMonitor(outsideClicks)
