@@ -793,10 +793,13 @@ let toastTimer = null;
 let updateTimer = null;
 let menuAnchor = null;
 
-function setHtml(id, html) {
+function setHtml(id, html, { isolateLayout = false } = {}) {
   if (rendered.get(id) === html) return;
   rendered.set(id, html);
-  $(id).innerHTML = html;
+  const el = $(id);
+  if (isolateLayout) el.getBoundingClientRect();
+  el.innerHTML = html;
+  if (isolateLayout) el.getBoundingClientRect();
 }
 
 async function api(method, path, body) {
@@ -1080,7 +1083,7 @@ function renderRequests(d) {
   const list = requestFilter === "failed" ? d.requests.filter((r) => r.status >= 400) : d.requests;
   const shown = list.slice(0, REQUEST_ROWS);
   $("requests-sub").textContent = list.length > shown.length ? `Latest ${shown.length} of ${list.length} logged` : `${shown.length} logged`;
-  setHtml("request-log", requestTable(shown));
+  setHtml("request-log", requestTable(shown), { isolateLayout: !$("view-requests").hidden });
 }
 
 const UPDATE_REPORT_STALE_MS = 60000;
