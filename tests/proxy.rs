@@ -951,12 +951,10 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         "{\"ephemeral_5m_input_tokens\":5,\"ephemeral_1h_input_tokens\":15},\"output_tokens\":1,\"speed\":\"fast\"}}}\n\n",
         "event: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":44}}\n\n"
     );
+    let (start, delta) = sse.split_at(sse.find("event: message_delta").unwrap());
     h.reply(
         "at-a",
-        Reply::Raw(
-            vec![("content-type", "text/event-stream".into())],
-            sse.as_bytes().to_vec(),
-        ),
+        Reply::EventsWithPause(start.into(), Duration::from_secs(1), delta.into()),
     );
     let r = h
         .claude(json!({"model": "claude-sonnet-5-5-20261101"}))
@@ -965,6 +963,19 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         .send()
         .await
         .unwrap();
+    let mut streaming = serde_json::Value::Null;
+    for _ in 0..30 {
+        streaming = dashboard().await["requests"][0].clone();
+        if streaming["usage"]["cache_read"] == 900 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(
+        streaming["usage"]["cache_read"], 900,
+        "input counts show while the response still streams"
+    );
+    assert_eq!(streaming["streaming"], true);
     assert_eq!(r.text().await.unwrap(), sse);
 
     let page = h
@@ -989,6 +1000,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
     assert_eq!(record["machine"], "node-one");
+    assert_eq!(record["streaming"], false);
     assert_eq!(record["usage"]["cache_read"], 900);
     assert_eq!(record["usage"]["cache_write"], 20);
     assert_eq!(record["usage"]["cache_write_1h"], 15);
@@ -1107,6 +1119,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         status: 200,
         latency_ms: 1,
         usage: Default::default(),
+        streaming: false,
     };
     h.app.requests.add(logged(chrono::Duration::minutes(90)));
     let mut edge_of_hour = logged(chrono::Duration::seconds(3599));

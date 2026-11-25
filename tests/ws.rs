@@ -325,6 +325,10 @@ async fn the_row_is_logged_when_the_upstream_starts_answering() {
         .read(now - chrono::Duration::hours(1), now)
         .unwrap();
     assert_eq!(rows.len(), 2, "a turn cut off before it ends records nothing");
+    assert!(
+        h.app.requests.recent().iter().all(|r| !r.streaming),
+        "a cut turn stops showing as streaming"
+    );
 }
 
 #[tokio::test]
