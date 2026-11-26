@@ -404,13 +404,13 @@
   .pool-name i { width: 9px; height: 9px; border-radius: 2px; background: var(--series); }
   .pool-big { margin-top: 2px; font-size: 40px; line-height: 1; font-weight: 600; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
   .pool-big span { margin-left: 5px; font-size: 13px; font-weight: 400; letter-spacing: 0; color: var(--muted); }
-  .pool-stats { display: flex; gap: 28px; padding-bottom: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .pool-stats { display: flex; flex-wrap: wrap; gap: 8px 28px; padding-bottom: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .pool-stat { display: flex; flex-direction: column; gap: 2px; }
   .pool-label { font-size: 12.5px; color: var(--muted); }
   .pool-value { font-size: 15px; font-weight: 500; }
   .pool-stat.warn .pool-value { color: var(--warn); }
   .pool-label .pool-hatch { display: inline-block; width: 9px; height: 9px; margin-right: 6px; vertical-align: -1px; }
-  .pool-chart i.pool-hatch { border-radius: 2px; background: repeating-linear-gradient(135deg, var(--series) 0 2px, color-mix(in srgb, var(--series) var(--pool-area), transparent) 2px 4px); }
+  .pool-chart i.pool-hatch { border-radius: 2px; background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--series) 60%, transparent) 0 2px, color-mix(in srgb, var(--series) var(--pool-area), transparent) 2px 4px); }
   .narrow .pool-gut { left: 16px; right: 16px; align-items: center; gap: 4px 10px; }
   .narrow .pool-title { flex-direction: row; align-items: center; gap: 10px; }
   .narrow .pool-big { margin: 0; font-size: 24px; }
@@ -427,7 +427,7 @@
   .pool-chart .area { fill: color-mix(in srgb, var(--series) var(--pool-area), transparent); }
   .pool-chart .area.sched { fill: color-mix(in srgb, var(--series) 5%, transparent); }
   .pool-chart .hatch-line { fill: color-mix(in srgb, var(--series) 40%, transparent); }
-  .pool-chart .hatch.sched { opacity: .45; }
+  .pool-chart .hatch.sched { opacity: .6; }
   .pool-chart .trace { fill: none; stroke: var(--series); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
   .pool-chart .level { fill: none; stroke: var(--series); stroke-width: 1.5; stroke-dasharray: 1 5; stroke-linecap: round; }
   .pool-chart .riser { stroke: var(--series); stroke-width: 2; stroke-linecap: round; }
@@ -1208,6 +1208,7 @@ const POOL_NOISE = 1.5;
 const FABLE_SHARE_OF_WEEKLY = 0.5;
 let poolGeom = null;
 let poolPointer = null;
+const poolHeads = {};
 
 const pct = (v) => `${Math.round(v)}%`;
 const pctLeft = (v) => (v > POOL_EMPTY && v < 0.5 ? "<1%" : pct(v));
@@ -1253,7 +1254,7 @@ function buildPool(provider, d, now) {
   const accounts = d.accounts.filter((a) => a.provider === provider);
   const members = accounts.filter((a) => a.enabled && !a.needs_login && poolWindow(a));
   const scope = members.some(fableWindow) ? "Fable" : null;
-  const pool = { provider, accounts, size: members.length, scope, past: [], scopedPast: [], future: [], refills: [], now: 0, nowScoped: 0 };
+  const pool = { provider, accounts, size: members.length, scope, past: [], future: [], refills: [], now: 0, nowScoped: 0 };
   if (!members.length) return pool;
   const hoursAway = (iso) => (iso ? (new Date(iso) - now) / HOUR_MS : Infinity);
   const usedNow = (w) => (hoursAway(w.resets_at) <= 0 ? 0 : w.used_pct);
@@ -1305,7 +1306,6 @@ function buildPool(provider, d, now) {
     }
   }
   pool.past = start < 0 ? [...times].sort((x, y) => x - y).map(sample) : [];
-  pool.scopedPast = pool.past.slice(pool.past.findLastIndex((pt) => pt.s === null) + 1);
   for (let i = 1; i < pool.past.length; i++) {
     const before = pool.past[i - 1], after = pool.past[i];
     if (after.t - before.t > POOL_STEP_H * 1.5 || after.v - before.v < 2) continue;
@@ -1405,8 +1405,9 @@ function shortDate(hours) {
 
 function poolScopeStats(p) {
   const out = (pt) => pt.s <= POOL_EMPTY;
-  const stats = [poolStat(`<i class="pool-hatch"></i>Can be ${esc(p.scope)}`, pctLeft(p.nowScoped), out(p.future[0]) ? "warn" : "")];
-  if (out(p.future[0])) {
+  const outNow = out(p.future[0]);
+  const stats = [poolStat(`<i class="pool-hatch"></i>Can be ${esc(p.scope)}`, pctLeft(p.nowScoped), outNow ? "warn" : "")];
+  if (outNow) {
     const back = p.future.find((pt) => !out(pt));
     if (back) stats.push(poolStat(`${esc(p.scope)} back`, shortDate(back.t), "warn"));
     return stats;
@@ -1419,13 +1420,13 @@ function poolScopeStats(p) {
 
 function poolGutter(l, narrow) {
   const p = l.pool;
-  return `<div class="pool-gut pool-${esc(p.provider)}" style="top:${l.top - l.statRows * 19 - (narrow ? 78 : 80)}px">
+  return `<div class="pool-gut pool-${esc(p.provider)}" style="top:${l.headTop}px">
     <div class="pool-title"><div class="pool-name"><i></i>${esc(providerName(p.provider))}</div><div class="pool-big">${p.size ? `${esc(pctLeft(p.now))}<span>left</span>` : "–"}</div></div>
     <div class="pool-stats">${poolStats(p)}</div>
   </div>`;
 }
 
-function renderPools(d) {
+function renderPools(d, remeasured = false) {
   if ($("view-overview").hidden) return;
   const { all, shown } = overviewProviders(d);
   renderOverviewFilter(d, all);
@@ -1444,8 +1445,8 @@ function renderPools(d) {
   const plotW = width - padL - padR;
   let y = 22;
   for (const l of lanes) {
-    l.statRows = narrow && l.pool.scope && l.pool.size ? 1 : 0;
-    l.top = y + l.statRows * 19 + (narrow ? 104 : 96);
+    l.headTop = y + (narrow ? 26 : 16);
+    l.top = l.headTop + (poolHeads[l.pool.provider] ?? (narrow ? 47 : 63)) + (narrow ? 31 : 17);
     l.h = narrow ? 120 : 200;
     y = l.top + l.h + (narrow ? 12 : 24);
   }
@@ -1485,7 +1486,12 @@ function renderPools(d) {
       if (p.scope) {
         const hatch = `pool-hatch-${esc(p.provider)}`;
         g.push(`<defs><pattern id="${hatch}" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect class="hatch-line" width="3" height="7"/></pattern></defs>`);
-        if (p.scopedPast.length > 1) g.push(`<path class="hatch" fill="url(#${hatch})" d="${area(p.scopedPast, "s")}"/>`);
+        const runs = [[]];
+        for (const pt of p.past) {
+          if (pt.s === null) runs.push([]);
+          else runs[runs.length - 1].push(pt);
+        }
+        for (const run of runs.filter((r) => r.length > 1)) g.push(`<path class="hatch" fill="url(#${hatch})" d="${area(run, "s")}"/>`);
         g.push(`<path class="hatch sched" fill="url(#${hatch})" d="${area(p.future, "s")}"/>`);
       }
       g.push(`<line class="base" x1="${padL}" x2="${padL + plotW}" y1="${base}" y2="${base}"/>`);
@@ -1523,14 +1529,20 @@ function renderPools(d) {
   }).join(" ")}`;
   poolGeom = { lanes, padL, plotW, width, pad, height, x, at, now };
   setHtml("pool", `<div class="card pool-board"><div class="pool-chart${narrow ? " narrow" : ""}"><svg viewBox="0 0 ${width} ${height}" height="${height}" role="img" aria-label="${esc(summary)}">${parts.join("")}</svg>${lanes.map((l) => poolGutter(l, narrow)).join("")}<div class="pool-tip" hidden></div></div></div>`);
+  const heads = [...document.querySelectorAll("#pool .pool-gut")].map((el) => el.offsetHeight);
+  if (!remeasured && lanes.some((l, i) => heads[i] !== poolHeads[l.pool.provider])) {
+    lanes.forEach((l, i) => { poolHeads[l.pool.provider] = heads[i]; });
+    return renderPools(d, true);
+  }
   if (poolPointer) drawPoolTip();
 }
 
 function poolValueAt(pool, t, k = "v") {
-  const pts = t >= 0 ? pool.future : k === "s" ? pool.scopedPast : pool.past;
+  const pts = t >= 0 ? pool.future : pool.past;
   if (!pts.length || t < pts[0].t) return null;
   let prev = pts[0];
   for (const pt of pts) {
+    if (pt.t > t && (prev[k] === null || pt[k] === null)) return null;
     if (pt.t > t) return prev.t === pt.t ? pt[k] : prev[k] + ((pt[k] - prev[k]) * (t - prev.t)) / (pt.t - prev.t);
     prev = pt;
   }
