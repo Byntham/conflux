@@ -1299,7 +1299,7 @@ function buildPool(provider, d, now) {
   const start = Math.max(-POOL_BACK_H, Math.min(...series.map((s) => s.all[0].t)));
   const times = new Set([start, 0]);
   for (const s of series) {
-    for (const p of [...s.samples.all, ...(s.samples.scoped || [])]) {
+    for (const p of s.samples.all) {
       if (p.t <= start) continue;
       times.add(Math.max(start, p.t - POOL_STEP_H));
       times.add(p.t);
@@ -1542,7 +1542,7 @@ function poolValueAt(pool, t, k = "v") {
   if (!pts.length || t < pts[0].t) return null;
   let prev = pts[0];
   for (const pt of pts) {
-    if (pt.t > t && (prev[k] === null || pt[k] === null)) return null;
+    if (pt.t > t && (prev[k] === null || pt[k] === null)) return prev.t === t ? prev[k] : null;
     if (pt.t > t) return prev.t === pt.t ? pt[k] : prev[k] + ((pt[k] - prev[k]) * (t - prev.t)) / (pt.t - prev.t);
     prev = pt;
   }
