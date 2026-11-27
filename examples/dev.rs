@@ -657,11 +657,14 @@ async fn wait_until_up(child: &mut Child, port: u16, name: &str) -> Result<()> {
 }
 
 async fn remove_when_released(dir: PathBuf) {
-    for _ in 0..40 {
-        if std::fs::remove_dir_all(&dir).is_ok() || !dir.exists() {
-            return;
+    for attempt in 0..=40 {
+        if attempt > 0 {
+            tokio::time::sleep(Duration::from_millis(250)).await;
         }
-        tokio::time::sleep(Duration::from_millis(250)).await;
+        match std::fs::remove_dir_all(&dir) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {}
+            _ => return,
+        }
     }
     eprintln!("could not remove {}. Delete it by hand.", dir.display());
 }
@@ -832,7 +835,7 @@ async fn main() -> Result<()> {
     if cfg!(windows) {
         println!(
             "Press Ctrl-C or run `New-Item '{}'` in PowerShell to stop. The files are removed on exit.",
-            stop_file.display()
+            stop_file.display().to_string().replace('\'', "''")
         );
     } else {
         println!(
