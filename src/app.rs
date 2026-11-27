@@ -10,6 +10,7 @@ use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, patch, post};
+use axum::serve::ListenerExt;
 use fs2::FileExt;
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
@@ -38,6 +39,9 @@ use crate::{access, dashboard, fsutil, link, management, proxy};
 
 const TRANSCRIPT_BODY_LIMIT: usize = 64 * 1024 * 1024;
 const IDENTITY_TTL: Duration = Duration::from_secs(60);
+const PROBE_PEER_AFTER_IDLE: Duration = Duration::from_secs(60);
+const PROBE_PEER_EVERY: Duration = Duration::from_secs(15);
+const UNANSWERED_PROBES_BEFORE_CLOSE: u32 = 4;
 
 pub struct App {
     pub cfg: Config,
@@ -82,6 +86,16 @@ pub fn proxy_client() -> reqwest::Client {
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .expect("build proxy client")
+}
+
+fn close_when_peer_vanishes(peer: &mut tokio::net::TcpStream) {
+    let probes = socket2::TcpKeepalive::new()
+        .with_time(PROBE_PEER_AFTER_IDLE)
+        .with_interval(PROBE_PEER_EVERY)
+        .with_retries(UNANSWERED_PROBES_BEFORE_CLOSE);
+    if let Err(e) = socket2::SockRef::from(&*peer).set_tcp_keepalive(&probes) {
+        tracing::warn!("could not turn on TCP keepalive for a connection: {e}");
+    }
 }
 
 impl App {
@@ -178,6 +192,7 @@ impl App {
         let routes = self.routes().into_make_service_with_connect_info::<SocketAddr>();
         tokio::spawn(async move {
             let addr = listener.local_addr().ok();
+            let listener = listener.tap_io(close_when_peer_vanishes);
             if let Err(e) = axum::serve(listener, routes).with_graceful_shutdown(stop).await {
                 tracing::error!(?addr, "listener stopped: {e}");
             }
