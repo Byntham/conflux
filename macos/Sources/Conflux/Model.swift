@@ -308,10 +308,10 @@ final class Model: ObservableObject {
             }
             let enabled = accounts.filter(\.enabled)
             if !enabled.isEmpty && readyCount == 0 { return .systemOrange }
-            return guestsWaiting.isEmpty && latestVersion == nil ? nil : .systemBlue
+            return guestsWaiting.isEmpty && !offersUpdate ? nil : .systemBlue
         case .waiting:
             if updateFailure != nil { return .systemRed }
-            return latestVersion == nil ? nil : .systemBlue
+            return offersUpdate ? .systemBlue : nil
         default:
             return nil
         }
@@ -361,6 +361,10 @@ final class Model: ObservableObject {
 
     var showsUpdateCard: Bool {
         updating || updateFailure != nil || latestVersion != nil
+    }
+
+    var offersUpdate: Bool {
+        !updating && latestVersion != nil
     }
 
     var latestVersion: String? {

@@ -506,6 +506,7 @@ async fn restore(State(pretend): State<Arc<Pretend>>, UrlPath(name): UrlPath<Str
 }
 
 async fn offer_release(State(pretend): State<Arc<Pretend>>, UrlPath(version): UrlPath<String>) -> Response {
+    let version = version.trim_start_matches('v').to_string();
     *pretend.release.lock().unwrap() = Some(version.clone());
     let text = format!("The dev copy now offers v{version}. Press Check for updates to see it.\n");
     respond(StatusCode::OK, "text/plain", vec![], text)

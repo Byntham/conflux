@@ -378,6 +378,8 @@ function canUpdate(machine) {
 
 const outdatedMachines = () => machines().filter(m => m.outdated && m.online && !isUpdating(m) && canUpdate(m));
 
+const offersUpdate = () => !updating() && Boolean(latestVersion());
+
 function latestVersion() {
   const latest = (state.dashboard && state.dashboard.latest_version) || (state.waiting && state.waiting.latest_version);
   return latest && outdatedMachines().length ? latest : null;
@@ -500,11 +502,11 @@ function attention() {
       if (accounts().some(a => isProblem(accountState(a, state.now))) || updateFailure()) return "red";
       const enabled = accounts().filter(a => a.enabled);
       if (enabled.length && readyCount() === 0) return "orange";
-      return guestsWaiting().length || latestVersion() ? "blue" : null;
+      return guestsWaiting().length || offersUpdate() ? "blue" : null;
     }
     case "waiting":
       if (updateFailure()) return "red";
-      return latestVersion() ? "blue" : null;
+      return offersUpdate() ? "blue" : null;
     default:
       return null;
   }
