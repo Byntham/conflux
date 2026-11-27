@@ -2127,6 +2127,7 @@ async function load() {
     if (movingTo && (e instanceof TypeError || e.name === "TimeoutError")) fetch(next, { mode: "no-cors" }).then(() => { location.href = next; }, () => {});
     return;
   }
+  if (document.hidden) return;
   if (fresh.hub.version !== PAGE_VERSION || (core && core.guest !== fresh.guest)) return location.reload();
   const first = !core;
   core = fresh;
