@@ -656,6 +656,16 @@ async fn wait_until_up(child: &mut Child, port: u16, name: &str) -> Result<()> {
     bail!("{name} did not start in time")
 }
 
+async fn remove_when_released(dir: PathBuf) {
+    for _ in 0..40 {
+        if std::fs::remove_dir_all(&dir).is_ok() || !dir.exists() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    eprintln!("could not remove {}. Delete it by hand.", dir.display());
+}
+
 async fn stop_requested(stop_file: &Path) {
     let file_appears = async {
         while !stop_file.exists() {
@@ -842,6 +852,7 @@ async fn main() -> Result<()> {
     }
     let _ = hub.kill().await;
     let _ = node.kill().await;
+    remove_when_released(dir.keep()).await;
     match stopped {
         Some(why) => bail!(why),
         None => Ok(()),
