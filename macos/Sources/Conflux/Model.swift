@@ -261,9 +261,9 @@ final class Model: ObservableObject {
             let (body, response) = try await session.data(for: request)
             let answer = response as? HTTPURLResponse
             let status = answer?.statusCode ?? 0
-            if status == 304, let known { return .answered(status: 200, body: known.body) }
-            if (200..<300).contains(status), let tag = answer?.value(forHTTPHeaderField: "ETag") {
-                seen[url] = (tag, body)
+            if status == 304, let latest = seen[url] ?? known { return .answered(status: 200, body: latest.body) }
+            if status == 200 {
+                seen[url] = answer?.value(forHTTPHeaderField: "ETag").map { (tag: $0, body: body) }
             }
             return .answered(status: status, body: body)
         } catch {

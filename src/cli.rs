@@ -340,8 +340,11 @@ impl Daemon {
         if let (reqwest::StatusCode::NOT_MODIFIED, Some((_, known))) = (response.status(), seen.as_ref()) {
             return Ok(known.clone());
         }
+        if !response.status().is_success() {
+            bail!("the hub answered HTTP {}", response.status());
+        }
         let tag = response.headers().get(reqwest::header::ETAG).cloned();
-        let fresh: Value = response.error_for_status()?.json().await?;
+        let fresh: Value = response.json().await?;
         *seen = tag.map(|tag| (tag, fresh.clone()));
         Ok(fresh)
     }

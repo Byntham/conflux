@@ -605,8 +605,12 @@ impl Bridge {
         let Ok(body) = response.text().await else {
             return json!({ "unreachable": true });
         };
-        if let Some(tag) = tag.filter(|_| status.is_success()) {
-            self.seen.lock().unwrap().insert(url, (tag, body.clone()));
+        if status == reqwest::StatusCode::OK {
+            let mut seen = self.seen.lock().unwrap();
+            match tag {
+                Some(tag) => seen.insert(url, (tag, body.clone())),
+                None => seen.remove(&url),
+            };
         }
         json!({ "status": status.as_u16(), "body": body })
     }
