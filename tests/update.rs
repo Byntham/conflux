@@ -205,6 +205,7 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
     let hits_on_cooling_account = message_hits(&h, &preferred);
 
     let dashboard = format!("{base}/conflux/api/dashboard");
+    let request_log = format!("{dashboard}/requests");
     let away = async || {
         let d: Value = reqwest::get(&dashboard).await.ok()?.json().await.ok()?;
         d["machines"]
@@ -291,7 +292,7 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
     eventually(
         "the new hub to list the tokens of a request that ended on the old hub",
         async || {
-            let d: Value = reqwest::get(&dashboard).await.ok()?.json().await.ok()?;
+            let d: Value = reqwest::get(&request_log).await.ok()?.json().await.ok()?;
             let requests = d["requests"].as_array()?;
             requests
                 .iter()
@@ -314,7 +315,12 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
         (&json!(1), &json!(77)),
         "a request that spans the update is counted once: {codex_usage}"
     );
-    let d: Value = reqwest::get(&dashboard).await.unwrap().json().await.unwrap();
+    let d: Value = reqwest::get(format!("{dashboard}/history"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     assert_eq!(
         d["usage_history"][preferred_id][0]["used"]["seven_day"], 40.0,
         "the new hub keeps the usage history the old hub recorded: {}",
@@ -348,7 +354,7 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
         hub.later_pids.push(newest);
     }
     let open_row = eventually("the newest hub to list the open stream", async || {
-        let d: Value = reqwest::get(&dashboard).await.ok()?.json().await.ok()?;
+        let d: Value = reqwest::get(&request_log).await.ok()?.json().await.ok()?;
         let requests = d["requests"].as_array()?;
         requests
             .iter()
@@ -364,7 +370,7 @@ async fn a_hub_update_keeps_a_running_stream_and_its_routing_state() {
     })
     .await;
     eventually("the newest hub to see the first hub's stream end", async || {
-        let d: Value = reqwest::get(&dashboard).await.ok()?.json().await.ok()?;
+        let d: Value = reqwest::get(&request_log).await.ok()?.json().await.ok()?;
         let requests = d["requests"].as_array()?;
         let row = requests.iter().find(|r| r["id"] == open_row)?;
         (row["streaming"] == false).then_some(())

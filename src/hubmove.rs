@@ -365,7 +365,7 @@ pub async fn state_guard(State(app): State<Arc<App>>, req: Request, next: Next) 
         HubState::Active | HubState::Aborted { .. } => return next.run(req).await,
         HubState::Moving { .. } => {
             let read_only = req.method() == http::Method::GET
-                && (path == "/" || path == "/conflux/api/dashboard" || path == "/conflux/api/status");
+                && (path == "/" || path.starts_with("/conflux/api/dashboard") || path == "/conflux/api/status");
             let resume = path == "/conflux/api/hub/resume";
             if is_always_allowed(&path) || read_only || resume {
                 return next.run(req).await;

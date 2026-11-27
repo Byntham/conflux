@@ -161,7 +161,10 @@ The hub appends one line to `analytics/<UTC date>.jsonl` in the data folder for 
 ## HTTP API and dashboard
 
 - `/conflux/api/*` is the API that the CLI and the dashboard use (`src/api.rs`, `src/link.rs`, `src/hubmove.rs`). The CLI calls it on `127.0.0.1`. `conflux status` reads `/conflux/api/status`.
-- `/` serves `src/dashboard.html`, a single page with no external assets. It polls `/conflux/api/dashboard` for accounts, machines, and recent requests.
+- `/` serves `src/dashboard.html`, a single page with no external assets. While its tab is visible, it polls every second. A hidden tab does not poll.
+- `/conflux/api/dashboard` holds the hub's state, accounts, and machines. Every page of the dashboard polls it, and so do the Mac menu bar app, the Windows tray app, and `conflux update`.
+- `/conflux/api/dashboard/history` holds the quota history for the pool graph. The dashboard polls it only on Overview. `/conflux/api/dashboard/requests` holds the request log and the last hour's stats. The dashboard polls it only on Requests, and only the owner can read it.
+- Each of these three answers with an `ETag`. A client that sends it back in `If-None-Match` gets a 304 with no body while nothing has changed. The hub gzips these and the other `/conflux/api` answers for clients that accept it.
 - `/v0/management/*` is a small API for T3 Code (`src/management.rs`). It needs the management key as a bearer token. It only allows a fixed list of usage and reset-credit calls.
 
 `src/access.rs` guards every route. The `Host` header must be loopback or one of the hub's tailnet names or addresses. Proxy and machine routes refuse browser requests. Other state-changing requests must be same-origin JSON.

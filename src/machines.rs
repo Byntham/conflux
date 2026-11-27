@@ -42,7 +42,8 @@ pub struct Machine {
     pub hostname: String,
     pub version: String,
     pub role: String,
-    pub last_seen: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_seen: Option<DateTime<Utc>>,
     pub online: bool,
     pub transcript_sync: bool,
     pub routing: Option<bool>,
@@ -79,12 +80,12 @@ impl Entry {
         self.node.clone().unwrap_or_else(|| self.report.hostname.clone())
     }
 
-    fn machine(&self, now: DateTime<Utc>) -> Machine {
+    fn machine(&self) -> Machine {
         Machine {
             hostname: self.report.hostname.clone(),
             version: self.report.version.clone(),
             role: "node".into(),
-            last_seen: if self.link.is_some() { now } else { self.last_seen },
+            last_seen: self.link.is_none().then_some(self.last_seen),
             online: self.link.is_some(),
             transcript_sync: self.report.transcript_sync,
             routing: self.report.routing,
@@ -207,7 +208,7 @@ impl Machines {
         map.values()
             .filter(|e| e.report.hostname == hostname)
             .min_by_key(|e| (e.guest, e.link.is_none()))
-            .map(|e| (e.machine(Utc::now()), e.link.as_ref().map(|l| (l.id, l.address))))
+            .map(|e| (e.machine(), e.link.as_ref().map(|l| (l.id, l.address))))
     }
 
     pub fn send_to_link(&self, link: u64, command: Value) -> bool {
@@ -275,8 +276,7 @@ impl Machines {
     }
 
     pub fn list(&self) -> Vec<Machine> {
-        let now = Utc::now();
-        let mut machines: Vec<Machine> = self.map.lock().unwrap().values().map(|e| e.machine(now)).collect();
+        let mut machines: Vec<Machine> = self.map.lock().unwrap().values().map(Entry::machine).collect();
         machines.sort_by(|a, b| a.hostname.cmp(&b.hostname));
         machines
     }

@@ -794,9 +794,11 @@ async fn guests_see_the_hub_and_their_own_machines_and_change_nothing() {
     let _guest_box = open_control(&hub, report("guest-box")).await.unwrap();
     eventually(|| (hub.app.machines.list().len() == 3).then_some(())).await;
 
-    let (status, refused) = ask(&hub, Method::GET, "/conflux/api/dashboard", Value::Null).await;
-    assert_eq!(status, StatusCode::FORBIDDEN);
-    assert!(refused["error"].as_str().unwrap().contains("approve"), "{refused}");
+    for page in ["/conflux/api/dashboard", "/conflux/api/dashboard/history"] {
+        let (status, refused) = ask(&hub, Method::GET, page, Value::Null).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{page}");
+        assert!(refused["error"].as_str().unwrap().contains("approve"), "{refused}");
+    }
     let approved = conflux::guests::Guest {
         approved: true,
         ..Default::default()
@@ -814,7 +816,10 @@ async fn guests_see_the_hub_and_their_own_machines_and_change_nothing() {
         .map(|m| (m["hostname"].as_str().unwrap(), m["outdated"].as_bool().unwrap()))
         .collect();
     assert_eq!(rows, [("hub-under-test", false), ("guest-box", true)]);
-    assert_eq!(dashboard["requests"], json!([]));
+    let (status, history) = ask(&hub, Method::GET, "/conflux/api/dashboard/history", Value::Null).await;
+    assert_eq!((status, history["usage_history"].is_object()), (StatusCode::OK, true));
+    let (status, _) = ask(&hub, Method::GET, "/conflux/api/dashboard/requests", Value::Null).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "a guest cannot read the request log");
     assert_eq!(dashboard["add_machine"], Value::Null);
     let (_, status) = ask(&hub, Method::GET, "/conflux/api/status", Value::Null).await;
     assert_eq!(

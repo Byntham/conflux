@@ -644,7 +644,7 @@
     </div>
     <main>
       <div id="connection" class="alerts" hidden></div>
-      <div id="unavailable" hidden><div class="page-head"><div><h1 id="down-title"></h1></div></div><div class="unavailable"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg><strong id="unavailable-title">Can't reach the hub</strong><span id="unavailable-detail">Retrying every 5 seconds.</span></div></div>
+      <div id="unavailable" hidden><div class="page-head"><div><h1 id="down-title"></h1></div></div><div class="unavailable"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg><strong id="unavailable-title">Can't reach the hub</strong><span id="unavailable-detail">Retrying every second.</span></div></div>
 
       <section id="view-overview" hidden>
         <div class="page-head">
@@ -776,7 +776,12 @@ const VIEWS = ["overview", "usage", "requests", "machines", "threads"];
 const HOUR_MS = 3600000;
 const REQUEST_ROWS = 100;
 const STALE_USAGE_MS = 30 * 60000;
-const SETTLE_AFTER_LOAD_MS = 15000;
+const POLL_MS = 1000;
+const POLL_TIMEOUT_MS = 10000;
+const DASHBOARD = "/conflux/api/dashboard";
+const SECTIONS = { overview: `${DASHBOARD}/history`, requests: `${DASHBOARD}/requests` };
+const seen = new Map();
+const sections = {};
 const rendered = new Map();
 let latest = null;
 let requestFilter = "all";
@@ -786,7 +791,7 @@ let threadToken = 0;
 let listToken = 0;
 let loginTimer = null;
 let toastTimer = null;
-let updateTimer = null;
+let pollTimer = null;
 let menuAnchor = null;
 
 function setHtml(id, html, { isolateLayout = false } = {}) {
@@ -798,14 +803,27 @@ function setHtml(id, html, { isolateLayout = false } = {}) {
   if (isolateLayout) el.getBoundingClientRect();
 }
 
+async function answer(res) {
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(data.error || `HTTP ${res.status}`), { status: res.status });
+  return data;
+}
+
 async function api(method, path, body) {
-  const res = await fetch(path, {
+  return answer(await fetch(path, {
     method,
     headers: { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(data.error || `HTTP ${res.status}`), { status: res.status });
+  }));
+}
+
+async function unlessSeen(path) {
+  const known = seen.get(path);
+  const res = await fetch(path, { headers: known ? { "if-none-match": known.tag } : {}, signal: AbortSignal.timeout(POLL_TIMEOUT_MS) });
+  if (res.status === 304 && known) return known.data;
+  const data = await answer(res);
+  const tag = res.headers.get("etag");
+  if (tag) seen.set(path, { tag, data });
   return data;
 }
 
@@ -864,13 +882,6 @@ const providerName = (p) => ({ claude: "Claude", codex: "Codex", grok: "Grok", m
 
 function cachePercent(read, total) {
   return total ? Math.floor((read * 100) / total) : null;
-}
-
-function cacheTotals(requests) {
-  let read = 0, write = 0, input = 0;
-  for (const r of requests) { read += r.usage.cache_read; write += r.usage.cache_write; input += r.usage.input; }
-  const total = read + write + input;
-  return { read, write, hit: cachePercent(read, total) };
 }
 
 function accountCooldown(a) {
@@ -947,11 +958,10 @@ function renderNotes(a) {
   return notes.length ? `<div class="account-notes">${notes.join("")}</div>` : "";
 }
 
-function accountMeta(a, requests) {
+function accountMeta(a) {
   const parts = [];
   if (a.plan) parts.push(`<span class="meta">${esc(titleCase(a.plan))}</span>`);
-  const cache = cacheTotals(requests.filter((r) => r.account === a.id));
-  if (cache.hit !== null) parts.push(`<span class="meta hide-sm">Cache hit ${cache.hit}%</span>`);
+  if (a.cache_hit !== null) parts.push(`<span class="meta hide-sm">Cache hit ${a.cache_hit}%</span>`);
   return parts.join("");
 }
 
@@ -965,14 +975,14 @@ function renderActionRow(a) {
   return "";
 }
 
-function renderAccount(a, requests) {
+function renderAccount(a) {
   const name = mask(a.email || a.id);
   const body = a.needs_login && !a.usage.windows.length ? '<div class="no-usage">Quota is unavailable until this account logs in.</div>' : renderMeters(a);
   return `<div class="card account ${a.enabled ? "" : "off"} ${a.billing_blocked ? "blocked" : ""} ${name.length > 32 ? "long-email" : ""}">
     <div class="account-head">
       <div class="account-title">
         <div class="email">${breakableEmail(name)}</div>
-        <div class="account-sub"><span class="dot ${esc(a.provider)}"></span><span>${esc(providerName(a.provider))}</span>${accountMeta(a, requests)}</div>
+        <div class="account-sub"><span class="dot ${esc(a.provider)}"></span><span>${esc(providerName(a.provider))}</span>${accountMeta(a)}</div>
       </div>
       ${statusPill(a)}
       <div class="account-actions">
@@ -1010,7 +1020,7 @@ function stat(label, value, sub, subClass = "", valueClass = "") {
 
 function renderStats(d) {
   const ready = d.accounts.filter(isReady).length;
-  const hour = d.requests_hour || { total: 0, failed: 0, accounts: 0, latency_p50_ms: null, input: 0, cache_read: 0, cache_write: 0 };
+  const hour = d.requests_hour;
   const { total, failed } = hour;
   const success = total ? `${(((total - failed) / total) * 100).toFixed(1)}%` : "–";
   const cacheHit = cachePercent(hour.cache_read, hour.cache_read + hour.cache_write + hour.input);
@@ -1033,8 +1043,12 @@ function renderStats(d) {
 function renderChart(d) {
   const count = window.innerWidth <= 760 ? 30 : 60;
   const lanes = [...PROVIDERS, "failed"];
-  const minutes = d.requests_hour?.minutes.slice(-count) || [];
-  const buckets = minutes.map((m) => ({ minute: m.minute, ...Object.fromEntries(lanes.map((lane) => [lane, m[lane] || 0])) }));
+  const busy = new Map(d.requests_hour.minutes.map((m) => [m.minute, m]));
+  const newest = Math.max(Math.floor(Date.now() / 60000), ...busy.keys());
+  const buckets = Array.from({ length: count }, (_, i) => {
+    const minute = newest - count + 1 + i;
+    return { minute, ...Object.fromEntries(lanes.map((lane) => [lane, busy.get(minute)?.[lane] || 0])) };
+  });
   const sum = (b) => lanes.reduce((n, lane) => n + b[lane], 0);
   const peak = Math.max(1, ...buckets.map(sum));
   const max = Math.max(2, Math.ceil(peak / 2) * 2);
@@ -1083,6 +1097,13 @@ function renderRequests(d) {
   const shown = list.slice(0, REQUEST_ROWS);
   $("requests-sub").textContent = list.length > shown.length ? `Latest ${shown.length} of ${list.length} logged` : `${shown.length} logged`;
   setHtml("request-log", requestTable(shown), { isolateLayout: !$("view-requests").hidden });
+}
+
+function renderRequestsView(d) {
+  if ($("view-requests").hidden || !d.requests) return;
+  renderStats(d);
+  renderChart(d);
+  renderRequests(d);
 }
 
 const UPDATE_REPORT_STALE_MS = 60000;
@@ -1152,7 +1173,7 @@ function renderMachines(d) {
   $("machines-pending").hidden = !waiting;
   $("machines-pending").textContent = `${waiting} waiting`;
   setHtml("machine-list", `<thead><tr><th>Machine</th><th>Status</th><th class="hide-sm">Version</th><th class="hide-sm">Transcript sync</th><th class="num hide-sm">Last seen</th><th class="num">Update</th><th aria-label="Actions"></th></tr></thead><tbody>${d.machines.map((m) =>
-    `<tr class="${m.online ? "" : "offline"}"><td><span class="machine-name">${esc(m.hostname)}${roleBadge(m)}</span>${m.guest ? `<div class="cell-sub">${m.user ? masked(m.user) : "Tagged machine"}</div>` : ""}<div class="cell-sub show-sm">v${esc(m.version)} · sync ${m.transcript_sync ? "on" : "off"}</div></td><td class="${m.online ? "" : "muted"}">${statusCell(m)}</td><td class="mono hide-sm">${esc(m.version)}</td><td class="hide-sm ${m.transcript_sync ? "" : "muted"}">${m.transcript_sync ? "On" : "Off"}</td><td class="num when hide-sm">${esc(ago(m.last_seen))}</td><td class="num"><span class="update-cell">${wantsToJoin(m) ? guestButtons(m) : updateCell(m, d.latest_version)}</span></td><td class="row-actions">${machineMenuButton(m)}</td></tr>`
+    `<tr class="${m.online ? "" : "offline"}"><td><span class="machine-name">${esc(m.hostname)}${roleBadge(m)}</span>${m.guest ? `<div class="cell-sub">${m.user ? masked(m.user) : "Tagged machine"}</div>` : ""}<div class="cell-sub show-sm">v${esc(m.version)} · sync ${m.transcript_sync ? "on" : "off"}</div></td><td class="${m.online ? "" : "muted"}">${statusCell(m)}</td><td class="mono hide-sm">${esc(m.version)}</td><td class="hide-sm ${m.transcript_sync ? "" : "muted"}">${m.transcript_sync ? "On" : "Off"}</td><td class="num when hide-sm">${esc(ago(m.online ? Date.now() : m.last_seen))}</td><td class="num"><span class="update-cell">${wantsToJoin(m) ? guestButtons(m) : updateCell(m, d.latest_version)}</span></td><td class="row-actions">${machineMenuButton(m)}</td></tr>`
   ).join("")}</tbody>`);
   setHtml("fleet", d.machines.map((m) =>
     `<li class="${m.online ? "" : "offline"}" title="${esc(m.hostname)}${m.online && m.routing === false ? " · routing off" : ""}"><span class="dot ${m.online ? "on" : ""} ${m.online && m.routing === false ? "routing-off" : ""}"></span><span class="truncate">${esc(m.hostname)}</span>${roleBadge(m)}</li>`
@@ -1195,7 +1216,7 @@ function renderOverviewFilter(d, all) {
 function renderAccounts(d) {
   const { shown } = overviewProviders(d);
   const ordered = d.accounts.filter((a) => shown.includes(a.provider)).sort((x, y) => x.provider.localeCompare(y.provider) || severity(x) - severity(y));
-  setHtml("accounts", ordered.map((a) => renderAccount(a, d.requests)).join(""));
+  setHtml("accounts", ordered.map(renderAccount).join(""));
 }
 
 const POOL_BACK_H = 168;
@@ -1259,7 +1280,7 @@ function buildPool(provider, d, now) {
   if (!members.length) return pool;
   const hoursAway = (iso) => (iso ? (new Date(iso) - now) / HOUR_MS : Infinity);
   const usedNow = (w) => (hoursAway(w.resets_at) <= 0 ? 0 : w.used_pct);
-  const history = d.usage_history || {};
+  const history = d.usage_history;
   const series = members.map((a) => {
     const w = poolWindow(a);
     const sw = fableWindow(a);
@@ -1428,7 +1449,7 @@ function poolGutter(l, narrow) {
 }
 
 function renderPools(d, remeasured = false) {
-  if ($("view-overview").hidden) return;
+  if ($("view-overview").hidden || !d.usage_history) return;
   const { all, shown } = overviewProviders(d);
   renderOverviewFilter(d, all);
   if (!d.accounts.length) {
@@ -2049,23 +2070,25 @@ function setConnection(ok, message, refused = false) {
   $("unavailable").hidden = ok || Boolean(latest);
   $("down-title").textContent = titleCase(currentView());
   setHtml("unavailable-title", refused ? masked(detail) : "Can't reach the hub");
-  $("unavailable-detail").textContent = refused ? "This page fills in once you're approved." : "Retrying every 5 seconds.";
+  $("unavailable-detail").textContent = refused ? "This page fills in once you're approved." : "Retrying every second.";
   if (!latest) $("hub-line").textContent = ok ? "" : "Waiting for the hub";
-  setHtml("connection", ok ? "" : `<div class="alert-row" role="alert">${icon("alert")}<div class="alert-text"><div class="alert-title">Can't reach the hub</div><div class="alert-detail">${masked(detail)}. Showing the last data received, retrying every 5 seconds.</div></div></div>`);
+  setHtml("connection", ok ? "" : `<div class="alert-row" role="alert">${icon("alert")}<div class="alert-text"><div class="alert-title">Can't reach the hub</div><div class="alert-detail">${masked(detail)}. Showing the last data received, retrying every second.</div></div></div>`);
+}
+
+function viewFor(guest) {
+  const hash = location.hash.slice(1);
+  const views = guest ? ["overview", "machines"] : VIEWS;
+  return views.includes(hash) ? hash : "overview";
 }
 
 function currentView() {
-  const hash = location.hash.slice(1);
-  const views = latest?.guest ? ["overview", "machines"] : VIEWS;
-  return views.includes(hash) ? hash : "overview";
+  return viewFor(latest?.guest);
 }
 
 function render(d) {
   if (latest && latest.hub.version !== d.hub.version) return location.reload();
   const firstLoad = !latest;
   latest = d;
-  clearTimeout(updateTimer);
-  if (d.machines.some(updating) || performance.now() < SETTLE_AFTER_LOAD_MS) updateTimer = setTimeout(refresh, 1000);
   document.body.classList.add("loaded");
   document.body.classList.toggle("guest", d.guest);
   $("hub-line").textContent = `v${d.hub.version}`;
@@ -2073,10 +2096,8 @@ function render(d) {
   $("view-overview").classList.toggle("first-run", !d.accounts.length);
   renderAlerts(d);
   renderPools(d);
-  renderStats(d);
   renderAccounts(d);
-  renderChart(d);
-  renderRequests(d);
+  renderRequestsView(d);
   renderMachines(d);
   renderUpdateAll(d);
   if (firstLoad) showView();
@@ -2087,13 +2108,16 @@ let movingTo = null;
 async function refresh() {
   let d;
   try {
-    d = await api("GET", "/conflux/api/dashboard");
+    const core = await unlessSeen(DASHBOARD);
+    const section = SECTIONS[viewFor(core.guest)];
+    if (section) Object.assign(sections, await unlessSeen(section));
+    d = { ...core, ...sections };
   } catch (e) {
     setConnection(false, e.message, e.status === 403);
     const moved = e.message.match(/the hub moved to (\S+?)\.\s/);
     if (moved) movingTo = moved[1];
     const next = `http://${movingTo}:${location.port}/`;
-    if (movingTo && e instanceof TypeError) fetch(next, { mode: "no-cors" }).then(() => { location.href = next; }, () => {});
+    if (movingTo && (e instanceof TypeError || e.name === "TimeoutError")) fetch(next, { mode: "no-cors" }).then(() => { location.href = next; }, () => {});
     return;
   }
   movingTo = d.hub.state && d.hub.state.state === "moving" ? d.hub.state.hub : null;
@@ -2127,6 +2151,7 @@ function showView() {
   window.scrollTo(0, 0);
   if (name === "threads" && latest) loadThreads();
   if (name === "overview" && latest) renderPools(latest);
+  if (name === "requests" && latest) renderRequestsView(latest);
   if (name === "usage" && latest) loadUsage();
 }
 
@@ -2547,12 +2572,12 @@ $("thread-search").onkeydown = (ev) => { if (ev.key === "Enter") searchThreads()
 $("thread-search").addEventListener("search", searchThreads);
 $("modal").addEventListener("close", () => clearInterval(loginTimer));
 $("modal").addEventListener("click", (ev) => { if (ev.target === $("modal")) closeModal(); });
-window.addEventListener("hashchange", showView);
+window.addEventListener("hashchange", () => { showView(); refresh(); });
 let usageWidth = window.innerWidth;
 window.addEventListener("resize", () => {
   closeMenu();
   if (!latest) return;
-  renderChart(latest);
+  renderRequestsView(latest);
   renderPools(latest);
   if (window.innerWidth !== usageWidth) { usageWidth = window.innerWidth; renderUsage(); }
 });
@@ -2633,7 +2658,7 @@ document.addEventListener("click", (ev) => {
   if (filter) {
     requestFilter = filter.dataset.filter;
     document.querySelectorAll("[data-filter]").forEach((b) => b.setAttribute("aria-pressed", String(b === filter)));
-    return latest && renderRequests(latest);
+    return latest && renderRequestsView(latest);
   }
   const range = ev.target.closest("[data-usage-range]");
   if (range) {
@@ -2680,9 +2705,22 @@ document.addEventListener("click", (ev) => {
   if (update) return startUpdate(update);
 });
 
+function pollAgain() {
+  clearTimeout(pollTimer);
+  if (!document.hidden) pollTimer = setTimeout(poll, POLL_MS);
+}
+
+async function poll() {
+  try {
+    await refresh();
+  } finally {
+    pollAgain();
+  }
+}
+
+document.addEventListener("visibilitychange", () => (document.hidden ? clearTimeout(pollTimer) : poll()));
 showView();
-refresh();
-setInterval(refresh, 5000);
+poll();
 </script>
 </body>
 </html>
