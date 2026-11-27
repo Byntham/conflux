@@ -404,30 +404,17 @@
   .pool-name i { width: 9px; height: 9px; border-radius: 2px; background: var(--series); }
   .pool-big { margin-top: 2px; font-size: 40px; line-height: 1; font-weight: 600; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
   .pool-big span { margin-left: 5px; font-size: 13px; font-weight: 400; letter-spacing: 0; color: var(--muted); }
-  .pool-stats { display: flex; gap: 28px; padding-bottom: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .pool-stats { display: flex; flex-wrap: wrap; gap: 8px 28px; padding-bottom: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .pool-stat { display: flex; flex-direction: column; gap: 2px; }
   .pool-label { font-size: 12.5px; color: var(--muted); }
   .pool-value { font-size: 15px; font-weight: 500; }
   .pool-stat.warn .pool-value { color: var(--warn); }
-  .pool-split { order: 2; flex: 0 0 100%; min-width: 0; }
-  .pool-bar { position: relative; height: 10px; border-radius: 4px; overflow: hidden; background: var(--track); }
-  .pool-bar i { position: absolute; inset: 0 auto 0 0; }
-  .pool-bar i, .pool-key i { background-color: var(--series); }
-  .pool-bar i.scope, .pool-key i.scope { background-image: repeating-linear-gradient(135deg, color-mix(in srgb, var(--series) 45%, var(--surface)) 0 3px, transparent 3px 7px); }
-  .pool-bar i.scope { background-color: transparent; }
-  .pool-key { display: flex; flex-wrap: wrap; gap: 0 18px; margin-top: 6px; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .pool-key span { display: inline-flex; align-items: center; gap: 6px; }
-  .pool-key i { width: 10px; height: 10px; border-radius: 2px; }
-  .pool-key b { font-weight: 500; color: var(--fg); }
-  .pool-key .pool-note { margin-left: auto; }
-  .pool-key .pool-note.warn { color: var(--warn); }
+  .pool-label .pool-fable { display: inline-block; width: 9px; height: 9px; margin-right: 6px; vertical-align: -1px; }
+  .pool-chart i.pool-fable { box-sizing: border-box; border-radius: 2px; border-top: 2px solid var(--series); background: color-mix(in srgb, var(--series) 50%, transparent); }
   .narrow .pool-gut { left: 16px; right: 16px; align-items: center; gap: 4px 10px; }
   .narrow .pool-title { flex-direction: row; align-items: center; gap: 10px; }
   .narrow .pool-big { margin: 0; font-size: 24px; }
   .narrow .pool-big span { display: none; }
-  .narrow .pool-split { margin-top: 4px; }
-  .narrow .pool-key span:first-child { display: none; }
-  .narrow .pool-key .pool-note { flex-basis: 100%; margin: 0; }
   .narrow .pool-stats { order: 1; flex-basis: 100%; flex-wrap: wrap; gap: 0 12px; padding: 0; font-size: 12.5px; }
   .narrow .pool-stat { flex-direction: row; gap: 4px; }
   .narrow .pool-value { font-size: inherit; font-weight: 400; color: var(--fg-2); }
@@ -439,6 +426,9 @@
   .pool-chart .base { stroke: var(--line-strong); stroke-width: 1; }
   .pool-chart .area { fill: color-mix(in srgb, var(--series) var(--pool-area), transparent); }
   .pool-chart .area.sched { fill: color-mix(in srgb, var(--series) 5%, transparent); }
+  .pool-chart .area.fable { fill: color-mix(in srgb, var(--series) 42%, transparent); }
+  .pool-chart .area.fable.sched { fill: color-mix(in srgb, var(--series) 20%, transparent); }
+  .pool-chart .fable:is(.trace, .level, .riser) { stroke-width: 1.5; }
   .pool-chart .trace { fill: none; stroke: var(--series); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
   .pool-chart .level { fill: none; stroke: var(--series); stroke-width: 1.5; stroke-dasharray: 1 5; stroke-linecap: round; }
   .pool-chart .riser { stroke: var(--series); stroke-width: 2; stroke-linecap: round; }
@@ -1219,6 +1209,7 @@ const POOL_NOISE = 1.5;
 const FABLE_SHARE_OF_WEEKLY = 0.5;
 let poolGeom = null;
 let poolPointer = null;
+const poolHeads = {};
 
 const pct = (v) => `${Math.round(v)}%`;
 const pctLeft = (v) => (v > POOL_EMPTY && v < 0.5 ? "<1%" : pct(v));
@@ -1287,19 +1278,24 @@ function buildPool(provider, d, now) {
       id: a.id,
       name: a.email || a.id,
       all: corners(all),
+      scoped: scoped && corners(scoped),
       samples: { all, scoped },
       state: { allLeft: 100 - usedNow(w), allReset: reset(w), allEvery: every(w), scopeLeft: sw ? 100 - usedNow(sw) : 100, scopeReset: reset(sw || w), scopeEvery: every(sw || w) },
     };
   });
   const cap = members.length * 100;
   const sample = (t) => {
-    let all = 0, counted = 0;
+    let all = 0, scoped = 0, counted = 0, known = true;
     for (const s of series) {
       if (t < s.all[0].t) continue;
-      all += 100 - usedAt(s.all, t);
+      const allLeft = 100 - usedAt(s.all, t);
+      if (s.scoped && t < s.scoped[0].t) known = false;
+      const scopeLeft = s.scoped ? 100 - usedAt(s.scoped, t) : 100;
+      all += allLeft;
+      scoped += Math.min(allLeft, scopeLeft * FABLE_SHARE_OF_WEEKLY);
       counted++;
     }
-    return { t, v: all / counted };
+    return { t, v: all / counted, s: known ? scoped / counted : null };
   };
   const start = Math.max(-POOL_BACK_H, Math.min(...series.map((s) => s.all[0].t)));
   const times = new Set([start, 0]);
@@ -1399,6 +1395,7 @@ function poolStats(p) {
   stats.push(poolStat(`Burn<span class="since">, last ${POOL_BURN_H}h</span>`, p.burn === null ? "No data yet" : `${p.burn < 10 ? p.burn.toFixed(1) : Math.round(p.burn)}%/h`));
   const outlook = poolOutlook(p);
   if (outlook) stats.push(poolStat(outlook.label, outlook.value, outlook.warn ? "warn" : ""));
+  if (p.scope) stats.push(...poolScopeStats(p));
   return stats.join("");
 }
 
@@ -1407,39 +1404,30 @@ function shortDate(hours) {
   return `${date.toLocaleDateString([], { weekday: "short" })} ${date.getDate()}, ${date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
 }
 
-function poolScopeNote(p) {
+function poolScopeStats(p) {
   const out = (pt) => pt.s <= POOL_EMPTY;
-  if (out(p.future[0])) {
+  const outNow = out(p.future[0]);
+  const stats = [poolStat(`<i class="pool-fable"></i>Can be ${esc(p.scope)}`, pctLeft(p.nowScoped), outNow ? "warn" : "")];
+  if (outNow) {
     const back = p.future.find((pt) => !out(pt));
-    return { text: back ? `${p.scope} out, back ${shortDate(back.t)}` : `${p.scope} out`, warn: true };
+    if (back) stats.push(poolStat(`${esc(p.scope)} back`, shortDate(back.t), "warn"));
+    return stats;
   }
   const empty = p.future.find(out);
-  if (empty && (p.emptyAt === undefined || empty.t < p.emptyAt)) return { text: `${p.scope} runs out ${shortDate(empty.t)}`, warn: true };
-  return p.scopeReset < Infinity ? { text: `${p.scope} resets ${shortDate(p.scopeReset)}`, warn: false } : null;
-}
-
-const poolHasSplit = (p) => Boolean(p.scope && p.size);
-
-function poolSplit(p) {
-  if (!poolHasSplit(p)) return "";
-  const note = poolScopeNote(p);
-  const all = esc(pctLeft(p.now)), scoped = esc(pctLeft(p.nowScoped));
-  return `<div class="pool-split">
-    <div class="pool-bar" aria-hidden="true"><i style="width:${p.now.toFixed(2)}%"></i><i class="scope" style="width:${p.nowScoped.toFixed(2)}%"></i></div>
-    <div class="pool-key"><span><i></i>All models <b>${all}</b></span><span><i class="scope"></i>Can be ${esc(p.scope)} <b>${scoped}</b></span>${note ? `<span class="pool-note${note.warn ? " warn" : ""}">${esc(note.text)}</span>` : ""}</div>
-  </div>`;
+  if (empty && (p.emptyAt === undefined || empty.t < p.emptyAt)) stats.push(poolStat(`${esc(p.scope)} runs out`, shortDate(empty.t), "warn"));
+  else if (p.scopeReset < Infinity) stats.push(poolStat(`${esc(p.scope)} resets`, shortDate(p.scopeReset)));
+  return stats;
 }
 
 function poolGutter(l, narrow) {
   const p = l.pool;
-  return `<div class="pool-gut pool-${esc(p.provider)}" style="top:${l.top - l.split - (narrow ? 78 : 80)}px">
+  return `<div class="pool-gut pool-${esc(p.provider)}" style="top:${l.headTop}px">
     <div class="pool-title"><div class="pool-name"><i></i>${esc(providerName(p.provider))}</div><div class="pool-big">${p.size ? `${esc(pctLeft(p.now))}<span>left</span>` : "–"}</div></div>
     <div class="pool-stats">${poolStats(p)}</div>
-    ${poolSplit(p)}
   </div>`;
 }
 
-function renderPools(d) {
+function renderPools(d, remeasured = false) {
   if ($("view-overview").hidden) return;
   const { all, shown } = overviewProviders(d);
   renderOverviewFilter(d, all);
@@ -1458,8 +1446,8 @@ function renderPools(d) {
   const plotW = width - padL - padR;
   let y = 22;
   for (const l of lanes) {
-    l.split = poolHasSplit(l.pool) ? (narrow ? 66 : 48) : 0;
-    l.top = y + l.split + (narrow ? 104 : 96);
+    l.headTop = y + (narrow ? 26 : 16);
+    l.top = l.headTop + (poolHeads[l.pool.provider] ?? (narrow ? 47 : 63)) + (narrow ? 31 : 17);
     l.h = narrow ? 120 : 200;
     y = l.top + l.h + (narrow ? 12 : 24);
   }
@@ -1489,13 +1477,22 @@ function renderPools(d) {
     const ticks = l.h >= 180 ? [25, 50, 75, 100] : [50, 100];
     for (const v of ticks) g.push(`<line class="grid" x1="${padL}" x2="${padL + plotW}" y1="${yv(v)}" y2="${yv(v)}"/><text x="${padL - 8}" y="${yv(v) + 4}" text-anchor="end">${v}%</text>`);
     g.push(`<text x="${padL - 8}" y="${base + 4}" text-anchor="end">0</text>`);
-    const path = (pts) => pts.map((pt, i) => `${i ? "L" : "M"}${x(pt.t).toFixed(1)} ${yv(pt.v).toFixed(1)}`).join("");
-    const area = (pts) => `${path(pts)}L${x(pts[pts.length - 1].t).toFixed(1)} ${base}L${x(pts[0].t).toFixed(1)} ${base}Z`;
-    const level = (pts) => pts.map((pt, i) => (i && pts[i - 1].t !== pt.t ? `${i === 1 || pts[i - 2].t === pts[i - 1].t ? `M${x(pts[i - 1].t).toFixed(1)} ${yv(pts[i - 1].v).toFixed(1)}` : ""}L${x(pt.t).toFixed(1)} ${yv(pt.v).toFixed(1)}` : "")).join("");
-    const risers = (pts) => pts.map((pt, i) => (pts[i + 1] && pts[i + 1].t === pt.t && pts[i + 1].v - pt.v > 0.5 ? `<line class="riser" x1="${x(pt.t).toFixed(1)}" x2="${x(pt.t).toFixed(1)}" y1="${yv(pt.v).toFixed(1)}" y2="${yv(pts[i + 1].v).toFixed(1)}"/>` : "")).join("");
+    const path = (pts, k = "v") => pts.map((pt, i) => `${i ? "L" : "M"}${x(pt.t).toFixed(1)} ${yv(pt[k]).toFixed(1)}`).join("");
+    const area = (pts, k = "v") => `${path(pts, k)}L${x(pts[pts.length - 1].t).toFixed(1)} ${base}L${x(pts[0].t).toFixed(1)} ${base}Z`;
+    const level = (pts, k = "v") => pts.map((pt, i) => (i && pts[i - 1].t !== pt.t ? `${i === 1 || pts[i - 2].t === pts[i - 1].t ? `M${x(pts[i - 1].t).toFixed(1)} ${yv(pts[i - 1][k]).toFixed(1)}` : ""}L${x(pt.t).toFixed(1)} ${yv(pt[k]).toFixed(1)}` : "")).join("");
+    const risers = (pts, k = "v", cls = "riser") => pts.map((pt, i) => (pts[i + 1] && pts[i + 1].t === pt.t && pts[i + 1][k] - pt[k] > 0.5 ? `<line class="${cls}" x1="${x(pt.t).toFixed(1)}" x2="${x(pt.t).toFixed(1)}" y1="${yv(pt[k]).toFixed(1)}" y2="${yv(pts[i + 1][k]).toFixed(1)}"/>` : "")).join("");
     if (p.size) {
       if (p.past.length) g.push(`<path class="area" d="${area(p.past)}"/>`);
       g.push(`<path class="area sched" d="${area(p.future)}"/>`);
+      if (p.scope) {
+        const runs = [[]];
+        for (const pt of p.past) {
+          if (pt.s === null) runs.push([]);
+          else runs[runs.length - 1].push(pt);
+        }
+        for (const run of runs.filter((r) => r.length > 1)) g.push(`<path class="area fable" d="${area(run, "s")}"/><path class="trace fable" d="${path(run, "s")}"/>`);
+        g.push(`<path class="area fable sched" d="${area(p.future, "s")}"/><path class="level fable" d="${level(p.future, "s")}"/>${risers(p.future, "s", "riser fable")}`);
+      }
       g.push(`<line class="base" x1="${padL}" x2="${padL + plotW}" y1="${base}" y2="${base}"/>`);
       g.push(`${p.past.length ? `<path class="trace" d="${path(p.past)}"/>` : ""}<path class="level" d="${level(p.future)}"/>${risers(p.future)}`);
       let lastRefill = -Infinity;
@@ -1527,22 +1524,28 @@ function renderPools(d) {
 
   const summary = `Pooled quota left over the past 7 days, and a projection of the next 7 days. ${lanes.map((l) => {
     const outlook = l.pool.size && poolOutlook(l.pool);
-    return `${providerName(l.pool.provider)} has ${l.pool.size ? pctLeft(l.pool.now) : "no quota data"} left${outlook ? `. ${outlook.label} ${outlook.value}` : ""}.`;
+    return `${providerName(l.pool.provider)} has ${l.pool.size ? pctLeft(l.pool.now) : "no quota data"} left${outlook ? `. ${outlook.label} ${outlook.value}` : ""}.${l.pool.size && l.pool.scope ? ` ${pctLeft(l.pool.nowScoped)} can be ${l.pool.scope}.` : ""}`;
   }).join(" ")}`;
   poolGeom = { lanes, padL, plotW, width, pad, height, x, at, now };
   setHtml("pool", `<div class="card pool-board"><div class="pool-chart${narrow ? " narrow" : ""}"><svg viewBox="0 0 ${width} ${height}" height="${height}" role="img" aria-label="${esc(summary)}">${parts.join("")}</svg>${lanes.map((l) => poolGutter(l, narrow)).join("")}<div class="pool-tip" hidden></div></div></div>`);
+  const heads = [...document.querySelectorAll("#pool .pool-gut")].map((el) => el.offsetHeight);
+  if (!remeasured && lanes.some((l, i) => heads[i] !== poolHeads[l.pool.provider])) {
+    lanes.forEach((l, i) => { poolHeads[l.pool.provider] = heads[i]; });
+    return renderPools(d, true);
+  }
   if (poolPointer) drawPoolTip();
 }
 
-function poolValueAt(pool, t) {
+function poolValueAt(pool, t, k = "v") {
   const pts = t >= 0 ? pool.future : pool.past;
   if (!pts.length || t < pts[0].t) return null;
   let prev = pts[0];
   for (const pt of pts) {
-    if (pt.t > t) return prev.t === pt.t ? pt.v : prev.v + ((pt.v - prev.v) * (t - prev.t)) / (pt.t - prev.t);
+    if (pt.t > t && (prev[k] === null || pt[k] === null)) return prev.t === t ? prev[k] : null;
+    if (pt.t > t) return prev.t === pt.t ? pt[k] : prev[k] + ((pt[k] - prev[k]) * (t - prev.t)) / (pt.t - prev.t);
     prev = pt;
   }
-  return prev.v;
+  return prev[k];
 }
 
 function nearestRefill(refills, gap, limit) {
@@ -1589,8 +1592,9 @@ function drawPoolTip() {
     cross.setAttribute("x2", cx);
     cross.setAttribute("visibility", lanes[i] === lane ? "visible" : "hidden");
   });
-  const v = poolValueAt(p, tt);
-  const row = `<div class="pool-${esc(p.provider)}"><i></i><span>${esc(providerName(p.provider))}</span><span>${v === null ? "No data" : v <= POOL_EMPTY ? "None left" : `${esc(pctLeft(v))} left`}</span></div>`;
+  const left = (v) => (v === null ? "No data" : v <= POOL_EMPTY ? "None left" : `${esc(pctLeft(v))} left`);
+  const scoped = p.scope ? `<div class="pool-${esc(p.provider)}"><i class="pool-fable"></i><span>Can be ${esc(p.scope)}</span><span>${left(poolValueAt(p, tt, "s"))}</span></div>` : "";
+  const row = `<div class="pool-${esc(p.provider)}"><i></i><span>${esc(providerName(p.provider))}</span><span>${left(poolValueAt(p, tt))}</span></div>${scoped}`;
   const note = near
     ? `${masked(near.who.join(", ") || "An account")} ${near.past ? "reset" : "resets"}, +${pct(near.gain)}`
     : tt < 0 ? "Measured at a usage check" : p.burn === null ? "If you use nothing more" : `At the last ${POOL_BURN_H}h burn rate`;
