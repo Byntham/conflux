@@ -1648,6 +1648,7 @@ function drawPoolTip() {
 }
 
 const USAGE_REFRESH_MS = 60000;
+const USAGE_MIN_GAP_MS = 10000;
 const USAGE_DAYS = { "7d": 7, "30d": 30, "90d": 90 };
 const USAGE_TYPES = [["input", "Input"], ["cache_read", "Cache read"], ["cache_write", "Cache write"], ["output", "Output"], ["fast", "Fast mode"]];
 const compact = new Intl.NumberFormat("en", { notation: "compact", minimumSignificantDigits: 3, maximumSignificantDigits: 3 });
@@ -2151,7 +2152,8 @@ async function load() {
     }
   }
   setConnection(!failed, failed?.message);
-  const stale = (core.usage_written_at ?? null) !== usageWrittenAt || Date.now() - usageLoadedAt > USAGE_REFRESH_MS;
+  const since = Date.now() - usageLoadedAt;
+  const stale = since > USAGE_REFRESH_MS || (since > USAGE_MIN_GAP_MS && (core.usage_written_at ?? null) !== usageWrittenAt);
   if (!$("view-usage").hidden && !document.hidden && stale) loadUsage(true);
 }
 
