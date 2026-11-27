@@ -409,8 +409,8 @@
   .pool-label { font-size: 12.5px; color: var(--muted); }
   .pool-value { font-size: 15px; font-weight: 500; }
   .pool-stat.warn .pool-value { color: var(--warn); }
-  .pool-label .pool-hatch { display: inline-block; width: 9px; height: 9px; margin-right: 6px; vertical-align: -1px; }
-  .pool-chart i.pool-hatch { border-radius: 2px; background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--series) 60%, transparent) 0 2px, color-mix(in srgb, var(--series) var(--pool-area), transparent) 2px 4px); }
+  .pool-label .pool-fable { display: inline-block; width: 9px; height: 9px; margin-right: 6px; vertical-align: -1px; }
+  .pool-chart i.pool-fable { box-sizing: border-box; border-radius: 2px; border-top: 2px solid var(--series); background: color-mix(in srgb, var(--series) 50%, transparent); }
   .narrow .pool-gut { left: 16px; right: 16px; align-items: center; gap: 4px 10px; }
   .narrow .pool-title { flex-direction: row; align-items: center; gap: 10px; }
   .narrow .pool-big { margin: 0; font-size: 24px; }
@@ -426,8 +426,9 @@
   .pool-chart .base { stroke: var(--line-strong); stroke-width: 1; }
   .pool-chart .area { fill: color-mix(in srgb, var(--series) var(--pool-area), transparent); }
   .pool-chart .area.sched { fill: color-mix(in srgb, var(--series) 5%, transparent); }
-  .pool-chart .hatch-line { fill: color-mix(in srgb, var(--series) 40%, transparent); }
-  .pool-chart .hatch.sched { opacity: .6; }
+  .pool-chart .area.fable { fill: color-mix(in srgb, var(--series) 42%, transparent); }
+  .pool-chart .area.fable.sched { fill: color-mix(in srgb, var(--series) 20%, transparent); }
+  .pool-chart .fable:is(.trace, .level, .riser) { stroke-width: 1.5; }
   .pool-chart .trace { fill: none; stroke: var(--series); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
   .pool-chart .level { fill: none; stroke: var(--series); stroke-width: 1.5; stroke-dasharray: 1 5; stroke-linecap: round; }
   .pool-chart .riser { stroke: var(--series); stroke-width: 2; stroke-linecap: round; }
@@ -1406,7 +1407,7 @@ function shortDate(hours) {
 function poolScopeStats(p) {
   const out = (pt) => pt.s <= POOL_EMPTY;
   const outNow = out(p.future[0]);
-  const stats = [poolStat(`<i class="pool-hatch"></i>Can be ${esc(p.scope)}`, pctLeft(p.nowScoped), outNow ? "warn" : "")];
+  const stats = [poolStat(`<i class="pool-fable"></i>Can be ${esc(p.scope)}`, pctLeft(p.nowScoped), outNow ? "warn" : "")];
   if (outNow) {
     const back = p.future.find((pt) => !out(pt));
     if (back) stats.push(poolStat(`${esc(p.scope)} back`, shortDate(back.t), "warn"));
@@ -1478,21 +1479,19 @@ function renderPools(d, remeasured = false) {
     g.push(`<text x="${padL - 8}" y="${base + 4}" text-anchor="end">0</text>`);
     const path = (pts, k = "v") => pts.map((pt, i) => `${i ? "L" : "M"}${x(pt.t).toFixed(1)} ${yv(pt[k]).toFixed(1)}`).join("");
     const area = (pts, k = "v") => `${path(pts, k)}L${x(pts[pts.length - 1].t).toFixed(1)} ${base}L${x(pts[0].t).toFixed(1)} ${base}Z`;
-    const level = (pts) => pts.map((pt, i) => (i && pts[i - 1].t !== pt.t ? `${i === 1 || pts[i - 2].t === pts[i - 1].t ? `M${x(pts[i - 1].t).toFixed(1)} ${yv(pts[i - 1].v).toFixed(1)}` : ""}L${x(pt.t).toFixed(1)} ${yv(pt.v).toFixed(1)}` : "")).join("");
-    const risers = (pts) => pts.map((pt, i) => (pts[i + 1] && pts[i + 1].t === pt.t && pts[i + 1].v - pt.v > 0.5 ? `<line class="riser" x1="${x(pt.t).toFixed(1)}" x2="${x(pt.t).toFixed(1)}" y1="${yv(pt.v).toFixed(1)}" y2="${yv(pts[i + 1].v).toFixed(1)}"/>` : "")).join("");
+    const level = (pts, k = "v") => pts.map((pt, i) => (i && pts[i - 1].t !== pt.t ? `${i === 1 || pts[i - 2].t === pts[i - 1].t ? `M${x(pts[i - 1].t).toFixed(1)} ${yv(pts[i - 1][k]).toFixed(1)}` : ""}L${x(pt.t).toFixed(1)} ${yv(pt[k]).toFixed(1)}` : "")).join("");
+    const risers = (pts, k = "v", cls = "riser") => pts.map((pt, i) => (pts[i + 1] && pts[i + 1].t === pt.t && pts[i + 1][k] - pt[k] > 0.5 ? `<line class="${cls}" x1="${x(pt.t).toFixed(1)}" x2="${x(pt.t).toFixed(1)}" y1="${yv(pt[k]).toFixed(1)}" y2="${yv(pts[i + 1][k]).toFixed(1)}"/>` : "")).join("");
     if (p.size) {
       if (p.past.length) g.push(`<path class="area" d="${area(p.past)}"/>`);
       g.push(`<path class="area sched" d="${area(p.future)}"/>`);
       if (p.scope) {
-        const hatch = `pool-hatch-${esc(p.provider)}`;
-        g.push(`<defs><pattern id="${hatch}" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect class="hatch-line" width="3" height="7"/></pattern></defs>`);
         const runs = [[]];
         for (const pt of p.past) {
           if (pt.s === null) runs.push([]);
           else runs[runs.length - 1].push(pt);
         }
-        for (const run of runs.filter((r) => r.length > 1)) g.push(`<path class="hatch" fill="url(#${hatch})" d="${area(run, "s")}"/>`);
-        g.push(`<path class="hatch sched" fill="url(#${hatch})" d="${area(p.future, "s")}"/>`);
+        for (const run of runs.filter((r) => r.length > 1)) g.push(`<path class="area fable" d="${area(run, "s")}"/><path class="trace fable" d="${path(run, "s")}"/>`);
+        g.push(`<path class="area fable sched" d="${area(p.future, "s")}"/><path class="level fable" d="${level(p.future, "s")}"/>${risers(p.future, "s", "riser fable")}`);
       }
       g.push(`<line class="base" x1="${padL}" x2="${padL + plotW}" y1="${base}" y2="${base}"/>`);
       g.push(`${p.past.length ? `<path class="trace" d="${path(p.past)}"/>` : ""}<path class="level" d="${level(p.future)}"/>${risers(p.future)}`);
@@ -1594,7 +1593,7 @@ function drawPoolTip() {
     cross.setAttribute("visibility", lanes[i] === lane ? "visible" : "hidden");
   });
   const left = (v) => (v === null ? "No data" : v <= POOL_EMPTY ? "None left" : `${esc(pctLeft(v))} left`);
-  const scoped = p.scope ? `<div class="pool-${esc(p.provider)}"><i class="pool-hatch"></i><span>Can be ${esc(p.scope)}</span><span>${left(poolValueAt(p, tt, "s"))}</span></div>` : "";
+  const scoped = p.scope ? `<div class="pool-${esc(p.provider)}"><i class="pool-fable"></i><span>Can be ${esc(p.scope)}</span><span>${left(poolValueAt(p, tt, "s"))}</span></div>` : "";
   const row = `<div class="pool-${esc(p.provider)}"><i></i><span>${esc(providerName(p.provider))}</span><span>${left(poolValueAt(p, tt))}</span></div>${scoped}`;
   const note = near
     ? `${masked(near.who.join(", ") || "An account")} ${near.past ? "reset" : "resets"}, +${pct(near.gain)}`
