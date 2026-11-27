@@ -163,7 +163,7 @@ final class Model: ObservableObject {
     private func poll() async {
         while true {
             await refresh()
-            let seconds: UInt64 = menuOpen || busy != nil || updating ? 3 : 20
+            let seconds: UInt64 = menuOpen || busy != nil || updating || unsettled ? 3 : 20
             try? await Task.sleep(nanoseconds: seconds * 1_000_000_000)
         }
     }
@@ -321,6 +321,11 @@ final class Model: ObservableObject {
 
     var isDown: Bool {
         phase == .notRunning || phase == .hubUnreachable
+    }
+
+    private var unsettled: Bool {
+        if case .problem = phase { return true }
+        return isDown
     }
 
     var needsAttention: Bool {

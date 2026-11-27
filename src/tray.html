@@ -222,8 +222,8 @@ window.conflux = {
   },
   tick() {
     if (state.refreshing) return;
-    const starting = state.phase.kind === "loading" || state.phase.kind === "notRunning";
-    const fast = state.open || state.busy || starting || updating();
+    const unsettled = ["loading", "notRunning", "hubUnreachable", "problem"].includes(state.phase.kind);
+    const fast = state.open || state.busy || unsettled || updating();
     if (fast || Date.now() - state.lastRefresh >= 20000) refresh();
   },
   shown() {
