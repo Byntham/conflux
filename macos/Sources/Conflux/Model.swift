@@ -150,6 +150,7 @@ final class Model: ObservableObject {
     let runningVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
     private let session: URLSession
     private var menuOpen = false
+    private var seen: [URL: (tag: String, body: Data)] = [:]
 
     init() {
         local = Local.fromEnvironment(bundle: bundle)
@@ -253,9 +254,18 @@ final class Model: ObservableObject {
     }
 
     private func fetch(_ url: URL) async -> Fetched {
+        var request = URLRequest(url: url)
+        let known = seen[url]
+        if let known { request.setValue(known.tag, forHTTPHeaderField: "If-None-Match") }
         do {
-            let (body, response) = try await session.data(from: url)
-            return .answered(status: (response as? HTTPURLResponse)?.statusCode ?? 0, body: body)
+            let (body, response) = try await session.data(for: request)
+            let answer = response as? HTTPURLResponse
+            let status = answer?.statusCode ?? 0
+            if status == 304, let known { return .answered(status: 200, body: known.body) }
+            if (200..<300).contains(status), let tag = answer?.value(forHTTPHeaderField: "ETag") {
+                seen[url] = (tag, body)
+            }
+            return .answered(status: status, body: body)
         } catch {
             return .unreachable
         }

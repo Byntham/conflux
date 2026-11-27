@@ -1,7 +1,8 @@
+use std::collections::HashMap;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result, bail};
@@ -222,6 +223,7 @@ fn serve(paths: Paths, exe: PathBuf, reopened: Signal, mut open: bool) -> Result
         exe: exe.clone(),
         paths,
         dev_copy,
+        seen: Mutex::default(),
     });
     let mut flyout = Flyout {
         window,
@@ -522,6 +524,7 @@ struct Bridge {
     exe: PathBuf,
     paths: Paths,
     dev_copy: bool,
+    seen: Mutex<HashMap<url::Url, (reqwest::header::HeaderValue, String)>>,
 }
 
 impl Bridge {
@@ -550,7 +553,7 @@ impl Bridge {
         match request {
             Request::Local => tokio::task::block_in_place(|| self.local()),
             Request::Get { path } => match self.url(&path) {
-                Some(url) => answered(self.http.get(url).send().await).await,
+                Some(url) => self.unless_seen(url).await,
                 None => json!({ "unreachable": true }),
             },
             Request::Post { path, body } => match self.url(&path) {
@@ -583,6 +586,29 @@ impl Bridge {
             },
             _ => Value::Null,
         }
+    }
+
+    async fn unless_seen(&self, url: url::Url) -> Value {
+        let known = self.seen.lock().unwrap().get(&url).cloned();
+        let mut asked = self.http.get(url.clone());
+        if let Some((tag, _)) = &known {
+            asked = asked.header(reqwest::header::IF_NONE_MATCH, tag);
+        }
+        let Ok(response) = asked.send().await else {
+            return json!({ "unreachable": true });
+        };
+        if let (reqwest::StatusCode::NOT_MODIFIED, Some((_, body))) = (response.status(), known) {
+            return json!({ "status": 200, "body": body });
+        }
+        let status = response.status();
+        let tag = response.headers().get(reqwest::header::ETAG).cloned();
+        let Ok(body) = response.text().await else {
+            return json!({ "unreachable": true });
+        };
+        if let Some(tag) = tag.filter(|_| status.is_success()) {
+            self.seen.lock().unwrap().insert(url, (tag, body.clone()));
+        }
+        json!({ "status": status.as_u16(), "body": body })
     }
 
     async fn conflux(&self, args: &[&'static str]) -> Value {

@@ -326,6 +326,25 @@ impl Daemon {
     async fn get(&self, path: &str) -> Result<Value> {
         self.call(reqwest::Method::GET, path, None).await
     }
+
+    async fn get_unless_seen(
+        &self,
+        path: &str,
+        seen: &mut Option<(reqwest::header::HeaderValue, Value)>,
+    ) -> Result<Value> {
+        let mut asked = self.http.get(format!("{}{path}", self.base));
+        if let Some((tag, _)) = seen.as_ref() {
+            asked = asked.header(reqwest::header::IF_NONE_MATCH, tag);
+        }
+        let response = asked.send().await?;
+        if let (reqwest::StatusCode::NOT_MODIFIED, Some((_, known))) = (response.status(), seen.as_ref()) {
+            return Ok(known.clone());
+        }
+        let tag = response.headers().get(reqwest::header::ETAG).cloned();
+        let fresh: Value = response.error_for_status()?.json().await?;
+        *seen = tag.map(|tag| (tag, fresh.clone()));
+        Ok(fresh)
+    }
     async fn post(&self, path: &str, body: Value) -> Result<Value> {
         self.call(reqwest::Method::POST, path, Some(body)).await
     }
@@ -813,9 +832,10 @@ async fn update(daemon: &Daemon, machines: Vec<String>) -> Result<()> {
     println!("Updating {} to v{version}.", waiting.join(", "));
     let deadline = std::time::Instant::now() + UPDATE_WAIT;
     let mut failed = unknown;
+    let mut seen = None;
     while !waiting.is_empty() && std::time::Instant::now() < deadline {
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let fleet = match daemon.get("/conflux/api/dashboard").await {
+        let fleet = match daemon.get_unless_seen("/conflux/api/dashboard", &mut seen).await {
             Ok(dashboard) => dashboard,
             Err(_) => match daemon.get("/conflux/api/status").await {
                 Ok(waiting) => waiting,
