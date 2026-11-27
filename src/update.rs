@@ -185,7 +185,8 @@ impl Updater {
                 .user_agent(format!("conflux/{CURRENT}"))
                 .connect_timeout(Duration::from_secs(10))
                 .redirect(reqwest::redirect::Policy::custom(|to| {
-                    if to.url().path().contains("/releases/tag/") {
+                    let latest = |url: &reqwest::Url| url.path().ends_with("/latest");
+                    if to.previous().last().is_some_and(latest) && !latest(to.url()) {
                         to.stop()
                     } else if to.previous().len() > 10 {
                         to.error("too many redirects")
