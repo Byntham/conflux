@@ -95,13 +95,17 @@ pub async fn data(
         .filter(|e| e.credentials().generation > 0)
         .map(|e| account_view(&app, e))
         .collect();
+    if owner {
+        for account in &mut accounts {
+            account.cache_hit = app.requests.cache_hit(&account.id);
+        }
+    }
     let mut machines = app.fleet();
     let mut state = json!(app.hub_state.get());
     if !owner {
         state = json!({ "state": state["state"] });
         for account in &mut accounts {
             account.email = None;
-            account.cache_hit = None;
         }
         let own = match &caller {
             Caller::Peer(identity) => identity.name.clone(),

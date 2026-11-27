@@ -1470,7 +1470,7 @@ function renderPools(d, remeasured = false) {
     poolPointer = null;
     return setHtml("pool", `<div class="accounts"><div class="card empty"><strong>No accounts yet</strong>Add a subscription and conflux will start routing requests to it.<div class="row"><button class="btn" data-add="claude">Add Claude account</button><button class="btn" data-add="codex">Add Codex account</button><button class="btn" data-add="grok">Add Grok account</button><button class="btn" data-add="muse">Add Muse account</button></div></div></div>`);
   }
-  if (!d.usage_history) return;
+  if (!d.usage_history) return setHtml("pool", "");
   const now = Math.floor(Date.now() / 60000) * 60000;
   const lanes = shown.map((p) => ({ pool: buildPool(p, d, now) }));
   const outer = $("pool").clientWidth;
@@ -2115,6 +2115,7 @@ function render(d) {
 let movingTo = null;
 
 async function load() {
+  if (document.hidden) return;
   let fresh;
   try {
     fresh = await unlessSeen(DASHBOARD);
@@ -2127,10 +2128,12 @@ async function load() {
     return;
   }
   if (fresh.hub.version !== PAGE_VERSION || (core && core.guest !== fresh.guest)) return location.reload();
+  const first = !core;
   core = fresh;
   movingTo = core.hub.state && core.hub.state.state === "moving" ? core.hub.state.hub : null;
   const view = currentView();
   render({ ...core, ...section });
+  if (first) setConnection(true);
   let failed = null;
   if (SECTIONS[view] && !document.hidden) {
     try {
@@ -2140,12 +2143,12 @@ async function load() {
         render({ ...core, ...section });
       }
     } catch (e) {
-      failed = e;
+      if (currentView() === view) failed = e;
     }
   }
   setConnection(!failed, failed?.message);
   const stale = (core.usage_written_at ?? null) !== usageWrittenAt || Date.now() - usageLoadedAt > USAGE_REFRESH_MS;
-  if (!$("view-usage").hidden && stale) loadUsage(true);
+  if (!$("view-usage").hidden && !document.hidden && stale) loadUsage(true);
 }
 
 function refresh() {

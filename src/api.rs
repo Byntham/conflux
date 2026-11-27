@@ -121,7 +121,7 @@ pub fn account_view(app: &App, e: &AccountEntry) -> AccountView {
         billing_blocked: app.router.billing_blocked(&e.id),
         cooldowns: app.router.cooldowns(&e.id),
         usage: app.usage.get(&e.id),
-        cache_hit: app.requests.cache_hit(&e.id),
+        cache_hit: None,
     }
 }
 
