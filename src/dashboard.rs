@@ -1,13 +1,16 @@
+use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use axum::Json;
 use axum::extract::{ConnectInfo, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
-use crate::api::account_view;
+use crate::api::{ApiError, account_view};
 use crate::app::App;
 use crate::tailnet::Caller;
 use crate::update;
@@ -16,7 +19,8 @@ const PAGE: &str = include_str!("dashboard.html");
 const INSTALL_BASE: &str = "https://raw.githubusercontent.com/Byntham/conflux/main";
 
 pub async fn page() -> Response {
-    ([(header::CACHE_CONTROL, "no-store")], Html(PAGE)).into_response()
+    let page = PAGE.replace("__VERSION__", update::CURRENT);
+    ([(header::CACHE_CONTROL, "no-store")], Html(page)).into_response()
 }
 
 pub fn hub_name(app: &App, request_host: Option<&str>) -> String {
@@ -49,28 +53,41 @@ pub fn add_machine(hub: &str) -> Value {
     json!({ "command": command, "windows_command": windows_command, "agent_prompt": agent_prompt })
 }
 
+async fn admitted(app: &App, from: SocketAddr) -> Result<Caller, ApiError> {
+    match app.identify(from.ip()).await {
+        Caller::Unknown => Err(ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "the hub could not ask Tailscale who you are. Try again in a minute.".into(),
+        )),
+        Caller::Peer(guest) if !guest.owner && !app.guests.is_approved(&guest.node) => {
+            Err(ApiError(StatusCode::FORBIDDEN, app.waiting_for_owner()))
+        }
+        caller => Ok(caller),
+    }
+}
+
+fn unless_already_seen(asked: &HeaderMap, body: &Value) -> Response {
+    let text = body.to_string();
+    let tag = format!("W/\"{}\"", URL_SAFE_NO_PAD.encode(&Sha256::digest(&text)[..12]));
+    let named = [(header::ETAG, tag.clone()), (header::CACHE_CONTROL, "no-store".into())];
+    if asked
+        .get(header::IF_NONE_MATCH)
+        .is_some_and(|seen| seen.as_bytes() == tag.as_bytes())
+    {
+        return (StatusCode::NOT_MODIFIED, named).into_response();
+    }
+    (named, [(header::CONTENT_TYPE, "application/json")], text).into_response()
+}
+
 pub async fn data(
     State(app): State<Arc<App>>,
     ConnectInfo(from): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
-) -> Response {
+) -> Result<Response, ApiError> {
     let host = headers.get(header::HOST).and_then(|v| v.to_str().ok());
     let name = hub_name(&app, host);
-    let caller = app.identify(from.ip()).await;
+    let caller = admitted(&app, from).await?;
     let owner = caller.is_owner();
-    let refused = match &caller {
-        Caller::Unknown => Some((
-            StatusCode::SERVICE_UNAVAILABLE,
-            "the hub could not ask Tailscale who you are. Try again in a minute.".to_string(),
-        )),
-        Caller::Peer(guest) if !owner && !app.guests.is_approved(&guest.node) => {
-            Some((StatusCode::FORBIDDEN, app.waiting_for_owner()))
-        }
-        _ => None,
-    };
-    if let Some((status, message)) = refused {
-        return (status, Json(json!({ "error": message }))).into_response();
-    }
     let mut accounts: Vec<_> = app
         .store
         .all()
@@ -78,8 +95,11 @@ pub async fn data(
         .filter(|e| e.credentials().generation > 0)
         .map(|e| account_view(&app, e))
         .collect();
-    let mut history = app.usage.history();
-    history.retain(|id, _| accounts.iter().any(|a| &a.id == id));
+    if owner {
+        for account in &mut accounts {
+            account.cache_hit = app.requests.cache_hit(&account.id);
+        }
+    }
     let mut machines = app.fleet();
     let mut state = json!(app.hub_state.get());
     if !owner {
@@ -96,19 +116,32 @@ pub async fn data(
             m.outdated &= m.role != "hub";
         }
     }
-    Json(json!({
+    let core = json!({
         "hub": { "name": name, "port": app.cfg.port, "version": update::CURRENT, "state": state },
         "guest": !owner,
         "latest_version": app.updater.latest(),
         "accounts": accounts,
-        "usage_history": history,
         "machines": machines,
-        "requests": if owner { json!(app.requests.recent()) } else { json!([]) },
-        "requests_hour": owner.then(|| app.requests.last_hour()),
         "usage_written_at": owner.then(|| app.requests.ledger().written_at()).flatten(),
         "add_machine": owner.then(|| add_machine(&name)),
-    }))
-    .into_response()
+    });
+    Ok(unless_already_seen(&headers, &core))
+}
+
+pub async fn history(
+    State(app): State<Arc<App>>,
+    ConnectInfo(from): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    admitted(&app, from).await?;
+    let listed = |id: &String| app.store.get(id).is_some_and(|e| e.credentials().generation > 0);
+    let history: BTreeMap<_, _> = app.usage.history().into_iter().filter(|(id, _)| listed(id)).collect();
+    Ok(unless_already_seen(&headers, &json!({ "usage_history": history })))
+}
+
+pub async fn requests(State(app): State<Arc<App>>, headers: HeaderMap) -> Response {
+    let log = json!({ "requests": app.requests.recent(), "requests_hour": app.requests.last_hour() });
+    unless_already_seen(&headers, &log)
 }
 
 #[cfg(test)]

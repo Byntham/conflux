@@ -65,6 +65,21 @@ async fn passes_compressed_bytes_through_unchanged() {
         .unwrap();
     assert_eq!(r.headers().get("content-encoding").unwrap(), "gzip");
     assert_eq!(r.bytes().await.unwrap().to_vec(), payload);
+
+    let plain = client
+        .post(format!("{}/v1/messages", h.base))
+        .header("user-agent", "claude-cli/2.1.280 (external, cli)")
+        .header("x-app", "cli")
+        .header("accept-encoding", "gzip")
+        .body("{}")
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        plain.headers().get("content-encoding").is_none(),
+        "the hub compresses its own pages, never a provider's reply"
+    );
+    assert_eq!(plain.json::<serde_json::Value>().await.unwrap()["token"], "at-a");
 }
 
 #[tokio::test]
@@ -934,17 +949,23 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         path
     };
     let (expired, kept) = (day_file(100), day_file(2));
-    let dashboard = || async {
-        h.http
-            .get(format!("{}/conflux/api/dashboard", h.base))
-            .send()
-            .await
-            .unwrap()
-            .json::<serde_json::Value>()
-            .await
-            .unwrap()
+    let ask = |section: &'static str| h.http.get(format!("{}/conflux/api/dashboard{section}", h.base));
+    let read = |section: &'static str| async move {
+        let fresh = ask(section).send().await.unwrap();
+        let tag = fresh.headers()["etag"].clone();
+        (fresh.json::<serde_json::Value>().await.unwrap(), tag)
     };
-    assert!(dashboard().await["usage_written_at"].is_null());
+    let dashboard = || async { read("").await.0 };
+    let request_log = || async { read("/requests").await.0 };
+    let (idle, seen) = read("").await;
+    assert!(idle["usage_written_at"].is_null());
+    assert!(
+        idle["requests"].is_null() && idle["usage_history"].is_null(),
+        "the page every client polls leaves out the request log and the quota history"
+    );
+    let again = ask("").header("if-none-match", &seen).send().await.unwrap();
+    assert_eq!(again.status(), 304, "an unchanged dashboard is not sent again");
+    assert!(again.bytes().await.unwrap().is_empty());
     let sse = concat!(
         "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3,",
         "\"cache_read_input_tokens\":900,\"cache_creation_input_tokens\":20,\"cache_creation\":",
@@ -965,7 +986,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
         .unwrap();
     let mut streaming = serde_json::Value::Null;
     for _ in 0..80 {
-        streaming = dashboard().await["requests"][0].clone();
+        streaming = request_log().await["requests"][0].clone();
         if streaming["usage"]["cache_read"] == 900 {
             break;
         }
@@ -991,9 +1012,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
 
     let mut record = serde_json::Value::Null;
     for _ in 0..40 {
-        let v = dashboard().await;
-        assert_eq!(v["accounts"].as_array().unwrap().len(), 1);
-        record = v["requests"][0].clone();
+        record = request_log().await["requests"][0].clone();
         if record["usage"]["output"] == 44 && record["streaming"] == false {
             break;
         }
@@ -1006,6 +1025,14 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
     assert_eq!(record["usage"]["cache_write_1h"], 15);
     assert_eq!(record["usage"]["speed"], "fast");
     assert_eq!(record["usage"]["output"], 44);
+    let changed = ask("").header("if-none-match", &seen).send().await.unwrap();
+    assert_eq!(changed.status(), 200, "a changed dashboard is sent again");
+    let changed: serde_json::Value = changed.json().await.unwrap();
+    assert_eq!(changed["accounts"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        changed["accounts"][0]["cache_hit"], 97,
+        "900 of 923 prompt tokens were cache reads"
+    );
     assert!(h.fake.http_headers.lock().unwrap()[0].get("x-conflux-node").is_none());
     let since_three_days = chrono::Utc::now() - chrono::Duration::days(3);
     let recorded = || {
@@ -1097,13 +1124,38 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
     };
     let mut hour = serde_json::Value::Null;
     for _ in 0..40 {
-        hour = dashboard().await["requests_hour"].clone();
+        hour = request_log().await["requests_hour"].clone();
         if hour["failed"] == 1 {
             break;
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
     assert_eq!(hour["failed"], 1, "{hour}");
+    assert!(
+        hour["minutes"].as_array().unwrap().len() < 60,
+        "minutes with no requests are left out, so a quiet log stays the same from minute to minute: {hour}"
+    );
+    let zipped = reqwest::Client::builder()
+        .no_gzip()
+        .build()
+        .unwrap()
+        .get(format!("{}/conflux/api/dashboard/requests", h.base))
+        .header("accept-encoding", "gzip")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(zipped.headers()["content-encoding"], "gzip");
+    let mut resent = 0;
+    for _ in 0..40 {
+        let (_, seen) = read("/requests").await;
+        let again = ask("/requests").header("if-none-match", &seen).send().await.unwrap();
+        resent = again.status().as_u16();
+        if resent == 304 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(resent, 304, "a quiet request log is not sent again");
     let (total, grok) = (hour["total"].as_u64().unwrap(), grok_bars(&hour));
     let now = Utc::now();
     let logged = |ago: chrono::Duration| conflux::requests::RequestRecord {
@@ -1128,7 +1180,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
     for i in 0..600 {
         h.app.requests.add(logged(chrono::Duration::minutes(30 + i % 20)));
     }
-    let v = dashboard().await;
+    let v = request_log().await;
     assert_eq!(v["requests"].as_array().unwrap().len(), 500);
     let hour = &v["requests_hour"];
     let bars: u64 = hour["minutes"]
@@ -1159,7 +1211,7 @@ async fn dashboard_shows_accounts_requests_and_tokens() {
     for _ in 0..20_000 {
         h.app.requests.add(logged(chrono::Duration::minutes(10)));
     }
-    let hour = &dashboard().await["requests_hour"];
+    let hour = &request_log().await["requests_hour"];
     assert_eq!(
         (&hour["total"], &hour["capped"]),
         (&json!(20_000), &json!(true)),

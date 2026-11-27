@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 
@@ -201,13 +201,23 @@ impl RequestLog {
         st.records.iter().rev().take(RECENT_ROWS).cloned().collect()
     }
 
+    pub fn cache_hit(&self, account: &str) -> Option<u64> {
+        let st = self.state.lock().unwrap();
+        let (mut read, mut prompt) = (0, 0);
+        for r in st.records.iter().rev().take(RECENT_ROWS) {
+            if r.account == account {
+                read += r.usage.cache_read;
+                prompt += r.usage.input + r.usage.cache_read + r.usage.cache_write;
+            }
+        }
+        (prompt > 0).then(|| read * 100 / prompt)
+    }
+
     pub fn last_hour(&self) -> Value {
         let now = Utc::now();
         let this_minute = now.timestamp().div_euclid(60);
         let hour_ago = DateTime::from_timestamp((this_minute - 59) * 60, 0).unwrap_or(now - HOUR);
-        let mut minutes: Vec<HashMap<&str, i64>> = (0..60)
-            .map(|i| HashMap::from([("minute", this_minute - 59 + i)]))
-            .collect();
+        let mut busy_minutes: BTreeMap<i64, BTreeMap<&str, i64>> = BTreeMap::new();
         let mut accounts = HashSet::new();
         let mut latencies = Vec::new();
         let (mut total, mut failed, mut input, mut cache_read, mut cache_write) = (0, 0, 0, 0, 0);
@@ -227,13 +237,18 @@ impl RequestLog {
                 latencies.push(r.latency_ms);
                 r.provider.as_str()
             };
-            let index = 59 - (this_minute - r.at.timestamp().div_euclid(60));
-            if let Some(minute) = usize::try_from(index).ok().and_then(|i| minutes.get_mut(i)) {
-                *minute.entry(lane).or_default() += 1;
-            }
+            let minute = busy_minutes.entry(r.at.timestamp().div_euclid(60)).or_default();
+            *minute.entry(lane).or_default() += 1;
         }
         let accounts = accounts.len();
         drop(st);
+        let minutes: Vec<_> = busy_minutes
+            .into_iter()
+            .map(|(minute, mut lanes)| {
+                lanes.insert("minute", minute);
+                lanes
+            })
+            .collect();
         latencies.sort_unstable();
         let percentile = |p: f64| {
             let i = ((latencies.len() as f64 * p) as usize).min(latencies.len().saturating_sub(1));

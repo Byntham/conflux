@@ -14,6 +14,7 @@ use axum::serve::ListenerExt;
 use fs2::FileExt;
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
+use tower_http::compression::CompressionLayer;
 
 use crate::accounts::Store;
 use crate::analytics::{self, Ledger};
@@ -282,7 +283,7 @@ impl App {
             hostname: self.hostname.clone(),
             version: update::CURRENT.to_string(),
             role: "hub".into(),
-            last_seen: chrono::Utc::now(),
+            last_seen: None,
             online: true,
             transcript_sync: Config::load(&self.paths).map(|c| c.transcript_sync).unwrap_or(false),
             routing: Some(crate::setup::routing(&self.paths.config_dir)),
@@ -355,6 +356,7 @@ impl App {
                 post(transcripts::upload).layer(DefaultBodyLimit::max(TRANSCRIPT_BODY_LIMIT)),
             )
             .route("/conflux/api/usage", get(analytics::usage))
+            .route("/conflux/api/dashboard/requests", get(dashboard::requests))
             .route("/conflux/api/threads", get(transcripts::list))
             .route("/conflux/api/threads/{id}", get(transcripts::thread))
             .route("/conflux/api/transcripts/search", get(transcripts::search))
@@ -389,16 +391,20 @@ impl App {
             .route("/muse/{*rest}", any(proxy::handle))
             .route("/muse-code/{*rest}", any(proxy::handle))
             .layer(axum::middleware::from_fn_with_state(self.clone(), require_approved));
+        let compressed = axum::Router::new()
+            .route("/", get(dashboard::page))
+            .route("/conflux/api/dashboard", get(dashboard::data))
+            .route("/conflux/api/dashboard/history", get(dashboard::history))
+            .route("/conflux/api/status", get(api::status))
+            .merge(owner_only)
+            .layer(CompressionLayer::new());
         axum::Router::new()
             .merge(t3)
-            .merge(owner_only)
+            .merge(compressed)
             .merge(proxied)
-            .route("/", get(dashboard::page))
             .route("/conflux/move/commit", post(hubmove::commit))
             .route("/conflux/move/abort", post(hubmove::abort))
-            .route("/conflux/api/dashboard", get(dashboard::data))
             .route("/conflux/control", get(machines::control))
-            .route("/conflux/api/status", get(api::status))
             .layer(axum::middleware::from_fn_with_state(self.clone(), hubmove::state_guard))
             .layer(axum::middleware::from_fn_with_state(self.clone(), access::guard))
             .with_state(self.clone())

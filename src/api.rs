@@ -97,6 +97,7 @@ pub struct AccountView {
     pub billing_blocked: Option<String>,
     pub cooldowns: Vec<crate::router::Cooldown>,
     pub usage: crate::usage::Snapshot,
+    pub cache_hit: Option<u64>,
 }
 
 pub fn account_view(app: &App, e: &AccountEntry) -> AccountView {
@@ -120,6 +121,7 @@ pub fn account_view(app: &App, e: &AccountEntry) -> AccountView {
         billing_blocked: app.router.billing_blocked(&e.id),
         cooldowns: app.router.cooldowns(&e.id),
         usage: app.usage.get(&e.id),
+        cache_hit: None,
     }
 }
 
