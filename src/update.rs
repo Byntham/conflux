@@ -27,6 +27,11 @@ pub fn parse_version(v: &str) -> Option<[u64; 3]> {
     parts.next().is_none().then_some(version)
 }
 
+fn named_version(url: &reqwest::Url) -> Option<&str> {
+    let tag = url.path().trim_end_matches('/').rsplit('/').next()?;
+    tag.strip_prefix('v').filter(|v| parse_version(v).is_some())
+}
+
 pub fn is_newer(candidate: &str, than: &str) -> bool {
     match (parse_version(candidate), parse_version(than)) {
         (Some(candidate), Some(than)) => candidate > than,
@@ -85,6 +90,7 @@ pub trait Handoff: Send + Sync + 'static {
 pub struct Updater {
     releases: String,
     http: reqwest::Client,
+    check: reqwest::Client,
     exe: OnceLock<PathBuf>,
     status: watch::Sender<Option<UpdateStatus>>,
     latest: RwLock<Option<String>>,
@@ -186,6 +192,18 @@ impl Updater {
                 .connect_timeout(Duration::from_secs(10))
                 .build()
                 .expect("build release client"),
+            check: reqwest::Client::builder()
+                .user_agent(format!("conflux/{CURRENT}"))
+                .connect_timeout(Duration::from_secs(10))
+                .redirect(reqwest::redirect::Policy::custom(|to| {
+                    if named_version(to.url()).is_some() {
+                        to.stop()
+                    } else {
+                        reqwest::redirect::Policy::default().redirect(to)
+                    }
+                }))
+                .build()
+                .expect("build release check client"),
             exe: OnceLock::new(),
             status: watch::channel(None).0,
             latest: RwLock::new(None),
@@ -218,20 +236,25 @@ impl Updater {
 
     pub async fn check_latest(&self) -> Result<String> {
         let resp = self
-            .http
+            .check
             .get(format!("{}/latest", self.releases))
             .timeout(CHECK_TIMEOUT)
             .send()
             .await
             .context("reach the release page")?;
-        if !resp.status().is_success() {
-            bail!("the release page answered HTTP {}", resp.status());
-        }
-        let tag = resp.url().path().trim_end_matches('/').rsplit('/').next().unwrap_or("");
-        let version = tag
-            .strip_prefix('v')
-            .filter(|v| parse_version(v).is_some())
-            .with_context(|| format!("the latest release `{tag}` is not a version"))?
+        let release = resp
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .filter(|_| resp.status().is_redirection())
+            .and_then(|to| resp.url().join(to.to_str().ok()?).ok())
+            .with_context(|| {
+                format!(
+                    "the release page answered HTTP {} instead of naming the latest release",
+                    resp.status()
+                )
+            })?;
+        let version = named_version(&release)
+            .with_context(|| format!("the latest release `{release}` is not a version"))?
             .to_string();
         *self.latest.write().unwrap() = Some(version.clone());
         Ok(version)
