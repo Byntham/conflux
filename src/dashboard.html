@@ -2153,7 +2153,7 @@ async function load() {
   }
   setConnection(!failed, failed?.message);
   const since = Date.now() - usageLoadedAt;
-  const stale = since > USAGE_REFRESH_MS || (since > USAGE_MIN_GAP_MS && (core.usage_written_at ?? null) !== usageWrittenAt);
+  const stale = since > USAGE_REFRESH_MS || ((since > USAGE_MIN_GAP_MS || !usage) && (core.usage_written_at ?? null) !== usageWrittenAt);
   if (!$("view-usage").hidden && !document.hidden && stale) loadUsage(true);
 }
 
