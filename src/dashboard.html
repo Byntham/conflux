@@ -1279,7 +1279,7 @@ function buildPool(provider, d, now) {
       all: corners(all),
       scoped: scoped && corners(scoped),
       samples: { all, scoped },
-      state: { allLeft: 100 - usedNow(w), allReset: reset(w), allEvery: every(w), scopeLeft: sw ? 100 - usedNow(sw) : 100, scopeReset: reset(sw || w), scopeEvery: every(sw || w) },
+      state: { allLeft: 100 - usedNow(w), allLeftAfterFable: 100 - usedNow(w), allReset: reset(w), allEvery: every(w), scopeLeft: sw ? 100 - usedNow(sw) : 100, scopeReset: reset(sw || w), scopeEvery: every(sw || w) },
     };
   });
   const cap = members.length * 100;
@@ -1328,7 +1328,7 @@ function buildPool(provider, d, now) {
   pool.burn = burnAll === null ? null : burnAll / members.length;
   const total = (t) => {
     let all = 0, scoped = 0;
-    for (const { state } of series) { all += state.allLeft; scoped += Math.min(state.allLeft, state.scopeLeft * FABLE_SHARE_OF_WEEKLY); }
+    for (const { state } of series) { all += state.allLeft; scoped += Math.min(state.allLeftAfterFable, state.scopeLeft * FABLE_SHARE_OF_WEEKLY); }
     return { t, v: (all / cap) * 100, s: (scoped / cap) * 100 };
   };
   const byRouter = [...series].sort((p, q) => p.state.allReset - q.state.allReset || (p.id < q.id ? -1 : 1));
@@ -1338,6 +1338,7 @@ function buildPool(provider, d, now) {
       const fromScope = Math.min(scoped, state.scopeLeft, state.allLeft / FABLE_SHARE_OF_WEEKLY);
       state.scopeLeft -= fromScope;
       state.allLeft -= fromScope * FABLE_SHARE_OF_WEEKLY;
+      state.allLeftAfterFable -= fromScope * FABLE_SHARE_OF_WEEKLY;
       scoped -= fromScope;
       all -= fromScope * FABLE_SHARE_OF_WEEKLY;
     }
@@ -1360,7 +1361,7 @@ function buildPool(provider, d, now) {
     if (pool.emptyAt === undefined && before.v <= POOL_EMPTY) pool.emptyAt = t;
     const who = [];
     for (const s of series) {
-      if (s.state.allReset <= t) { s.state.allLeft = 100; s.state.allReset += s.state.allEvery; who.push(s.name); }
+      if (s.state.allReset <= t) { s.state.allLeft = 100; s.state.allLeftAfterFable = 100; s.state.allReset += s.state.allEvery; who.push(s.name); }
       if (s.state.scopeReset <= t) { s.state.scopeLeft = 100; s.state.scopeReset += s.state.scopeEvery; }
     }
     byRouter.sort((p, q) => p.state.allReset - q.state.allReset || (p.id < q.id ? -1 : 1));
