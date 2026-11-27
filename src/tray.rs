@@ -988,7 +988,7 @@ fn badge_color(name: &str, light: bool) -> [u8; 3] {
         ("red", false) => [0xff, 0x6b, 0x6b],
         ("orange", true) => [0xd9, 0x7f, 0x06],
         ("orange", false) => [0xfb, 0xbf, 0x24],
-        (_, true) => accent().0,
-        (_, false) => accent().1,
+        (_, true) => [0x00, 0x5f, 0xb8],
+        (_, false) => [0x60, 0xcd, 0xff],
     }
 }
