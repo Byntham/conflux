@@ -215,7 +215,17 @@ async fn fake_handler(State(fake): State<Arc<Fake>>, req: Request) -> Response {
             None => Response::builder().status(404).body(Body::empty()).unwrap(),
         };
     }
-    if let Some(rest) = path.strip_prefix("/releases/") {
+    if path == "/releases/latest" {
+        return Response::builder()
+            .status(301)
+            .header("location", "/renamed/releases/latest")
+            .body(Body::empty())
+            .unwrap();
+    }
+    if let Some(rest) = path
+        .strip_prefix("/releases/")
+        .or_else(|| path.strip_prefix("/renamed/releases/"))
+    {
         let release = fake.release.lock().unwrap().clone();
         return match release {
             Some((version, _)) if rest == "latest" => Response::builder()
@@ -226,8 +236,7 @@ async fn fake_handler(State(fake): State<Arc<Fake>>, req: Request) -> Response {
             Some((_, binary)) if rest.starts_with("download/") => {
                 Response::new(Body::from(tokio::fs::read(binary).await.unwrap()))
             }
-            Some(_) => Response::new(Body::empty()),
-            None => Response::builder().status(404).body(Body::empty()).unwrap(),
+            _ => Response::builder().status(404).body(Body::empty()).unwrap(),
         };
     }
     let body = axum::body::to_bytes(req.into_body(), usize::MAX)

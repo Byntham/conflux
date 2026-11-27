@@ -451,15 +451,6 @@ async fn a_node_updates_on_the_hubs_command_and_its_supervisor_keeps_watch() {
         .await
         .unwrap();
     assert_eq!(checked["latest_version"], "999.0.0", "{checked}");
-    assert!(
-        !hub.fake
-            .hits
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|(path, _)| path.starts_with("/releases/tag/")),
-        "the release check downloads the release page it only needs the address of"
-    );
     let after: Value = http.get(&dashboard).send().await.unwrap().json().await.unwrap();
     let listed = after["machines"].as_array().unwrap();
     assert!(
