@@ -90,6 +90,7 @@ pub trait Handoff: Send + Sync + 'static {
 pub struct Updater {
     releases: String,
     http: reqwest::Client,
+    check: reqwest::Client,
     exe: OnceLock<PathBuf>,
     status: watch::Sender<Option<UpdateStatus>>,
     latest: RwLock<Option<String>>,
@@ -189,6 +190,11 @@ impl Updater {
             http: reqwest::Client::builder()
                 .user_agent(format!("conflux/{CURRENT}"))
                 .connect_timeout(Duration::from_secs(10))
+                .build()
+                .expect("build release client"),
+            check: reqwest::Client::builder()
+                .user_agent(format!("conflux/{CURRENT}"))
+                .connect_timeout(Duration::from_secs(10))
                 .redirect(reqwest::redirect::Policy::custom(|to| {
                     if named_version(to.url()).is_some() {
                         to.stop()
@@ -197,7 +203,7 @@ impl Updater {
                     }
                 }))
                 .build()
-                .expect("build release client"),
+                .expect("build release check client"),
             exe: OnceLock::new(),
             status: watch::channel(None).0,
             latest: RwLock::new(None),
@@ -230,7 +236,7 @@ impl Updater {
 
     pub async fn check_latest(&self) -> Result<String> {
         let resp = self
-            .http
+            .check
             .get(format!("{}/latest", self.releases))
             .timeout(CHECK_TIMEOUT)
             .send()

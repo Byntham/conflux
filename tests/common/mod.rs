@@ -233,11 +233,14 @@ async fn fake_handler(State(fake): State<Arc<Fake>>, req: Request) -> Response {
                 .header("location", format!("/releases/tag/v{version}"))
                 .body(Body::empty())
                 .unwrap(),
-            Some(_) if rest.starts_with("download/") => Response::builder()
+            Some((version, _)) if rest.starts_with("download/") => Response::builder()
                 .status(302)
                 .header(
                     "location",
-                    format!("/renamed/releases/assets/{}", rest.rsplit('/').next().unwrap()),
+                    format!(
+                        "/renamed/releases/assets/{}/v{version}",
+                        rest.rsplit('/').next().unwrap()
+                    ),
                 )
                 .body(Body::empty())
                 .unwrap(),
