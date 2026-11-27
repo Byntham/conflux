@@ -391,11 +391,12 @@ impl App {
             .route("/muse/{*rest}", any(proxy::handle))
             .route("/muse-code/{*rest}", any(proxy::handle))
             .layer(axum::middleware::from_fn_with_state(self.clone(), require_approved));
-        let compressed = owner_only
+        let compressed = axum::Router::new()
             .route("/", get(dashboard::page))
             .route("/conflux/api/dashboard", get(dashboard::data))
             .route("/conflux/api/dashboard/history", get(dashboard::history))
             .route("/conflux/api/status", get(api::status))
+            .merge(owner_only)
             .layer(CompressionLayer::new());
         axum::Router::new()
             .merge(t3)

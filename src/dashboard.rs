@@ -19,7 +19,8 @@ const PAGE: &str = include_str!("dashboard.html");
 const INSTALL_BASE: &str = "https://raw.githubusercontent.com/Byntham/conflux/main";
 
 pub async fn page() -> Response {
-    ([(header::CACHE_CONTROL, "no-store")], Html(PAGE)).into_response()
+    let page = PAGE.replace("__VERSION__", update::CURRENT);
+    ([(header::CACHE_CONTROL, "no-store")], Html(page)).into_response()
 }
 
 pub fn hub_name(app: &App, request_host: Option<&str>) -> String {

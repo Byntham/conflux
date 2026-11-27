@@ -776,11 +776,12 @@ const VIEWS = ["overview", "usage", "requests", "machines", "threads"];
 const HOUR_MS = 3600000;
 const REQUEST_ROWS = 100;
 const STALE_USAGE_MS = 30 * 60000;
+const PAGE_VERSION = "__VERSION__";
 const POLL_MS = 1000;
 const POLL_TIMEOUT_MS = 10000;
 const DASHBOARD = "/conflux/api/dashboard";
 const SECTIONS = { overview: `${DASHBOARD}/history`, requests: `${DASHBOARD}/requests` };
-const SECTION_PARTS = { overview: ["pool"], requests: ["stats", "chart", "request-log"] };
+const SECTION_PARTS = { overview: ["pool"], requests: ["requests-sub", "stats", "chart-key", "chart", "request-log"] };
 const seen = new Map();
 const rendered = new Map();
 let latest = null;
@@ -797,6 +798,11 @@ let loginTimer = null;
 let toastTimer = null;
 let pollTimer = null;
 let menuAnchor = null;
+
+function clear(id) {
+  rendered.delete(id);
+  $(id).replaceChildren();
+}
 
 function setHtml(id, html, { isolateLayout = false } = {}) {
   if (rendered.get(id) === html) return;
@@ -968,7 +974,7 @@ function renderNotes(a) {
 function accountMeta(a) {
   const parts = [];
   if (a.plan) parts.push(`<span class="meta">${esc(titleCase(a.plan))}</span>`);
-  if (a.cache_hit !== null) parts.push(`<span class="meta hide-sm">Cache hit ${a.cache_hit}%</span>`);
+  if (a.cache_hit != null) parts.push(`<span class="meta hide-sm">Cache hit ${a.cache_hit}%</span>`);
   return parts.join("");
 }
 
@@ -1051,7 +1057,7 @@ function renderChart(d) {
   const count = window.innerWidth <= 760 ? 30 : 60;
   const lanes = [...PROVIDERS, "failed"];
   const busy = new Map(d.requests_hour.minutes.map((m) => [m.minute, m]));
-  const newest = Math.floor((Date.now() + hubClockAhead) / 60000);
+  const newest = Math.max(Math.floor((Date.now() + hubClockAhead) / 60000), ...busy.keys());
   const buckets = Array.from({ length: count }, (_, i) => {
     const minute = newest - count + 1 + i;
     return { minute, ...Object.fromEntries(lanes.map((lane) => [lane, busy.get(minute)?.[lane] || 0])) };
@@ -1456,7 +1462,7 @@ function poolGutter(l, narrow) {
 }
 
 function renderPools(d, remeasured = false) {
-  if ($("view-overview").hidden || !d.usage_history) return;
+  if ($("view-overview").hidden) return;
   const { all, shown } = overviewProviders(d);
   renderOverviewFilter(d, all);
   if (!d.accounts.length) {
@@ -1464,6 +1470,7 @@ function renderPools(d, remeasured = false) {
     poolPointer = null;
     return setHtml("pool", `<div class="accounts"><div class="card empty"><strong>No accounts yet</strong>Add a subscription and conflux will start routing requests to it.<div class="row"><button class="btn" data-add="claude">Add Claude account</button><button class="btn" data-add="codex">Add Codex account</button><button class="btn" data-add="grok">Add Grok account</button><button class="btn" data-add="muse">Add Muse account</button></div></div></div>`);
   }
+  if (!d.usage_history) return;
   const now = Math.floor(Date.now() / 60000) * 60000;
   const lanes = shown.map((p) => ({ pool: buildPool(p, d, now) }));
   const outer = $("pool").clientWidth;
@@ -2119,20 +2126,23 @@ async function load() {
     if (movingTo && (e instanceof TypeError || e.name === "TimeoutError")) fetch(next, { mode: "no-cors" }).then(() => { location.href = next; }, () => {});
     return;
   }
-  if (core && (core.hub.version !== fresh.hub.version || core.guest !== fresh.guest)) return location.reload();
+  if (fresh.hub.version !== PAGE_VERSION || (core && core.guest !== fresh.guest)) return location.reload();
   core = fresh;
   movingTo = core.hub.state && core.hub.state.state === "moving" ? core.hub.state.hub : null;
   const view = currentView();
+  render({ ...core, ...section });
   let failed = null;
-  if (SECTIONS[view]) {
+  if (SECTIONS[view] && !document.hidden) {
     try {
       const fetched = await unlessSeen(SECTIONS[view]);
-      if (currentView() === view) section = fetched;
+      if (currentView() === view && fetched !== section) {
+        section = fetched;
+        render({ ...core, ...section });
+      }
     } catch (e) {
       failed = e;
     }
   }
-  render({ ...core, ...section });
   setConnection(!failed, failed?.message);
   const stale = (core.usage_written_at ?? null) !== usageWrittenAt || Date.now() - usageLoadedAt > USAGE_REFRESH_MS;
   if (!$("view-usage").hidden && stale) loadUsage(true);
@@ -2149,7 +2159,7 @@ function refresh() {
       do {
         pass.again = false;
         await load();
-      } while (pass.again);
+      } while (pass.again && !document.hidden);
     } finally {
       refreshing = null;
     }
@@ -2174,7 +2184,7 @@ function showView() {
   const name = currentView();
   for (const view of VIEWS) {
     $(`view-${view}`).hidden = view !== name;
-    if (view !== name) for (const part of SECTION_PARTS[view] || []) setHtml(part, "");
+    if (view !== name) for (const part of SECTION_PARTS[view] || []) clear(part);
   }
   document.querySelectorAll(".nav a").forEach((a) => {
     if (a.dataset.view === name) a.setAttribute("aria-current", "page");
