@@ -27,6 +27,11 @@ pub fn parse_version(v: &str) -> Option<[u64; 3]> {
     parts.next().is_none().then_some(version)
 }
 
+fn named_version(url: &reqwest::Url) -> Option<&str> {
+    let tag = url.path().trim_end_matches('/').rsplit('/').next()?;
+    tag.strip_prefix('v').filter(|v| parse_version(v).is_some())
+}
+
 pub fn is_newer(candidate: &str, than: &str) -> bool {
     match (parse_version(candidate), parse_version(than)) {
         (Some(candidate), Some(than)) => candidate > than,
@@ -185,8 +190,7 @@ impl Updater {
                 .user_agent(format!("conflux/{CURRENT}"))
                 .connect_timeout(Duration::from_secs(10))
                 .redirect(reqwest::redirect::Policy::custom(|to| {
-                    let latest = |url: &reqwest::Url| url.path().ends_with("/latest");
-                    if to.previous().last().is_some_and(latest) && !latest(to.url()) {
+                    if named_version(to.url()).is_some() {
                         to.stop()
                     } else if to.previous().len() > 10 {
                         to.error("too many redirects")
@@ -245,11 +249,8 @@ impl Updater {
                     resp.status()
                 )
             })?;
-        let tag = release.path().trim_end_matches('/').rsplit('/').next().unwrap_or("");
-        let version = tag
-            .strip_prefix('v')
-            .filter(|v| parse_version(v).is_some())
-            .with_context(|| format!("the latest release `{tag}` is not a version"))?
+        let version = named_version(&release)
+            .with_context(|| format!("the latest release `{release}` is not a version"))?
             .to_string();
         *self.latest.write().unwrap() = Some(version.clone());
         Ok(version)
