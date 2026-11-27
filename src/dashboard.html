@@ -1648,6 +1648,7 @@ function drawPoolTip() {
 }
 
 const USAGE_REFRESH_MS = 60000;
+const USAGE_MIN_GAP_MS = 10000;
 const USAGE_DAYS = { "7d": 7, "30d": 30, "90d": 90 };
 const USAGE_TYPES = [["input", "Input"], ["cache_read", "Cache read"], ["cache_write", "Cache write"], ["output", "Output"], ["fast", "Fast mode"]];
 const compact = new Intl.NumberFormat("en", { notation: "compact", minimumSignificantDigits: 3, maximumSignificantDigits: 3 });
@@ -1657,7 +1658,7 @@ let usageRange = "7d";
 let usageMetric = "cost";
 let usageBreakdown = "model";
 let usageToken = 0;
-let usageLoadedAt = 0;
+let usageLoadedAt = -Infinity;
 let usageWrittenAt = null;
 let usageGeom = null;
 
@@ -1729,7 +1730,7 @@ async function loadUsage(background = false) {
   usageInFlight = true;
   if (!background) usagePending = null;
   const token = ++usageToken;
-  usageLoadedAt = Date.now();
+  usageLoadedAt = performance.now();
   usageWrittenAt = latest?.usage_written_at ?? null;
   if (!background) $("usage-body").classList.add("loading");
   if (!usage && !background) setHtml("usage-body", `<div class="card empty">Loading usage…</div>`);
@@ -2151,7 +2152,8 @@ async function load() {
     }
   }
   setConnection(!failed, failed?.message);
-  const stale = (core.usage_written_at ?? null) !== usageWrittenAt || Date.now() - usageLoadedAt > USAGE_REFRESH_MS;
+  const since = performance.now() - usageLoadedAt;
+  const stale = since > USAGE_REFRESH_MS || ((since > USAGE_MIN_GAP_MS || !usage) && (core.usage_written_at ?? null) !== usageWrittenAt);
   if (!$("view-usage").hidden && !document.hidden && stale) loadUsage(true);
 }
 
