@@ -22,6 +22,7 @@
   --track: rgba(0, 0, 0, 0.12);
   --meter: rgba(0, 0, 0, 0.5);
   --accent: var(--accent-light, #005fb8);
+  --info: #005fb8;
   --on-accent: #fff;
   --ok: #0f7b0f;
   --warn: #9d5d00;
@@ -49,6 +50,7 @@
     --track: rgba(255, 255, 255, 0.16);
     --meter: rgba(255, 255, 255, 0.62);
     --accent: var(--accent-dark, #60cdff);
+    --info: #60cdff;
     --on-accent: #000;
     --ok: #6ccb5f;
     --warn: #fce100;
@@ -376,6 +378,8 @@ function canUpdate(machine) {
 
 const outdatedMachines = () => machines().filter(m => m.outdated && m.online && !isUpdating(m) && canUpdate(m));
 
+const offersUpdate = () => !updating() && Boolean(latestVersion());
+
 function latestVersion() {
   const latest = (state.dashboard && state.dashboard.latest_version) || (state.waiting && state.waiting.latest_version);
   return latest && outdatedMachines().length ? latest : null;
@@ -498,10 +502,11 @@ function attention() {
       if (accounts().some(a => isProblem(accountState(a, state.now))) || updateFailure()) return "red";
       const enabled = accounts().filter(a => a.enabled);
       if (enabled.length && readyCount() === 0) return "orange";
-      return guestsWaiting().length ? "accent" : null;
+      return guestsWaiting().length || offersUpdate() ? "blue" : null;
     }
     case "waiting":
-      return updateFailure() ? "red" : null;
+      if (updateFailure()) return "red";
+      return offersUpdate() ? "blue" : null;
     default:
       return null;
   }
@@ -524,7 +529,7 @@ function summary() {
       const color = attention();
       if (color === "red") return { color: "var(--bad)", text: problemSummary() || ready };
       if (color === "orange") return { color: "var(--warn-fill)", text: ready };
-      if (color === "accent") return { color: "var(--accent)", text: ready };
+      if (color === "blue") return { color: "var(--info)", text: ready };
       return { color: "var(--ok)", text: ready };
     }
     case "notRunning": return { color: "var(--bad)", text: "Stopped" };

@@ -16,7 +16,7 @@ Rust proxy that pools Claude Code, Codex, Grok Build, and Muse Code subscription
 
 ## Try a change in the running app
 
-`cargo run --example dev` starts a throwaway copy of conflux next to the real install. It builds the binary, then runs a hub, a node, and a pretend Claude, OpenAI, Grok, and Meta on free ports in a temp folder. It prints the commands that run Claude Code, Codex, Grok Build, Muse Code, and the CLI against the copy, and the commands that force an account out of quota.
+`cargo run --example dev` starts a throwaway copy of conflux next to the real install. It builds the binary, then runs a hub, a node, and a pretend Claude, OpenAI, Grok, and Meta on free ports in a temp folder. It prints the commands that run Claude Code, Codex, Grok Build, Muse Code, and the CLI against the copy, and the commands that force an account out of quota or offer a newer release.
 
 - Pass `-- --real` to use the real providers. The copy starts with no accounts. Run the `conflux login` command it prints and ask the developer to approve it.
 - On a Mac, pass `-- --app` to build the menu bar app and start it against the copy. The dev build has its own bundle ID, so it runs next to the installed app. It hides Restart and refuses Set up, because the copy has no background service.
