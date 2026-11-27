@@ -656,7 +656,12 @@ async fn wait_until_up(child: &mut Child, port: u16, name: &str) -> Result<()> {
     bail!("{name} did not start in time")
 }
 
-async fn stop_requested() {
+async fn stop_requested(stop_file: &Path) {
+    let file_appears = async {
+        while !stop_file.exists() {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    };
     #[cfg(unix)]
     {
         let mut terminate =
@@ -664,11 +669,15 @@ async fn stop_requested() {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {}
             _ = terminate.recv() => {}
+            () = file_appears => {}
         }
     }
     #[cfg(not(unix))]
     {
-        let _ = tokio::signal::ctrl_c().await;
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            () = file_appears => {}
+        }
     }
 }
 
@@ -809,14 +818,22 @@ async fn main() -> Result<()> {
         println!("  CONFLUX_HOME={node_home} {} --snapshot menu.png", app.display());
     }
     println!();
-    println!(
-        "Press Ctrl-C or run `kill {}` to stop. The files are removed on exit.",
-        std::process::id()
-    );
+    let stop_file = dir.path().join("stop");
+    if cfg!(windows) {
+        println!(
+            "Press Ctrl-C or run `New-Item '{}'` in PowerShell to stop. The files are removed on exit.",
+            stop_file.display()
+        );
+    } else {
+        println!(
+            "Press Ctrl-C or run `kill {}` to stop. The files are removed on exit.",
+            std::process::id()
+        );
+    }
     println!();
 
     let stopped = tokio::select! {
-        _ = stop_requested() => None,
+        () = stop_requested(&stop_file) => None,
         status = hub.wait() => Some(format!("the dev hub stopped ({})", status?)),
         status = node.wait() => Some(format!("the dev node stopped ({})", status?)),
     };
