@@ -68,7 +68,7 @@ async fn admitted(app: &App, from: SocketAddr) -> Result<Caller, ApiError> {
 fn unless_already_seen(asked: &HeaderMap, body: &Value) -> Response {
     let text = body.to_string();
     let tag = format!("W/\"{}\"", URL_SAFE_NO_PAD.encode(&Sha256::digest(&text)[..12]));
-    let named = [(header::ETAG, tag.clone())];
+    let named = [(header::ETAG, tag.clone()), (header::CACHE_CONTROL, "no-store".into())];
     if asked
         .get(header::IF_NONE_MATCH)
         .is_some_and(|seen| seen.as_bytes() == tag.as_bytes())

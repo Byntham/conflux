@@ -780,10 +780,14 @@ const POLL_MS = 1000;
 const POLL_TIMEOUT_MS = 10000;
 const DASHBOARD = "/conflux/api/dashboard";
 const SECTIONS = { overview: `${DASHBOARD}/history`, requests: `${DASHBOARD}/requests` };
+const SECTION_PARTS = { overview: ["pool"], requests: ["stats", "chart", "request-log"] };
 const seen = new Map();
-const sections = {};
 const rendered = new Map();
 let latest = null;
+let core = null;
+let section = {};
+let refreshing = null;
+let hubClockAhead = 0;
 let requestFilter = "all";
 let installKey = "command";
 let selectedThread = null;
@@ -820,8 +824,11 @@ async function api(method, path, body) {
 async function unlessSeen(path) {
   const known = seen.get(path);
   const res = await fetch(path, { headers: known ? { "if-none-match": known.tag } : {}, signal: AbortSignal.timeout(POLL_TIMEOUT_MS) });
+  const hubClock = Date.parse(res.headers.get("date"));
+  if (hubClock) hubClockAhead = hubClock - Date.now();
   if (res.status === 304 && known) return known.data;
-  const data = await answer(res);
+  if (!res.ok) return answer(res);
+  const data = await res.json();
   const tag = res.headers.get("etag");
   if (tag) seen.set(path, { tag, data });
   return data;
@@ -1044,7 +1051,7 @@ function renderChart(d) {
   const count = window.innerWidth <= 760 ? 30 : 60;
   const lanes = [...PROVIDERS, "failed"];
   const busy = new Map(d.requests_hour.minutes.map((m) => [m.minute, m]));
-  const newest = Math.max(Math.floor(Date.now() / 60000), ...busy.keys());
+  const newest = Math.floor((Date.now() + hubClockAhead) / 60000);
   const buckets = Array.from({ length: count }, (_, i) => {
     const minute = newest - count + 1 + i;
     return { minute, ...Object.fromEntries(lanes.map((lane) => [lane, busy.get(minute)?.[lane] || 0])) };
@@ -2075,18 +2082,13 @@ function setConnection(ok, message, refused = false) {
   setHtml("connection", ok ? "" : `<div class="alert-row" role="alert">${icon("alert")}<div class="alert-text"><div class="alert-title">Can't reach the hub</div><div class="alert-detail">${masked(detail)}. Showing the last data received, retrying every second.</div></div></div>`);
 }
 
-function viewFor(guest) {
+function currentView() {
   const hash = location.hash.slice(1);
-  const views = guest ? ["overview", "machines"] : VIEWS;
+  const views = core?.guest ? ["overview", "machines"] : VIEWS;
   return views.includes(hash) ? hash : "overview";
 }
 
-function currentView() {
-  return viewFor(latest?.guest);
-}
-
 function render(d) {
-  if (latest && latest.hub.version !== d.hub.version) return location.reload();
   const firstLoad = !latest;
   latest = d;
   document.body.classList.add("loaded");
@@ -2105,13 +2107,10 @@ function render(d) {
 
 let movingTo = null;
 
-async function refresh() {
-  let d;
+async function load() {
+  let fresh;
   try {
-    const core = await unlessSeen(DASHBOARD);
-    const section = SECTIONS[viewFor(core.guest)];
-    if (section) Object.assign(sections, await unlessSeen(section));
-    d = { ...core, ...sections };
+    fresh = await unlessSeen(DASHBOARD);
   } catch (e) {
     setConnection(false, e.message, e.status === 403);
     const moved = e.message.match(/the hub moved to (\S+?)\.\s/);
@@ -2120,11 +2119,43 @@ async function refresh() {
     if (movingTo && (e instanceof TypeError || e.name === "TimeoutError")) fetch(next, { mode: "no-cors" }).then(() => { location.href = next; }, () => {});
     return;
   }
-  movingTo = d.hub.state && d.hub.state.state === "moving" ? d.hub.state.hub : null;
-  render(d);
-  setConnection(true);
-  const stale = (d.usage_written_at ?? null) !== usageWrittenAt || Date.now() - usageLoadedAt > USAGE_REFRESH_MS;
+  if (core && (core.hub.version !== fresh.hub.version || core.guest !== fresh.guest)) return location.reload();
+  core = fresh;
+  movingTo = core.hub.state && core.hub.state.state === "moving" ? core.hub.state.hub : null;
+  const view = currentView();
+  let failed = null;
+  if (SECTIONS[view]) {
+    try {
+      const fetched = await unlessSeen(SECTIONS[view]);
+      if (currentView() === view) section = fetched;
+    } catch (e) {
+      failed = e;
+    }
+  }
+  render({ ...core, ...section });
+  setConnection(!failed, failed?.message);
+  const stale = (core.usage_written_at ?? null) !== usageWrittenAt || Date.now() - usageLoadedAt > USAGE_REFRESH_MS;
   if (!$("view-usage").hidden && stale) loadUsage(true);
+}
+
+function refresh() {
+  if (refreshing) {
+    refreshing.again = true;
+    return refreshing.done;
+  }
+  const pass = { again: false };
+  pass.done = (async () => {
+    try {
+      do {
+        pass.again = false;
+        await load();
+      } while (pass.again);
+    } finally {
+      refreshing = null;
+    }
+  })();
+  refreshing = pass;
+  return pass.done;
 }
 
 function toast(message, bad = false, busy = false) {
@@ -2141,7 +2172,10 @@ const qs = (o) => new URLSearchParams(Object.entries(o).filter(([, v]) => v)).to
 
 function showView() {
   const name = currentView();
-  for (const view of VIEWS) $(`view-${view}`).hidden = view !== name;
+  for (const view of VIEWS) {
+    $(`view-${view}`).hidden = view !== name;
+    if (view !== name) for (const part of SECTION_PARTS[view] || []) setHtml(part, "");
+  }
   document.querySelectorAll(".nav a").forEach((a) => {
     if (a.dataset.view === name) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
@@ -2572,7 +2606,12 @@ $("thread-search").onkeydown = (ev) => { if (ev.key === "Enter") searchThreads()
 $("thread-search").addEventListener("search", searchThreads);
 $("modal").addEventListener("close", () => clearInterval(loginTimer));
 $("modal").addEventListener("click", (ev) => { if (ev.target === $("modal")) closeModal(); });
-window.addEventListener("hashchange", () => { showView(); refresh(); });
+window.addEventListener("hashchange", () => {
+  section = {};
+  if (core) latest = { ...core };
+  showView();
+  refresh();
+});
 let usageWidth = window.innerWidth;
 window.addEventListener("resize", () => {
   closeMenu();
@@ -2705,20 +2744,18 @@ document.addEventListener("click", (ev) => {
   if (update) return startUpdate(update);
 });
 
-function pollAgain() {
-  clearTimeout(pollTimer);
-  if (!document.hidden) pollTimer = setTimeout(poll, POLL_MS);
-}
-
 async function poll() {
+  clearTimeout(pollTimer);
+  if (document.hidden) return;
   try {
     await refresh();
   } finally {
-    pollAgain();
+    clearTimeout(pollTimer);
+    if (!document.hidden) pollTimer = setTimeout(poll, POLL_MS);
   }
 }
 
-document.addEventListener("visibilitychange", () => (document.hidden ? clearTimeout(pollTimer) : poll()));
+document.addEventListener("visibilitychange", poll);
 showView();
 poll();
 </script>

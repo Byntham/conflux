@@ -99,6 +99,22 @@ async fn request_flows_through_node_and_hub() {
         upstream.get("x-conflux-node").is_none(),
         "node header stays inside conflux"
     );
+
+    let unpacked = reqwest::Client::builder().no_gzip().build().unwrap();
+    let dashboard = || unpacked.get(format!("{}/conflux/api/dashboard", n.base));
+    let packed = dashboard().header("accept-encoding", "gzip").send().await.unwrap();
+    assert_eq!(
+        packed.headers()["content-encoding"],
+        "gzip",
+        "the hub's gzip reaches a client behind the node"
+    );
+    let seen = dashboard().send().await.unwrap().headers()["etag"].clone();
+    let again = dashboard().header("if-none-match", seen).send().await.unwrap();
+    assert_eq!(
+        again.status(),
+        304,
+        "an unchanged dashboard is not sent again through the node"
+    );
 }
 
 #[tokio::test]

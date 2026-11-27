@@ -65,6 +65,21 @@ async fn passes_compressed_bytes_through_unchanged() {
         .unwrap();
     assert_eq!(r.headers().get("content-encoding").unwrap(), "gzip");
     assert_eq!(r.bytes().await.unwrap().to_vec(), payload);
+
+    let plain = client
+        .post(format!("{}/v1/messages", h.base))
+        .header("user-agent", "claude-cli/2.1.280 (external, cli)")
+        .header("x-app", "cli")
+        .header("accept-encoding", "gzip")
+        .body("{}")
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        plain.headers().get("content-encoding").is_none(),
+        "the hub compresses its own pages, never a provider's reply"
+    );
+    assert_eq!(plain.json::<serde_json::Value>().await.unwrap()["token"], "at-a");
 }
 
 #[tokio::test]
