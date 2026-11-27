@@ -511,8 +511,11 @@
     .meter-name { grid-area: name; } .meter-reset { grid-area: reset; } .meter-pct { grid-area: pct; } .track { grid-area: track; }
   }
   @media (max-width: 760px) {
+    :root { --topbar: 57px; }
     .app { display: block; }
-    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 16px; background: var(--surface); border-bottom: 1px solid var(--line); position: fixed; top: 0; left: 0; right: 0; height: 57px; z-index: 10; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 16px; background: var(--surface); border-bottom: 1px solid var(--line); position: fixed; top: 0; left: 0; right: 0; height: var(--topbar); z-index: 10; }
+    .topbar .brand { flex: none; }
+    .topbar .hub-state { min-width: 0; }
     .sidebar { position: fixed; top: auto; bottom: 0; left: 0; right: 0; z-index: 20; height: auto; flex-direction: row; padding: 5px 8px calc(5px + env(safe-area-inset-bottom)); border-right: 0; border-top: 1px solid var(--line); }
     .sidebar .brand, .sidebar .hub-card { display: none; }
     .status-cell { display: inline-grid; }
@@ -524,7 +527,7 @@
     .nav a svg { width: 19px; height: 19px; }
     .nav .count { display: none; }
     .nav .alert { position: absolute; top: 0; left: calc(50% + 6px); margin: 0; }
-    main { padding: 75px 16px 92px; }
+    main { padding: calc(18px + var(--topbar)) 16px 92px; }
     .page-head { align-items: center; }
     h1 { font-size: 20px; }
     .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 12px; }
@@ -582,7 +585,7 @@
     .threads-layout:not(.viewing) .viewer-pane { display: none; }
     .pane { overflow: clip; }
     .viewer-pane { border: 0; border-radius: 0; background: none; box-shadow: none; overflow: visible; }
-    .viewer-head { top: 57px; padding: 8px 0 10px; background: var(--bg); }
+    .viewer-head { top: calc(var(--topbar) - 1px); padding: 8px 0 10px; background: var(--bg); }
     .viewer-head > div:last-child { min-width: 0; }
     .viewer-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .events { padding: 12px 0 18px; }
@@ -640,7 +643,7 @@
   <div>
     <div class="topbar">
       <div class="brand" style="padding:0"><svg aria-hidden="true"><use href="#logo"/></svg>conflux</div>
-      <div class="hub-state"><span class="dot" id="top-dot"></span><span class="muted" id="top-line"></span><span id="top-update-all"></span></div>
+      <div class="hub-state"><span class="dot" id="top-dot"></span><span class="muted truncate" id="top-line"></span><span id="top-update-all"></span></div>
     </div>
     <main>
       <div id="connection" class="alerts" hidden></div>
