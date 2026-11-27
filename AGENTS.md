@@ -24,7 +24,7 @@ Rust proxy that pools Claude Code, Codex, Grok Build, and Muse Code subscription
 - To see the Mac app's menu, run the `--snapshot` command that `--app` prints. It draws the menu to a PNG, with light and dark side by side. It needs no screen recording permission, so it works over ssh.
 - Point Claude Code at the copy with `CLAUDE_CONFIG_DIR`, as the command prints. Setting `ANTHROPIC_BASE_URL` in the shell does not work. `~/.claude/settings.json` wins, and the request goes to the real hub.
 - The copy's hub cannot install conflux on your other machines. It runs `false` in place of `ssh`, so Install on the dashboard and `conflux add` fail. To fake a machine, set `CONFLUX_SSH` to a script before you start the copy.
-- Stop it with Ctrl-C or the `kill` command it prints. It then stops the hub, node, and Mac app it started and removes the temp folder. Killing the PID of `cargo run` leaves them running.
+- Stop it with Ctrl-C or the command it prints: `kill` on macOS and Linux, and on Windows a `New-Item` that creates a `stop` file in its temp folder. It then stops the hub, node, and app it started and removes the temp folder. Killing the PID of `cargo run` leaves them running, and `taskkill /F` on Windows leaves the temp folder behind.
 - To test on another operating system from inside T3 Code, push the branch, list the linked environments, and delegate the test to an agent on a machine that runs that system. The rules in "Don't break the developer's setup" apply on that machine too.
 
 ## Hit every path
