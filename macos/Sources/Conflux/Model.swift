@@ -308,9 +308,10 @@ final class Model: ObservableObject {
             }
             let enabled = accounts.filter(\.enabled)
             if !enabled.isEmpty && readyCount == 0 { return .systemOrange }
-            return guestsWaiting.isEmpty ? nil : .controlAccentColor
+            return guestsWaiting.isEmpty && latestVersion == nil ? nil : .controlAccentColor
         case .waiting:
-            return updateFailure == nil ? nil : .systemRed
+            if updateFailure != nil { return .systemRed }
+            return latestVersion == nil ? nil : .controlAccentColor
         default:
             return nil
         }

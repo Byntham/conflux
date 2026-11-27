@@ -100,6 +100,7 @@ impl Quota {
 struct Pretend {
     quotas: Mutex<HashMap<String, Quota>>,
     turns: AtomicU64,
+    release: Mutex<Option<String>>,
 }
 
 impl Pretend {
@@ -121,6 +122,7 @@ impl Pretend {
         Arc::new(Self {
             quotas: Mutex::new(quotas),
             turns: AtomicU64::new(0),
+            release: Mutex::new(None),
         })
     }
 
@@ -503,6 +505,24 @@ async fn restore(State(pretend): State<Arc<Pretend>>, UrlPath(name): UrlPath<Str
     set_exhausted(&pretend, &name, false)
 }
 
+async fn offer_release(State(pretend): State<Arc<Pretend>>, UrlPath(version): UrlPath<String>) -> Response {
+    *pretend.release.lock().unwrap() = Some(version.clone());
+    let text = format!("The dev copy now offers v{version}. Press Check for updates to see it.\n");
+    respond(StatusCode::OK, "text/plain", vec![], text)
+}
+
+async fn latest_release(State(pretend): State<Arc<Pretend>>, req: Request) -> Response {
+    let offered = pretend.release.lock().unwrap().clone();
+    match offered {
+        Some(version) => Response::builder()
+            .status(StatusCode::FOUND)
+            .header("location", format!("/releases/tag/v{version}"))
+            .body(Body::empty())
+            .unwrap(),
+        None => no_reply(req).await,
+    }
+}
+
 async fn no_reply(req: Request) -> Response {
     println!("provider: no reply for {} {}", req.method(), req.uri().path());
     json_reply(
@@ -526,6 +546,8 @@ async fn start_provider() -> Result<String> {
         .route("/meta/muse-code/key", post(muse_key))
         .route("/dev/exhaust/{name}", post(exhaust))
         .route("/dev/restore/{name}", post(restore))
+        .route("/dev/release/{version}", post(offer_release))
+        .route("/releases/latest", get(latest_release))
         .fallback(no_reply)
         .with_state(Pretend::new());
     tokio::spawn(async move { axum::serve(listener, routes).await });
@@ -815,6 +837,8 @@ async fn main() -> Result<()> {
             println!("Use up an account's quota, then give it back:");
             println!("  curl -X POST {base}/dev/exhaust/dev-a");
             println!("  curl -X POST {base}/dev/restore/dev-a");
+            println!("Offer a newer release, so the machines show an update:");
+            println!("  curl -X POST {base}/dev/release/9.9.9");
         }
         None => {
             println!("Add a real account, and approve it in a browser:");

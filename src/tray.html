@@ -498,10 +498,11 @@ function attention() {
       if (accounts().some(a => isProblem(accountState(a, state.now))) || updateFailure()) return "red";
       const enabled = accounts().filter(a => a.enabled);
       if (enabled.length && readyCount() === 0) return "orange";
-      return guestsWaiting().length ? "accent" : null;
+      return guestsWaiting().length || latestVersion() ? "accent" : null;
     }
     case "waiting":
-      return updateFailure() ? "red" : null;
+      if (updateFailure()) return "red";
+      return latestVersion() ? "accent" : null;
     default:
       return null;
   }
