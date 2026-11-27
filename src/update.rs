@@ -192,10 +192,8 @@ impl Updater {
                 .redirect(reqwest::redirect::Policy::custom(|to| {
                     if named_version(to.url()).is_some() {
                         to.stop()
-                    } else if to.previous().len() > 10 {
-                        to.error("too many redirects")
                     } else {
-                        to.follow()
+                        reqwest::redirect::Policy::default().redirect(to)
                     }
                 }))
                 .build()

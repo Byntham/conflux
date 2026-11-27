@@ -233,7 +233,15 @@ async fn fake_handler(State(fake): State<Arc<Fake>>, req: Request) -> Response {
                 .header("location", format!("/releases/tag/v{version}"))
                 .body(Body::empty())
                 .unwrap(),
-            Some((_, binary)) if rest.starts_with("download/") => {
+            Some(_) if rest.starts_with("download/") => Response::builder()
+                .status(302)
+                .header(
+                    "location",
+                    format!("/renamed/releases/assets/{}", rest.rsplit('/').next().unwrap()),
+                )
+                .body(Body::empty())
+                .unwrap(),
+            Some((_, binary)) if rest.starts_with("assets/") => {
                 Response::new(Body::from(tokio::fs::read(binary).await.unwrap()))
             }
             _ => Response::builder().status(404).body(Body::empty()).unwrap(),
