@@ -76,9 +76,6 @@ body { height: 100vh; overflow: hidden auto; }
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-thumb { background: var(--track); border-radius: 3px; }
 #panel { padding: 16px 0 4px; }
-#panel.enter { animation: enter 0.2s cubic-bezier(0.1, 0.9, 0.2, 1); }
-body.entering { overflow: hidden; }
-@keyframes enter { from { transform: translateY(10px); opacity: 0.4; } }
 .pad { padding: 0 16px; }
 .muted { color: var(--muted); }
 .caption { font-size: 12px; line-height: 16px; }
@@ -232,16 +229,10 @@ window.conflux = {
   },
   shown() {
     state.open = true;
-    const panel = document.getElementById("panel");
-    panel.classList.remove("enter");
-    void panel.offsetWidth;
-    panel.classList.add("enter");
-    document.body.classList.add("entering");
     refresh();
   },
   hidden() {
     state.open = false;
-    document.body.classList.remove("entering");
     state.checkedForUpdates = false;
   },
 };
@@ -314,7 +305,7 @@ async function load() {
       const status = await get("/conflux/api/status");
       const waiting = status.status === 200 ? parse(status.body) : null;
       if (waiting && Array.isArray(waiting.machines)) waitingNow = waiting;
-      if (state.open) {
+      if (state.open || !state.hubs) {
         const found = await get("/conflux/api/hubs");
         state.hubs = found.status === 200 ? ((parse(found.body) || {}).hubs || []) : [];
       }
@@ -963,10 +954,6 @@ document.addEventListener("keydown", event => {
 });
 
 window.addEventListener("blur", () => call("blur"));
-
-document.getElementById("panel").addEventListener("animationend", event => {
-  if (event.target === event.currentTarget) document.body.classList.remove("entering");
-});
 
 render();
 refresh();
