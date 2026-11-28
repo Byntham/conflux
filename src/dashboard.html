@@ -1385,6 +1385,9 @@ function buildPool(provider, d, now) {
       all -= fromAll;
     }
   };
+  const due = new Map();
+  for (const { state } of series) if (state.allLeft < 100 && state.allReset < Infinity) due.set(state.allReset, (due.get(state.allReset) || 0) + 100 - state.allLeft);
+  pool.nextRefill = [...due].sort((p, q) => p[0] - q[0]).map(([t, used]) => ({ at: new Date(now + t * HOUR_MS), gain: used / members.length })).find((r) => r.gain >= 0.5);
   pool.future = [total(0)];
   pool.now = pool.future[0].v;
   pool.nowScoped = pool.future[0].s;
@@ -1409,8 +1412,7 @@ function buildPool(provider, d, now) {
 }
 
 function nextRefill(p) {
-  const r = p.refills.find((r) => !r.past);
-  return r && `+${pct(r.gain)} in ${hourSpan(r.t)}`;
+  return p.nextRefill && `+${pct(p.nextRefill.gain)} in ${until(p.nextRefill.at)}`;
 }
 
 function poolStat(label, value, cls = "") {
