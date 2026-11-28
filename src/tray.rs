@@ -20,7 +20,9 @@ use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, 
 use windows_sys::Win32::Foundation::{
     CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND, POINT, RECT, WAIT_OBJECT_0,
 };
-use windows_sys::Win32::Graphics::Dwm::{DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute};
+use windows_sys::Win32::Graphics::Dwm::{
+    DWMWA_TRANSITIONS_FORCEDISABLED, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute,
+};
 use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint};
 use windows_sys::Win32::System::Console::GetConsoleProcessList;
 use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_BINARY, RRF_RT_REG_DWORD, RegGetValueW};
@@ -151,7 +153,7 @@ fn serve(paths: Paths, exe: PathBuf, reopened: Signal, mut open: bool) -> Result
         .with_inner_size(LogicalSize::new(WIDTH, 200.0))
         .build(&event_loop)
         .context("open the tray window")?;
-    round_corners(&window);
+    style_flyout(&window);
 
     let mut context = WebContext::new(Some(paths.data_dir.join("tray")));
     let page_proxy = proxy.clone();
@@ -812,13 +814,20 @@ fn open_url(url: &str) {
     }
 }
 
-fn round_corners(window: &Window) {
+fn style_flyout(window: &Window) {
     let preference = DWMWCP_ROUND;
+    let no_transitions: i32 = 1;
     unsafe {
         DwmSetWindowAttribute(
             window.hwnd() as HWND,
             DWMWA_WINDOW_CORNER_PREFERENCE as u32,
             (&preference as *const i32).cast(),
+            size_of::<i32>() as u32,
+        );
+        DwmSetWindowAttribute(
+            window.hwnd() as HWND,
+            DWMWA_TRANSITIONS_FORCEDISABLED as u32,
+            (&no_transitions as *const i32).cast(),
             size_of::<i32>() as u32,
         );
     }
