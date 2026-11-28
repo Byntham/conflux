@@ -127,7 +127,7 @@ pub fn run() -> Result<()> {
         unsafe { AllowSetForegroundWindow(ASFW_ANY) };
         return spawn(&exe, Launch::Open, None).context("start the tray app");
     }
-    let open = std::env::var(MODE).is_ok_and(|mode| mode == "open");
+    let open = !quiet;
     let failed = serve(paths, exe, reopened, open).unwrap_err();
     if open {
         alert(&format!("conflux could not open its tray app: {failed:#}"));
@@ -137,6 +137,15 @@ pub fn run() -> Result<()> {
 
 fn serve(paths: Paths, exe: PathBuf, reopened: Signal, mut open: bool) -> Result<std::convert::Infallible> {
     let dev_copy = std::env::var_os("CONFLUX_HOME").is_some();
+    if !dev_copy
+        && crate::service::installed()
+        && crate::service::windows_start_menu_shortcut().is_some_and(|shortcut| !shortcut.exists())
+    {
+        let exe = exe.clone();
+        std::thread::spawn(move || {
+            crate::service::windows_write_start_menu_shortcut(&exe);
+        });
+    }
 
     let event_loop = EventLoopBuilder::<Message>::with_user_event()
         .with_any_thread(true)

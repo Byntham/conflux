@@ -17,6 +17,33 @@ pub fn windows_launch_command(exe: &Path) -> String {
     format!(r#"conhost.exe --headless "{}" serve"#, exe.display())
 }
 
+pub fn windows_start_menu_shortcut() -> Option<PathBuf> {
+    let appdata = std::env::var_os("APPDATA").filter(|appdata| !appdata.is_empty())?;
+    Some(PathBuf::from(appdata).join(r"Microsoft\Windows\Start Menu\Programs\conflux.lnk"))
+}
+
+pub fn windows_write_start_menu_shortcut(exe: &Path) -> bool {
+    let Some(shortcut) = windows_start_menu_shortcut() else {
+        return false;
+    };
+    let script = "$link = (New-Object -ComObject WScript.Shell).CreateShortcut($env:CONFLUX_SHORTCUT); \
+                  $link.TargetPath = \"$env:SystemRoot\\System32\\conhost.exe\"; \
+                  $link.Arguments = '--headless \"' + $env:CONFLUX_EXE + '\" tray'; \
+                  $link.IconLocation = $env:CONFLUX_EXE + ',0'; \
+                  $link.Save()";
+    let mut command = Command::new("powershell");
+    command
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .env("CONFLUX_SHORTCUT", shortcut)
+        .env("CONFLUX_EXE", exe);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
+    }
+    command.output().is_ok_and(|output| output.status.success())
+}
+
 fn windows_stop() {
     let not_me = format!("PID ne {}", std::process::id());
     let _ = Command::new("taskkill")
@@ -221,9 +248,8 @@ pub fn install() -> Result<String> {
     let exe = crate::update::running_exe()?;
     if cfg!(windows) {
         let launch = windows_launch_command(&exe);
-        run(
-            "reg",
-            &[
+        let added = Command::new("reg")
+            .args([
                 "add",
                 WINDOWS_RUN_KEY,
                 "/v",
@@ -233,8 +259,18 @@ pub fn install() -> Result<String> {
                 "/d",
                 &launch,
                 "/f",
-            ],
-        )?;
+            ])
+            .output()
+            .context("run reg")?;
+        if !added.status.success() {
+            bail!(
+                "could not add the startup entry: {}",
+                String::from_utf8_lossy(&added.stderr).trim()
+            );
+        }
+        if !windows_write_start_menu_shortcut(&exe) {
+            eprintln!("Warning: could not add conflux to the Start menu. Run `conflux tray` to open the tray app.");
+        }
         windows_stop_service();
         windows_start(&exe)?;
         Ok("a startup entry that runs conflux and its tray app when you sign in".to_string())
@@ -309,6 +345,9 @@ pub fn uninstall() -> Result<()> {
         let _ = Command::new("reg")
             .args(["delete", WINDOWS_RUN_KEY, "/v", "conflux", "/f"])
             .output();
+        if let Some(shortcut) = windows_start_menu_shortcut() {
+            let _ = std::fs::remove_file(shortcut);
+        }
     } else if cfg!(target_os = "macos") {
         launchd_unload(LAUNCHD_LABEL)?;
         launchd_unload(MENU_BAR_LABEL)?;
