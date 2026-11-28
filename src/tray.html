@@ -113,10 +113,12 @@ button:hover:not(:disabled) { background: var(--control-hover); }
 button:active:not(:disabled) { color: var(--muted); }
 button.accent { background: var(--accent); color: var(--on-accent); border-color: rgba(255, 255, 255, 0.08); border-bottom-color: rgba(0, 0, 0, 0.4); }
 button.accent:hover:not(:disabled) { background: var(--accent); opacity: 0.9; }
+button.accent:active:not(:disabled) { color: var(--on-accent); opacity: 0.8; }
 button:disabled { opacity: 0.45; }
 button:focus-visible, .row:focus-visible, .switch:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
 button.link { border: 0; background: none; color: var(--accent); padding: 0; min-height: 0; }
 button.link:hover:not(:disabled) { background: none; text-decoration: underline; }
+button.link:active:not(:disabled) { color: var(--accent); }
 
 .pools-head { display: flex; gap: 8px; margin-bottom: 8px; }
 .pools-head span:first-child { flex: 1; }
