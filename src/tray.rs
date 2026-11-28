@@ -156,7 +156,7 @@ fn serve(paths: Paths, exe: PathBuf, reopened: Signal, mut open: bool) -> Result
     let mut context = WebContext::new(Some(paths.data_dir.join("tray")));
     let page_proxy = proxy.clone();
     let background = if light_apps() {
-        (0xf9, 0xf9, 0xf9, 0xff)
+        (0xf3, 0xf3, 0xf3, 0xff)
     } else {
         (0x2c, 0x2c, 0x2c, 0xff)
     };
