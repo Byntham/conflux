@@ -17,6 +17,11 @@ pub fn windows_launch_command(exe: &Path) -> String {
     format!(r#"conhost.exe --headless "{}" serve"#, exe.display())
 }
 
+pub fn windows_start_menu_shortcut() -> Option<PathBuf> {
+    let appdata = std::env::var_os("APPDATA")?;
+    Some(PathBuf::from(appdata).join(r"Microsoft\Windows\Start Menu\Programs\conflux.lnk"))
+}
+
 fn windows_stop() {
     let not_me = format!("PID ne {}", std::process::id());
     let _ = Command::new("taskkill")
@@ -221,9 +226,8 @@ pub fn install() -> Result<String> {
     let exe = crate::update::running_exe()?;
     if cfg!(windows) {
         let launch = windows_launch_command(&exe);
-        run(
-            "reg",
-            &[
+        let added = Command::new("reg")
+            .args([
                 "add",
                 WINDOWS_RUN_KEY,
                 "/v",
@@ -233,8 +237,15 @@ pub fn install() -> Result<String> {
                 "/d",
                 &launch,
                 "/f",
-            ],
-        )?;
+            ])
+            .output()
+            .context("run reg")?;
+        if !added.status.success() {
+            bail!(
+                "could not add the startup entry: {}",
+                String::from_utf8_lossy(&added.stderr).trim()
+            );
+        }
         windows_stop_service();
         windows_start(&exe)?;
         Ok("a startup entry that runs conflux and its tray app when you sign in".to_string())
@@ -309,6 +320,9 @@ pub fn uninstall() -> Result<()> {
         let _ = Command::new("reg")
             .args(["delete", WINDOWS_RUN_KEY, "/v", "conflux", "/f"])
             .output();
+        if let Some(shortcut) = windows_start_menu_shortcut() {
+            let _ = std::fs::remove_file(shortcut);
+        }
     } else if cfg!(target_os = "macos") {
         launchd_unload(LAUNCHD_LABEL)?;
         launchd_unload(MENU_BAR_LABEL)?;

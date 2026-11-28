@@ -127,7 +127,7 @@ pub fn run() -> Result<()> {
         unsafe { AllowSetForegroundWindow(ASFW_ANY) };
         return spawn(&exe, Launch::Open, None).context("start the tray app");
     }
-    let open = std::env::var(MODE).is_ok_and(|mode| mode == "open");
+    let open = !quiet;
     let failed = serve(paths, exe, reopened, open).unwrap_err();
     if open {
         alert(&format!("conflux could not open its tray app: {failed:#}"));
@@ -137,6 +137,9 @@ pub fn run() -> Result<()> {
 
 fn serve(paths: Paths, exe: PathBuf, reopened: Signal, mut open: bool) -> Result<std::convert::Infallible> {
     let dev_copy = std::env::var_os("CONFLUX_HOME").is_some();
+    if !dev_copy && crate::service::installed() {
+        add_start_menu_shortcut(&exe);
+    }
 
     let event_loop = EventLoopBuilder::<Message>::with_user_event()
         .with_any_thread(true)
@@ -742,6 +745,33 @@ fn single_instance(config_dir: &Path, show_running: bool) -> Option<Signal> {
 
 fn modified(exe: &Path) -> Option<SystemTime> {
     std::fs::metadata(exe).and_then(|m| m.modified()).ok()
+}
+
+fn add_start_menu_shortcut(exe: &Path) {
+    let Some(shortcut) = crate::service::windows_start_menu_shortcut() else {
+        return;
+    };
+    if shortcut.exists() {
+        return;
+    }
+    let quote = |path: &Path| path.display().to_string().replace('\'', "''");
+    let script = format!(
+        "$link = (New-Object -ComObject WScript.Shell).CreateShortcut('{}'); \
+         $link.TargetPath = \"$env:SystemRoot\\System32\\conhost.exe\"; \
+         $link.Arguments = '--headless \"{}\" tray'; \
+         $link.IconLocation = '{},0'; \
+         $link.Save()",
+        quote(&shortcut),
+        quote(exe),
+        quote(exe)
+    );
+    let _ = Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
 }
 
 pub fn open_with_service() {
