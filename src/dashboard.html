@@ -1385,17 +1385,19 @@ function buildPool(provider, d, now) {
       all -= fromAll;
     }
   };
+  const live = series.filter((_, i) => !members[i].billing_blocked);
+  const due = new Map();
+  for (const { state } of live) if (state.allLeft < 100 && state.allReset < Infinity) due.set(state.allReset, (due.get(state.allReset) || 0) + 100 - state.allLeft);
+  pool.nextRefill = [...due].sort((p, q) => p[0] - q[0]).map(([t, used]) => ({ at: new Date(now + t * HOUR_MS), gain: used / live.length })).find((r) => r.gain >= 0.5);
   pool.future = [total(0)];
   pool.now = pool.future[0].v;
   pool.nowScoped = pool.future[0].s;
-  pool.scopeReset = Math.min(...series.filter((s) => s.state.scopeLeft < 100).map((s) => s.state.scopeReset));
   let t = 0;
   while (t < POOL_AHEAD_H) {
     const next = Math.min(POOL_AHEAD_H, t + POOL_SIM_STEP_H, ...series.flatMap((s) => [s.state.allReset, s.state.scopeReset]));
     drain(next - t);
     t = next;
     const before = total(t);
-    if (pool.emptyAt === undefined && before.v <= POOL_EMPTY) pool.emptyAt = t;
     const who = [];
     for (const s of series) {
       if (s.state.allReset <= t) { s.state.allLeft = 100; s.state.allReset += s.state.allEvery; who.push(s.name); }
@@ -1410,15 +1412,8 @@ function buildPool(provider, d, now) {
   return pool;
 }
 
-const POOL_DAYS = Math.round(POOL_AHEAD_H / 24);
-
-function poolOutlook(p) {
-  if (p.now <= POOL_EMPTY) {
-    const back = p.refills.find((r) => !r.past);
-    return back ? { label: "Back", value: shortDate(back.t), warn: true } : { label: "Empty for", value: `${POOL_DAYS}+ days`, warn: true };
-  }
-  if (p.burn === null) return null;
-  return p.emptyAt === undefined ? { label: "Lasts", value: `${POOL_DAYS}+ days`, warn: false } : { label: "Runs out", value: shortDate(p.emptyAt), warn: true };
+function nextRefill(p) {
+  return p.nextRefill && `+${pct(p.nextRefill.gain)} in ${until(p.nextRefill.at)}`;
 }
 
 function poolStat(label, value, cls = "") {
@@ -1430,30 +1425,10 @@ function poolStats(p) {
   const stats = [poolStat("Ready", `${ready} of ${p.accounts.length}`, p.accounts.some((a) => a.enabled && !isReady(a)) ? "warn" : "")];
   if (!p.size) return stats.join("");
   stats.push(poolStat(`Burn<span class="since">, last ${POOL_BURN_H}h</span>`, p.burn === null ? "No data yet" : `${p.burn < 10 ? p.burn.toFixed(1) : Math.round(p.burn)}%/h`));
-  const outlook = poolOutlook(p);
-  if (outlook) stats.push(poolStat(outlook.label, outlook.value, outlook.warn ? "warn" : ""));
-  if (p.scope) stats.push(...poolScopeStats(p));
+  const refill = nextRefill(p);
+  if (refill) stats.push(poolStat("Next refill", refill, p.now <= POOL_EMPTY ? "warn" : ""));
+  if (p.scope) stats.push(poolStat(`<i class="pool-fable"></i>Can be ${esc(p.scope)}`, pctLeft(p.nowScoped), p.nowScoped <= POOL_EMPTY ? "warn" : ""));
   return stats.join("");
-}
-
-function shortDate(hours) {
-  const date = new Date(Date.now() + hours * HOUR_MS);
-  return `${date.toLocaleDateString([], { weekday: "short" })} ${date.getDate()}, ${date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
-}
-
-function poolScopeStats(p) {
-  const out = (pt) => pt.s <= POOL_EMPTY;
-  const outNow = out(p.future[0]);
-  const stats = [poolStat(`<i class="pool-fable"></i>Can be ${esc(p.scope)}`, pctLeft(p.nowScoped), outNow ? "warn" : "")];
-  if (outNow) {
-    const back = p.future.find((pt) => !out(pt));
-    if (back) stats.push(poolStat(`${esc(p.scope)} back`, shortDate(back.t), "warn"));
-    return stats;
-  }
-  const empty = p.future.find(out);
-  if (empty && (p.emptyAt === undefined || empty.t < p.emptyAt)) stats.push(poolStat(`${esc(p.scope)} runs out`, shortDate(empty.t), "warn"));
-  else if (p.scopeReset < Infinity) stats.push(poolStat(`${esc(p.scope)} resets`, shortDate(p.scopeReset)));
-  return stats;
 }
 
 function poolGutter(l, narrow) {
@@ -1561,8 +1536,8 @@ function renderPools(d, remeasured = false) {
   for (const l of lanes) parts.push(`<line class="cross" x1="0" x2="0" y1="${l.top}" y2="${l.top + l.h}" visibility="hidden"/>`);
 
   const summary = `Pooled quota left over the past 7 days, and a projection of the next 7 days. ${lanes.map((l) => {
-    const outlook = l.pool.size && poolOutlook(l.pool);
-    return `${providerName(l.pool.provider)} has ${l.pool.size ? pctLeft(l.pool.now) : "no quota data"} left${outlook ? `. ${outlook.label} ${outlook.value}` : ""}.${l.pool.size && l.pool.scope ? ` ${pctLeft(l.pool.nowScoped)} can be ${l.pool.scope}.` : ""}`;
+    const refill = l.pool.size && nextRefill(l.pool);
+    return `${providerName(l.pool.provider)} has ${l.pool.size ? pctLeft(l.pool.now) : "no quota data"} left${refill ? `. Next refill ${refill}` : ""}.${l.pool.size && l.pool.scope ? ` ${pctLeft(l.pool.nowScoped)} can be ${l.pool.scope}.` : ""}`;
   }).join(" ")}`;
   poolGeom = { lanes, padL, plotW, width, pad, height, x, at, now };
   setHtml("pool", `<div class="card pool-board"><div class="pool-chart${narrow ? " narrow" : ""}"><svg viewBox="0 0 ${width} ${height}" height="${height}" role="img" aria-label="${esc(summary)}">${parts.join("")}</svg>${lanes.map((l) => poolGutter(l, narrow)).join("")}<div class="pool-tip" hidden></div></div></div>`);
