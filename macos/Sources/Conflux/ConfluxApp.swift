@@ -48,6 +48,7 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
     private var changes: AnyCancellable?
     private var outsideClicks: Any?
     private var mouseUp: Any?
+    private var appearanceChange: NSKeyValueObservation?
     private var closedAt = Date.distantPast
 
     init(model: Model) {
@@ -76,9 +77,8 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         highlight.level = .statusBar
         highlight.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         capsule.wantsLayer = true
-        glass.wantsLayer = true
-        glass.layer?.masksToBounds = true
         icon.contentTintColor = .labelColor
+        icon.setAccessibilityElement(false)
         highlight.contentView?.addSubview(glass)
         highlight.contentView?.addSubview(capsule)
         highlight.contentView?.addSubview(icon)
@@ -89,6 +89,11 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         item.button?.target = self
         item.button?.action = #selector(toggle)
         updateIcon()
+        appearanceChange = item.button?.observe(\.effectiveAppearance) { [weak self] _, _ in
+            Task { @MainActor in
+                if self?.highlight.isVisible == true { self?.showHighlight() }
+            }
+        }
         changes = model.objectWillChange.sink { [weak self] in
             DispatchQueue.main.async { self?.modelChanged() }
         }
@@ -177,16 +182,24 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         glass.frame = rect.offsetBy(dx: -frame.minX, dy: -frame.minY)
         (glass as? NSGlassEffectView)?.cornerRadius = rect.height / 2
         capsule.frame = glass.frame
-        for layer in [glass.layer, capsule.layer] {
-            layer?.cornerRadius = rect.height / 2
-            layer?.cornerCurve = .continuous
-        }
+        capsule.layer?.cornerRadius = rect.height / 2
+        capsule.layer?.cornerCurve = .continuous
         button.effectiveAppearance.performAsCurrentDrawingAppearance {
             capsule.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor
         }
-        icon.frame = bounds.offsetBy(dx: 0.5 - frame.minX, dy: -frame.minY)
-        icon.appearance = NSAppearance(named: button.effectiveAppearance.bestMatch(from: [.aqua, .vibrantDark]) ?? .aqua)
-        highlight.order(.below, relativeTo: anchor.windowNumber)
+        let size = icon.image?.size ?? .zero
+        let glyph = CGRect(
+            x: bounds.midX + 0.5 - frame.minX - size.width / 2,
+            y: bounds.midY - frame.minY - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+        icon.frame = highlight.contentView?.backingAlignedRect(glyph, options: .alignAllEdgesNearest) ?? glyph
+        let appearances: [NSAppearance.Name] = [
+            .aqua, .vibrantDark, .accessibilityHighContrastAqua, .accessibilityHighContrastVibrantDark,
+        ]
+        icon.appearance = NSAppearance(named: button.effectiveAppearance.bestMatch(from: appearances) ?? .aqua)
+        highlight.orderFront(nil)
         updateIcon()
     }
 
