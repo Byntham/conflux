@@ -19,7 +19,7 @@ One always-on machine, the **hub**, holds your Claude, ChatGPT, Grok, and Muse l
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/dashboard-dark.png">
-  <img src="assets/dashboard-light.png" alt="The conflux dashboard with two Claude and two Codex accounts pooled across three machines. Each pool shows how much quota is left, the burn rate, how long it lasts, and a week of history with the coming resets.">
+  <img src="assets/dashboard-light.png" alt="The conflux dashboard with two Claude and two Codex accounts pooled across three machines. Each pool shows how much quota is left, the burn rate, the next refill, and a week of history with the coming resets. Below, each account shows its 5 hour and 7 day windows.">
 </picture>
 
 <p align="center"><sub>Two Claude and two Codex accounts, pooled across three machines. Left of Now is measured use. Right of it is a forecast, and each jump is quota coming back at a reset.</sub></p>
@@ -90,7 +90,7 @@ Each one prints a link. Open it in a browser signed in to that account, on any m
 - For Claude, the browser then shows a connection error. That is expected. Paste the whole URL from the address bar into the terminal.
 - For ChatGPT, Grok, and Muse, type the code from the terminal into the page. The command finishes on its own.
 
-Your accounts now show on the dashboard. Its "Add Claude", "Add Codex", "Add Grok", and "Add Muse" buttons do the same as these commands.
+Your accounts now show on the dashboard. Its "Add account" button does the same as these commands.
 
 ### 3. Add your other machines
 

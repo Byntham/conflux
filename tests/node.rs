@@ -815,6 +815,18 @@ async fn guests_see_the_hub_and_their_own_machines_and_change_nothing() {
         assert_eq!(status, StatusCode::FORBIDDEN, "{page}");
         assert!(refused["error"].as_str().unwrap().contains("approve"), "{refused}");
     }
+    let page = hub.http.get(format!("{}/", hub.base)).send().await.unwrap();
+    let page = page.text().await.unwrap();
+    let font = page
+        .split("url(\"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .unwrap();
+    assert!(font.ends_with(&format!("?v={}", conflux::update::CURRENT)), "{font}");
+    let served = hub.http.get(format!("{}{font}", hub.base)).send().await.unwrap();
+    assert_eq!(served.status(), StatusCode::OK, "{font}");
+    assert_eq!(served.headers()["content-type"], "font/woff2", "{font}");
+    assert!(served.bytes().await.unwrap().starts_with(b"wOF2"));
     let approved = conflux::guests::Guest {
         approved: true,
         ..Default::default()

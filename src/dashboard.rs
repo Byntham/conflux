@@ -16,11 +16,20 @@ use crate::tailnet::Caller;
 use crate::update;
 
 const PAGE: &str = include_str!("dashboard.html");
+const FONT: &[u8] = include_bytes!("dashboard.woff2");
 const INSTALL_BASE: &str = "https://raw.githubusercontent.com/Byntham/conflux/main";
 
 pub async fn page() -> Response {
     let page = PAGE.replace("__VERSION__", update::CURRENT);
     ([(header::CACHE_CONTROL, "no-store")], Html(page)).into_response()
+}
+
+pub async fn font() -> Response {
+    let named = [
+        (header::CONTENT_TYPE, "font/woff2"),
+        (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+    ];
+    (named, FONT).into_response()
 }
 
 pub fn hub_name(app: &App, request_host: Option<&str>) -> String {
