@@ -161,10 +161,10 @@ The hub appends one line to `analytics/<UTC date>.jsonl` in the data folder for 
 ## HTTP API and dashboard
 
 - `/conflux/api/*` is the API that the CLI and the dashboard use (`src/api.rs`, `src/link.rs`, `src/hubmove.rs`). The CLI calls it on `127.0.0.1`. `conflux status` reads `/conflux/api/status`.
-- `/` serves `src/dashboard.html`, a single page with no external assets. While its tab is visible, it polls every second. A hidden tab does not poll.
+- `/` serves `src/dashboard.html`, a single page with no external assets. Its typeface, a Latin subset of Sofia Sans in `src/dashboard.woff2`, comes from the hub at `/conflux/api/dashboard/font.woff2`. The file carries the SIL Open Font License text in its name table, and `src/dashboard.woff2.LICENSE` holds the same text. To rebuild it, instantiate Sofia Sans 4.101 at weights 400 to 800 with fontTools, subset it to U+0020 to U+007E, U+00A0 to U+017F, U+2013, U+2014, U+2018, U+2019, U+201C, U+201D, U+2022, U+2026, U+2039, U+203A, U+2190 to U+2193, U+2212, U+2248 and U+20AC, keep the layout features `kern`, `mark`, `mkmk`, `ccmp`, `locl`, `calt`, `liga`, `tnum`, `pnum`, `case`, `ss01` and `ss02`, and write the license text into name ID 13. While its tab is visible, it polls every second. A hidden tab does not poll.
 - `/conflux/api/dashboard` holds the hub's state, accounts, and machines. Every page of the dashboard polls it, and so do the Mac menu bar app, the Windows tray app, and `conflux update`.
 - `/conflux/api/dashboard/history` holds the quota history for the pool graph. The dashboard polls it only on Overview. `/conflux/api/dashboard/requests` holds the request log and the last hour's stats. The dashboard polls it only on Requests, and only the owner can read it.
-- Each of these three answers with an `ETag`. A client that sends it back in `If-None-Match` gets a 304 with no body while nothing has changed. The hub gzips these and the other `/conflux/api` answers for clients that accept it.
+- Each of these three answers with an `ETag`. A client that sends it back in `If-None-Match` gets a 304 with no body while nothing has changed. The hub gzips these and the other `/conflux/api` JSON answers for clients that accept it. It serves the font as it is, because WOFF2 is already compressed.
 - `/v0/management/*` is a small API for T3 Code (`src/management.rs`). It needs the management key as a bearer token. It only allows a fixed list of usage and reset-credit calls.
 
 `src/access.rs` guards every route. The `Host` header must be loopback or one of the hub's tailnet names or addresses. Proxy and machine routes refuse browser requests. Other state-changing requests must be same-origin JSON.
@@ -202,7 +202,7 @@ The config dir is `$XDG_CONFIG_HOME/conflux`, or `~/.config/conflux`. The data d
 | `src/analytics.rs` | Usage history on disk and `/conflux/api/usage` |
 | `src/pricing.rs` | API price list and per-request cost |
 | `src/api.rs` | `/conflux/api` handlers for status, logins, accounts, update |
-| `src/dashboard.rs`, `src/dashboard.html` | Dashboard page and its data |
+| `src/dashboard.rs`, `src/dashboard.html`, `src/dashboard.woff2` | Dashboard page, its typeface, and its data |
 | `src/management.rs` | Key-protected `/v0/management` API |
 | `src/machines.rs` | Node registry and the hub side of the control socket |
 | `src/hubmove.rs`, `src/hubstate.rs` | Hub move protocol and its saved state |

@@ -405,6 +405,7 @@ impl App {
             .route("/conflux/move/commit", post(hubmove::commit))
             .route("/conflux/move/abort", post(hubmove::abort))
             .route("/conflux/control", get(machines::control))
+            .route("/conflux/api/dashboard/font.woff2", get(dashboard::font))
             .layer(axum::middleware::from_fn_with_state(self.clone(), hubmove::state_guard))
             .layer(axum::middleware::from_fn_with_state(self.clone(), access::guard))
             .with_state(self.clone())
