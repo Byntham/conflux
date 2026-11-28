@@ -22,9 +22,9 @@ pub fn windows_start_menu_shortcut() -> Option<PathBuf> {
     Some(PathBuf::from(appdata).join(r"Microsoft\Windows\Start Menu\Programs\conflux.lnk"))
 }
 
-pub fn windows_write_start_menu_shortcut(exe: &Path) {
+pub fn windows_write_start_menu_shortcut(exe: &Path) -> bool {
     let Some(shortcut) = windows_start_menu_shortcut() else {
-        return;
+        return false;
     };
     let script = "$link = (New-Object -ComObject WScript.Shell).CreateShortcut($env:CONFLUX_SHORTCUT); \
                   $link.TargetPath = \"$env:SystemRoot\\System32\\conhost.exe\"; \
@@ -41,7 +41,7 @@ pub fn windows_write_start_menu_shortcut(exe: &Path) {
         use std::os::windows::process::CommandExt;
         command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
     }
-    let _ = command.output();
+    command.output().is_ok_and(|output| output.status.success())
 }
 
 fn windows_stop() {
@@ -268,7 +268,9 @@ pub fn install() -> Result<String> {
                 String::from_utf8_lossy(&added.stderr).trim()
             );
         }
-        windows_write_start_menu_shortcut(&exe);
+        if !windows_write_start_menu_shortcut(&exe) {
+            eprintln!("Warning: could not add conflux to the Start menu. Run `conflux tray` to open the tray app.");
+        }
         windows_stop_service();
         windows_start(&exe)?;
         Ok("a startup entry that runs conflux and its tray app when you sign in".to_string())

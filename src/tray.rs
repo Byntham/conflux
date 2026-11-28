@@ -142,7 +142,9 @@ fn serve(paths: Paths, exe: PathBuf, reopened: Signal, mut open: bool) -> Result
         && crate::service::windows_start_menu_shortcut().is_some_and(|shortcut| !shortcut.exists())
     {
         let exe = exe.clone();
-        std::thread::spawn(move || crate::service::windows_write_start_menu_shortcut(&exe));
+        std::thread::spawn(move || {
+            crate::service::windows_write_start_menu_shortcut(&exe);
+        });
     }
 
     let event_loop = EventLoopBuilder::<Message>::with_user_event()
