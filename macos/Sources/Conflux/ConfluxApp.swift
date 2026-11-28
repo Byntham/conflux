@@ -38,7 +38,12 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let panel: Panel
     private let highlight = NSWindow(contentRect: .zero, styleMask: .borderless, backing: .buffered, defer: true)
+    private let glass: NSView = {
+        if #available(macOS 26, *) { return NSGlassEffectView() }
+        return NSView()
+    }()
     private let capsule = NSView()
+    private let icon = NSImageView()
     private let host: NSHostingView<AnyView>
     private var changes: AnyCancellable?
     private var outsideClicks: Any?
@@ -71,7 +76,12 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         highlight.level = .statusBar
         highlight.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         capsule.wantsLayer = true
+        glass.wantsLayer = true
+        glass.layer?.masksToBounds = true
+        icon.contentTintColor = .labelColor
+        highlight.contentView?.addSubview(glass)
         highlight.contentView?.addSubview(capsule)
+        highlight.contentView?.addSubview(icon)
         if #unavailable(macOS 26) {
             item.button?.wantsLayer = true
             item.button?.layer?.cornerRadius = 6
@@ -94,7 +104,9 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
     }
 
     private func updateIcon() {
-        item.button?.image = MenuBarIcon.image(badge: model.attention, dimmed: model.isDown)
+        let image = MenuBarIcon.image(badge: model.attention, dimmed: model.isDown)
+        icon.image = image
+        item.button?.image = highlight.isVisible ? NSImage(size: image.size) : image
         item.button?.setAccessibilityLabel(model.needsAttention ? "conflux needs attention" : "conflux")
     }
 
@@ -129,6 +141,7 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         panel.orderOut(nil)
         closedAt = Date()
         highlight.orderOut(nil)
+        updateIcon()
         if #unavailable(macOS 26) {
             item.button?.layer?.backgroundColor = nil
         }
@@ -156,16 +169,25 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
             }
             return
         }
-        let rect = anchor.convertToScreen(button.convert(button.bounds, to: nil)).insetBy(dx: -2, dy: -1)
+        let bounds = anchor.convertToScreen(button.convert(button.bounds, to: nil))
+        let rect = bounds.insetBy(dx: -2, dy: -1)
         let frame = rect.integral
         highlight.setFrame(frame, display: false)
-        capsule.frame = rect.offsetBy(dx: -frame.minX, dy: -frame.minY)
-        capsule.layer?.cornerRadius = rect.height / 2
-        capsule.layer?.cornerCurve = .continuous
-        button.effectiveAppearance.performAsCurrentDrawingAppearance {
-            capsule.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.15).cgColor
+        highlight.appearance = button.effectiveAppearance
+        glass.frame = rect.offsetBy(dx: -frame.minX, dy: -frame.minY)
+        (glass as? NSGlassEffectView)?.cornerRadius = rect.height / 2
+        capsule.frame = glass.frame
+        for layer in [glass.layer, capsule.layer] {
+            layer?.cornerRadius = rect.height / 2
+            layer?.cornerCurve = .continuous
         }
+        button.effectiveAppearance.performAsCurrentDrawingAppearance {
+            capsule.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor
+        }
+        icon.frame = bounds.offsetBy(dx: 0.5 - frame.minX, dy: -frame.minY)
+        icon.appearance = NSAppearance(named: button.effectiveAppearance.bestMatch(from: [.aqua, .vibrantDark]) ?? .aqua)
         highlight.order(.below, relativeTo: anchor.windowNumber)
+        updateIcon()
     }
 
     private func place() {
