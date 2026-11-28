@@ -18,8 +18,30 @@ pub fn windows_launch_command(exe: &Path) -> String {
 }
 
 pub fn windows_start_menu_shortcut() -> Option<PathBuf> {
-    let appdata = std::env::var_os("APPDATA")?;
+    let appdata = std::env::var_os("APPDATA").filter(|appdata| !appdata.is_empty())?;
     Some(PathBuf::from(appdata).join(r"Microsoft\Windows\Start Menu\Programs\conflux.lnk"))
+}
+
+pub fn windows_write_start_menu_shortcut(exe: &Path) {
+    let Some(shortcut) = windows_start_menu_shortcut() else {
+        return;
+    };
+    let script = "$link = (New-Object -ComObject WScript.Shell).CreateShortcut($env:CONFLUX_SHORTCUT); \
+                  $link.TargetPath = \"$env:SystemRoot\\System32\\conhost.exe\"; \
+                  $link.Arguments = '--headless \"' + $env:CONFLUX_EXE + '\" tray'; \
+                  $link.IconLocation = $env:CONFLUX_EXE + ',0'; \
+                  $link.Save()";
+    let mut command = Command::new("powershell");
+    command
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .env("CONFLUX_SHORTCUT", shortcut)
+        .env("CONFLUX_EXE", exe);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
+    }
+    let _ = command.output();
 }
 
 fn windows_stop() {
@@ -246,6 +268,7 @@ pub fn install() -> Result<String> {
                 String::from_utf8_lossy(&added.stderr).trim()
             );
         }
+        windows_write_start_menu_shortcut(&exe);
         windows_stop_service();
         windows_start(&exe)?;
         Ok("a startup entry that runs conflux and its tray app when you sign in".to_string())

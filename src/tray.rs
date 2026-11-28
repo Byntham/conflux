@@ -137,8 +137,12 @@ pub fn run() -> Result<()> {
 
 fn serve(paths: Paths, exe: PathBuf, reopened: Signal, mut open: bool) -> Result<std::convert::Infallible> {
     let dev_copy = std::env::var_os("CONFLUX_HOME").is_some();
-    if !dev_copy && crate::service::installed() {
-        add_start_menu_shortcut(&exe);
+    if !dev_copy
+        && crate::service::installed()
+        && crate::service::windows_start_menu_shortcut().is_some_and(|shortcut| !shortcut.exists())
+    {
+        let exe = exe.clone();
+        std::thread::spawn(move || crate::service::windows_write_start_menu_shortcut(&exe));
     }
 
     let event_loop = EventLoopBuilder::<Message>::with_user_event()
@@ -745,33 +749,6 @@ fn single_instance(config_dir: &Path, show_running: bool) -> Option<Signal> {
 
 fn modified(exe: &Path) -> Option<SystemTime> {
     std::fs::metadata(exe).and_then(|m| m.modified()).ok()
-}
-
-fn add_start_menu_shortcut(exe: &Path) {
-    let Some(shortcut) = crate::service::windows_start_menu_shortcut() else {
-        return;
-    };
-    if shortcut.exists() {
-        return;
-    }
-    let quote = |path: &Path| path.display().to_string().replace('\'', "''");
-    let script = format!(
-        "$link = (New-Object -ComObject WScript.Shell).CreateShortcut('{}'); \
-         $link.TargetPath = \"$env:SystemRoot\\System32\\conhost.exe\"; \
-         $link.Arguments = '--headless \"{}\" tray'; \
-         $link.IconLocation = '{},0'; \
-         $link.Save()",
-        quote(&shortcut),
-        quote(exe),
-        quote(exe)
-    );
-    let _ = Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-        .creation_flags(CREATE_NO_WINDOW)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn();
 }
 
 pub fn open_with_service() {

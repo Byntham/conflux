@@ -2,8 +2,10 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=assets/icon.ico");
     #[cfg(windows)]
-    winresource::WindowsResource::new()
+    if let Err(e) = winresource::WindowsResource::new()
         .set_icon("assets/icon.ico")
         .compile()
-        .expect("embed the Windows icon");
+    {
+        println!("cargo:warning=conflux.exe will have no icon: {e}");
+    }
 }

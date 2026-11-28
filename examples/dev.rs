@@ -792,6 +792,7 @@ async fn main() -> Result<()> {
             #[cfg(windows)]
             command
                 .arg("tray")
+                .env("CONFLUX_TRAY_MODE", "quiet")
                 .creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
             command
                 .env("CONFLUX_HOME", &node_home)
