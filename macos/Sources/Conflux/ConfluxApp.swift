@@ -77,6 +77,8 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         highlight.level = .statusBar
         highlight.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         capsule.wantsLayer = true
+        glass.wantsLayer = true
+        glass.layer?.masksToBounds = true
         icon.contentTintColor = .labelColor
         icon.setAccessibilityElement(false)
         highlight.contentView?.addSubview(glass)
@@ -182,8 +184,10 @@ final class StatusController: NSObject, NSWindowDelegate, NSApplicationDelegate 
         glass.frame = rect.offsetBy(dx: -frame.minX, dy: -frame.minY)
         (glass as? NSGlassEffectView)?.cornerRadius = rect.height / 2
         capsule.frame = glass.frame
-        capsule.layer?.cornerRadius = rect.height / 2
-        capsule.layer?.cornerCurve = .continuous
+        for layer in [glass.layer, capsule.layer] {
+            layer?.cornerRadius = rect.height / 2
+            layer?.cornerCurve = .continuous
+        }
         button.effectiveAppearance.performAsCurrentDrawingAppearance {
             capsule.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor
         }
